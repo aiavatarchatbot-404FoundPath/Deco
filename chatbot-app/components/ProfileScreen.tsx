@@ -9,7 +9,7 @@ import { Switch } from './ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 import { Search, MessageCircle, BookmarkCheck, Settings, Clock, Download, Trash2, ArrowLeft } from 'lucide-react';
-
+//
 interface ProfileScreenProps {
   onNavigate: (screen: any) => void;
   user?: {
