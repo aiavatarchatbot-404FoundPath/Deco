@@ -28,7 +28,7 @@ interface MoodData {
 }
 
 interface WelcomeScreenProps {
-  onNavigate: (screen: string) => void;
+  onNavigate: (screen: any) => void;
   onNavigateToChat: () => void;
   chatMode: 'avatar' | 'standard';
   onChatModeChange: (mode: 'avatar' | 'standard') => void;
@@ -414,6 +414,13 @@ export default function WelcomeScreen({
             >
               <Settings className="h-4 w-4 mr-2" />
               ⚙️ Privacy & Settings
+            </Button>
+            <Button
+              onClick={() => onNavigate("profile")}
+              variant="default"
+              className="trauma-safe gentle-focus"
+            >
+              👤 View Profile
             </Button>
             
             {!isLoggedIn && (

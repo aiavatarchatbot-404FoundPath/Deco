@@ -2,15 +2,20 @@
 
 import React, { useState } from 'react';
 import Home from "components/Home";
+import ProfileScreen from "components/ProfileScreen";
+
+
+type Screen = 'welcome' | 'profile';
 
 export default function Page() {
   const [chatMode, setChatMode] = useState<'avatar' | 'standard'>('avatar');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState<any>(undefined);
+  const [user, setUser] = useState<any>({ id: "1", username: "GuestUser" });
+  const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
 
-  const handleNavigate = (screen: string) => {
+  const handleNavigate = (screen: any) => {
     console.log(`Navigating to: ${screen}`);
-    // You would add your actual navigation logic here (e.g., using a router)
+    setCurrentScreen(screen);
   };
 
   const handleNavigateToChat = () => {
@@ -30,16 +35,27 @@ export default function Page() {
   };
 
   return (
-    <Home
-      onNavigate={handleNavigate}
-      onNavigateToChat={handleNavigateToChat}
-      chatMode={chatMode}
-      onChatModeChange={handleChatModeChange}
-      user={user}
-      isLoggedIn={isLoggedIn}
-      onLogout={handleLogout}
-    />
-  );
+  <>
+    {currentScreen === "welcome" && (
+      <Home
+        onNavigate={setCurrentScreen}
+        onNavigateToChat={handleNavigateToChat}
+        chatMode={chatMode}
+        onChatModeChange={handleChatModeChange}
+        user={user}
+        isLoggedIn={isLoggedIn}
+        onLogout={handleLogout}
+      />
+    )}
+
+    {currentScreen === "profile" && (
+      <ProfileScreen
+        onNavigate={setCurrentScreen}
+        user={user ?? { id: "1", username: "GuestUser" }}
+      />
+    )}
+  </>
+);
 }
   
   // return (
