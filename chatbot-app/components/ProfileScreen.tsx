@@ -131,7 +131,10 @@ export default function ProfileScreen({ onNavigate, user }: ProfileScreenProps) 
           <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
             {/* Avatar */}
             <Avatar className="w-20 h-20">
-              <AvatarImage src="/api/placeholder/80/80" alt="User Avatar" />
+              <AvatarImage 
+                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.username || 'User')}`} 
+                alt="User Avatar" 
+                />
               <AvatarFallback className="bg-gradient-to-br from-soft-teal to-soft-lilac text-white text-xl">
                 {user?.username?.charAt(0).toUpperCase() || 'U'}
               </AvatarFallback>
@@ -212,15 +215,13 @@ export default function ProfileScreen({ onNavigate, user }: ProfileScreenProps) 
                                 Last message: {conversation.lastMessage}
                               </p>
                             </div>
-                            <Button 
-                              size="sm" 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onNavigate('chat');
-                              }}
-                              className="trauma-safe gentle-focus"
+                           <Button
+                            variant="success"
+                            size="sm"
+                            onClick={(e) => { e.stopPropagation(); onNavigate('chat'); }}
+                            className="trauma-safe gentle-focus"
                             >
-                              Continue
+                            Continue
                             </Button>
                           </div>
                         </CardContent>
