@@ -10,7 +10,7 @@ type Screen = 'welcome' | 'profile';
 export default function Page() {
   const [chatMode, setChatMode] = useState<'avatar' | 'standard'>('avatar');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState<any>({ id: "1", username: "GuestUser" });
+  const [user, setUser] = useState<any>({ id: "14", username: "Arun" });
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
 
   const handleNavigate = (screen: any) => {
