@@ -1,23 +1,20 @@
+"use client";
+
 import React, { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Badge } from './ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Switch } from './ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { useRouter } from 'next/navigation'; // Add this import
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Badge } from '../../components/ui/badge';
+import Navbar from 'components/Navbar';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar';
+import { Switch } from '../../components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components//ui/select';
 
 import { Search, MessageCircle, BookmarkCheck, Settings, Clock, Download, Trash2, ArrowLeft } from 'lucide-react';
-//
-interface ProfileScreenProps {
-  onNavigate: (screen: any) => void;
-  user?: {
-    id: string;
-    username: string;
-  } | null;
-}
 
+// Remove the ProfileScreenProps interface since this is now a page component
 interface Conversation {
   id: string;
   title: string;
@@ -34,12 +31,46 @@ interface SavedItem {
   type: 'answer' | 'insight' | 'resource';
 }
 
-export default function ProfileScreen({ onNavigate, user }: ProfileScreenProps) {
+
+// Change to default export without props
+export default function ProfilePage() {
+  
+  // Navigation handler for the Navbar component
+  const handleNavigation = (screen: string) => {
+    switch (screen) {
+      case 'welcome':
+        router.push('/');
+        break;
+      case 'settings':
+        router.push('/settings');
+        break;
+      default:
+        console.log(`Navigate to: ${screen}`);
+    }
+  };
+
+  const router = useRouter(); // Add router hook
   const [activeTab, setActiveTab] = useState('conversations');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [defaultModel, setDefaultModel] = useState('gpt-4o-mini');
+  
+
+  // Mock user data (you can get this from your auth system later)
+  const user = {
+    id: '1',
+    username: 'Eliz'
+  };
+
+  // Add navigation handlers
+  const handleBackToHome = () => {
+    router.push('/'); 
+  };
+
+  const handleNavigateToChat = () => {
+    router.push('/chat'); 
+  };
 
   // Mock data for conversations
   const conversations: Conversation[] = [
@@ -115,11 +146,13 @@ export default function ProfileScreen({ onNavigate, user }: ProfileScreenProps) 
 
   return (
     <div className="min-h-screen bg-background">
+       {/* ✅ Navbar goes here */}
+      <Navbar onNavigate={handleNavigation} isLoggedIn={true} />
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
-        {/* Back Button */}
+        {/* Back Button - Updated to use router */}
         <Button
           variant="ghost"
-          onClick={() => onNavigate('welcome')}
+          onClick={handleBackToHome} // Use the new handler
           className="mb-6 trauma-safe gentle-focus"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -218,7 +251,10 @@ export default function ProfileScreen({ onNavigate, user }: ProfileScreenProps) 
                            <Button
                             variant="success"
                             size="sm"
-                            onClick={(e) => { e.stopPropagation(); onNavigate('chat'); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              handleNavigateToChat(); // Use the new handler
+                            }}
                             className="trauma-safe gentle-focus"
                             >
                             Continue
@@ -386,7 +422,7 @@ export default function ProfileScreen({ onNavigate, user }: ProfileScreenProps) 
 
                   <Button 
                     className="w-full trauma-safe gentle-focus"
-                    onClick={() => onNavigate('chat')}
+                    onClick={handleNavigateToChat} 
                   >
                     Resume Conversation
                   </Button>
