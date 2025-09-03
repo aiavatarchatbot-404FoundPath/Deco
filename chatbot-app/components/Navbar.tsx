@@ -1,20 +1,31 @@
 "use client";
 
-import React from 'react';
-import { Button } from './ui/button';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { Button } from "./ui/button";
+import { useRouter } from "next/navigation";
 
 interface NavbarProps {
   onNavigate: (screen: string) => void;
   isLoggedIn: boolean;
 }
 
-export default function Navbar({ onNavigate, isLoggedIn }: NavbarProps) {
+export default function Navbar({ onNavigate }: { onNavigate: (s: string) => void }) {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const router = useRouter();
 
-  const handleProfileClick = () => {
-    router.push('/profile');
-  };
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setIsLoggedIn(!!data.user);
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session?.user);
+    });
+
+    return () => subscription.subscription.unsubscribe();
+  }, []);
+
 
   return (
     <nav className="flex items-center justify-between p-4 bg-white/80 backdrop-blur-sm border-b border-gray-100">
@@ -39,13 +50,21 @@ export default function Navbar({ onNavigate, isLoggedIn }: NavbarProps) {
         >
           Preferences
         </Button>
-        <Button
-          onClick={handleProfileClick}
-          variant="default"
-          className="bg-gray-800 text-white hover:bg-gray-900 px-4 py-1 rounded-full text-sm"
-        >
-          View Profile
-        </Button>
+        
+       <nav className="flex justify-end p-4 bg-gray-100">
+      
+        {isLoggedIn ? (
+          <Button onClick={() => router.push("/profile")} variant="ghost" size="sm">
+            Profile
+          </Button>
+        ) : (
+          <Button onClick={() => router.push("/login")} variant="ghost" size="sm">
+            Login
+          </Button>
+        )}
+      
+    </nav>
+  
       </div>
     </nav>
   );

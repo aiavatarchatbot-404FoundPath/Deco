@@ -1,293 +1,311 @@
 "use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation'; // Add this import
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Badge } from '../../components/ui/badge';
-import Navbar from 'components/Navbar';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar';
-import { Switch } from '../../components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components//ui/select';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-import { Search, MessageCircle, BookmarkCheck, Settings, Clock, Download, Trash2, ArrowLeft } from 'lucide-react';
+import Navbar from "@/components/Navbar";
 
-// Remove the ProfileScreenProps interface since this is now a page component
-interface Conversation {
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+import {
+  Search,
+  MessageCircle,
+  BookmarkCheck,
+  Settings as SettingsIcon,
+  Clock,
+  Download,
+  Trash2,
+  ArrowLeft,
+} from "lucide-react";
+
+/* ----------------------------- types & mocks ----------------------------- */
+
+type Conversation = {
   id: string;
   title: string;
+  status: "ongoing" | "completed";
   lastMessage: string;
-  timestamp: string;
-  status: 'ongoing' | 'completed';
-}
+};
 
-interface SavedItem {
+type SavedItem = {
   id: string;
   title: string;
   content: string;
-  timestamp: string;
-  type: 'answer' | 'insight' | 'resource';
-}
+  timestamp: number;
+  type: "note" | "clip" | "snippet";
+};
 
+type Profile = {
+  id: string;
+  username: string | null;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  session_mode?: string | null;
+};
 
-// Change to default export without props
+const MOCK_CONVERSATIONS: Conversation[] = [
+  { id: "1", title: "DB schema & Supabase setup", status: "completed", lastMessage: "Aug 30" },
+  { id: "2", title: "Coping strategies", status: "ongoing", lastMessage: "Aug 29" },
+  { id: "3", title: "Career plan & outreach", status: "completed", lastMessage: "Aug 27" },
+  { id: "4", title: "Mindfulness routine", status: "completed", lastMessage: "Aug 25" },
+];
+
+const MOCK_SAVED: SavedItem[] = [
+  {
+    id: "s1",
+    title: "Supabase RLS cheat-sheet",
+    content: "Enable RLS, then add select/insert/update self policies…",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 2,
+    type: "note",
+  },
+  {
+    id: "s2",
+    title: "Prompt style guide",
+    content: "Keep system role minimal, add examples, avoid over-long context…",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
+    type: "snippet",
+  },
+];
+
+/* -------------------------------- component ------------------------------ */
+
 export default function ProfilePage() {
-  
-  // Navigation handler for the Navbar component
-  const handleNavigation = (screen: string) => {
-    switch (screen) {
-      case 'welcome':
-        router.push('/');
-        break;
-      case 'settings':
-        router.push('/settings');
-        break;
-      default:
-        console.log(`Navigate to: ${screen}`);
-    }
-  };
+  const router = useRouter();
 
-  const router = useRouter(); // Add router hook
-  const [activeTab, setActiveTab] = useState('conversations');
-  const [searchQuery, setSearchQuery] = useState('');
+  // profile from Supabase
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  // local UI state
+  const [activeTab, setActiveTab] = useState<"conversations" | "saved" | "settings">("conversations");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [defaultModel, setDefaultModel] = useState('gpt-4o-mini');
-  
+  const [defaultModel, setDefaultModel] = useState("gpt-4o-mini");
 
-  // Mock user data (you can get this from your auth system later)
-  const user = {
-    id: '1',
-    username: 'Eliz'
-  };
+  // derived
+  const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
 
-  // Add navigation handlers
-  const handleBackToHome = () => {
-    router.push('/'); 
-  };
+  useEffect(() => {
+    (async () => {
+      setLoadingProfile(true);
 
-  const handleNavigateToChat = () => {
-    router.push('/chat'); 
-  };
+      // ensure signed in
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
 
-  // Mock data for conversations
-  const conversations: Conversation[] = [
-    {
-      id: '1',
-      title: 'Chat with Mentor',
-      lastMessage: 'Yesterday · 14:05',
-      timestamp: '2025-08-29T14:05:00Z',
-      status: 'ongoing'
-    },
-    {
-      id: '2',
-      title: 'Anxiety Support Session',
-      lastMessage: 'Aug 28 · 16:30',
-      timestamp: '2025-08-28T16:30:00Z',
-      status: 'completed'
-    },
-    {
-      id: '3',
-      title: 'Career Guidance Chat',
-      lastMessage: 'Aug 27 · 10:15',
-      timestamp: '2025-08-27T10:15:00Z',
-      status: 'ongoing'
-    },
-    {
-      id: '4',
-      title: 'Mindfulness Practice',
-      lastMessage: 'Aug 25 · 19:45',
-      timestamp: '2025-08-25T19:45:00Z',
-      status: 'completed'
-    }
-  ];
+      // fetch profiles row
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, username, full_name, avatar_url, session_mode")
+        .eq("id", user.id)
+        .single();
 
-  // Mock data for saved items
-  const savedItems: SavedItem[] = [
-    {
-      id: '1',
-      title: 'Pinned Answer — Data pipeline explanation',
-      content: 'Detailed explanation about setting up data pipelines with best practices...',
-      timestamp: '2025-08-20T00:00:00Z',
-      type: 'answer'
-    },
-    {
-      id: '2',
-      title: 'Coping Strategies for Stress',
-      content: 'Five effective techniques for managing stress in challenging situations...',
-      timestamp: '2025-08-18T00:00:00Z',
-      type: 'insight'
-    },
-    {
-      id: '3',
-      title: 'Career Resources List',
-      content: 'Comprehensive list of career development resources and tools...',
-      timestamp: '2025-08-15T00:00:00Z',
-      type: 'resource'
-    }
-  ];
+      if (error) {
+        console.error("Error loading profile:", error);
+      }
+      setProfile(data ?? { id: user.id, username: user.email ?? "Anonymous" });
+      setLoadingProfile(false);
+    })();
+  }, [router]);
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    conv.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // conversations filter
+  const filteredConversations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return MOCK_CONVERSATIONS;
+    return MOCK_CONVERSATIONS.filter(
+      (c) =>
+        c.title.toLowerCase().includes(q) ||
+        c.lastMessage.toLowerCase().includes(q) ||
+        c.status.toLowerCase().includes(q)
+    );
+  }, [searchQuery]);
 
-  const handleDeleteAccount = () => {
-    // This would typically handle account deletion
-    console.log('Account deletion requested');
-  };
+  // nav handlers
+  const handleBackToHome = () => router.push("/");
+  const handleNavigateToChat = () => router.push("/chat");
+  const handleNavigation = (href: string) => router.push(href);
 
+  // actions
   const handleExportData = () => {
-    // This would typically export user data
-    console.log('Data export requested');
+    // placeholder; wire to your export endpoint later
+    alert("Export started (placeholder).");
   };
+
+  const handleDeleteAccount = async () => {
+    // In real app: call a server action / API route that uses service_role to delete user + profile
+    alert("Account deletion flow (placeholder). Implement server-side with service role.");
+  };
+
+  if (loadingProfile) {
+    return <p className="p-6">Loading profile…</p>;
+  }
+
+  if (!profile) {
+    return (
+      <div className="p-6">
+        <p>Could not load profile.</p>
+        <Button className="mt-4" onClick={() => router.push("/login")}>
+          Go to Login
+        </Button>
+      </div>
+    );
+  }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login"); // redirect after logout
+  };
+
+
 
   return (
     <div className="min-h-screen bg-background">
-       {/* ✅ Navbar goes here */}
-      <Navbar onNavigate={handleNavigation} isLoggedIn={true} />
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
-        {/* Back Button - Updated to use router */}
-        <Button
-          variant="ghost"
-          onClick={handleBackToHome} // Use the new handler
-          className="mb-6 trauma-safe gentle-focus"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Home
+      <Navbar onNavigate={handleNavigation as any} />
+
+      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-8">
+        {/* back */}
+        <Button variant="ghost" onClick={handleBackToHome} className="mb-4">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Home
         </Button>
 
-        {/* Profile Header */}
-        <div className="bg-card rounded-lg border border-border p-6 mb-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
-            {/* Avatar */}
-            <Avatar className="w-20 h-20">
-              <AvatarImage 
-                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.username || 'User')}`} 
-                alt="User Avatar" 
-                />
-              <AvatarFallback className="bg-gradient-to-br from-soft-teal to-soft-lilac text-white text-xl">
-                {user?.username?.charAt(0).toUpperCase() || 'U'}
+        {/* welcome */}
+        <h1 className="text-xl font-semibold mb-4">Welcome, {displayName}</h1>
+
+        {/* header */}
+        <section className="rounded-2xl border bg-card p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row gap-5 sm:items-center">
+            <Avatar className="h-20 w-20 ring-2 ring-foreground/10">
+              <AvatarImage
+                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`}
+                alt="User Avatar"
+              />
+              <AvatarFallback className="text-xl">
+                {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-
-            {/* User Info */}
             <div className="flex-1">
-              <h1 className="mb-1">{user?.username || 'Arun Kumar'}</h1>
-              <p className="text-muted-foreground mb-2">
-                <Clock className="w-4 h-4 inline mr-1" />
-                Last active: Aug 30, 2025
+              <h2 className="text-2xl font-semibold tracking-tight">{displayName}</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                <Clock className="inline mr-1 h-4 w-4" />
+                Last active: {new Date().toLocaleDateString()}
               </p>
-              <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+              <div className="mt-2 flex gap-3 text-sm text-muted-foreground">
                 <span>12 conversations</span>
                 <span>•</span>
                 <span>3 saved chats</span>
+                <div className="flex justify-end"></div>
+                <Button variant="outline" onClick={handleLogout}>
+                  Log out
+                </Button>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          
+           
+        </section>
 
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Tabs */}
-          <div className="lg:col-span-2">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 trauma-safe">
-                <TabsTrigger value="conversations" className="trauma-safe gentle-focus">
-                  <MessageCircle className="w-4 h-4 mr-2" />
-                  Conversations
+        {/* content */}
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <section className="lg:col-span-2">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+              <TabsList className="w-full grid grid-cols-3 rounded-full bg-muted/60 p-1">
+                <TabsTrigger value="conversations" className="rounded-full data-[state=active]:bg-background">
+                  <MessageCircle className="mr-2 h-4 w-4" /> Conversations
                 </TabsTrigger>
-                <TabsTrigger value="saved" className="trauma-safe gentle-focus">
-                  <BookmarkCheck className="w-4 h-4 mr-2" />
-                  Saved
+                <TabsTrigger value="saved" className="rounded-full data-[state=active]:bg-background">
+                  <BookmarkCheck className="mr-2 h-4 w-4" /> Saved
                 </TabsTrigger>
-                <TabsTrigger value="settings" className="trauma-safe gentle-focus">
-                  <Settings className="w-4 h-4 mr-2" />
-                  Settings
+                <TabsTrigger value="settings" className="rounded-full data-[state=active]:bg-background">
+                  <SettingsIcon className="mr-2 h-4 w-4" /> Settings
                 </TabsTrigger>
               </TabsList>
 
-              {/* Conversations Tab */}
+             
+
+              {/* conversations */}
               <TabsContent value="conversations" className="mt-6">
                 <div className="space-y-4">
-                  {/* Search Input */}
                   <div className="relative">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      type="text"
                       placeholder="Search chats…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10 trauma-safe gentle-focus"
+                      className="pl-9"
                     />
                   </div>
 
-                  {/* Conversations List */}
                   <div className="space-y-3">
-                    {filteredConversations.map((conversation) => (
-                      <Card 
-                        key={conversation.id} 
-                        className="trauma-safe calm-hover cursor-pointer transition-all duration-200"
-                        onClick={() => setSelectedConversation(conversation)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center space-x-3 mb-2">
-                                <h3>{conversation.title}</h3>
-                                <Badge 
-                                  variant={conversation.status === 'ongoing' ? 'default' : 'secondary'}
-                                  className="trauma-safe"
-                                >
-                                  {conversation.status === 'ongoing' ? 'Ongoing' : 'Completed'}
-                                </Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground">
-                                Last message: {conversation.lastMessage}
-                              </p>
-                            </div>
-                           <Button
-                            variant="success"
-                            size="sm"
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              handleNavigateToChat(); // Use the new handler
-                            }}
-                            className="trauma-safe gentle-focus"
-                            >
-                            Continue
-                            </Button>
-                          </div>
+                    {filteredConversations.length === 0 ? (
+                      <Card className="rounded-xl">
+                        <CardContent className="p-8 text-center text-muted-foreground">
+                          <p>No chats match “{searchQuery}”.</p>
                         </CardContent>
                       </Card>
-                    ))}
+                    ) : (
+                      filteredConversations.map((c) => (
+                        <div key={c.id} onClick={() => setSelectedConversation(c)}>
+                          <ConversationRow conversation={c} onContinue={handleNavigateToChat} />
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </TabsContent>
 
-              {/* Saved Tab */}
+              {/* saved */}
               <TabsContent value="saved" className="mt-6">
                 <div className="space-y-4">
-                  {savedItems.map((item) => (
-                    <Card key={item.id} className="trauma-safe calm-hover">
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h3 className="mb-2">{item.title}</h3>
-                            <p className="text-sm text-muted-foreground mb-2">
-                              {item.content}
-                            </p>
+                  {MOCK_SAVED.map((item) => (
+                    <Card key={item.id} className="rounded-xl hover:shadow-md transition-shadow">
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="text-base font-medium mb-1">{item.title}</h3>
+                            <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{item.content}</p>
                             <p className="text-xs text-muted-foreground">
-                              Saved on {new Date(item.timestamp).toLocaleDateString('en-US', { 
-                                month: 'short', 
-                                day: 'numeric', 
-                                year: 'numeric' 
+                              Saved on{" "}
+                              {new Date(item.timestamp).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
                               })}
                             </p>
                           </div>
-                          <Badge variant="outline" className="ml-3 trauma-safe">
+                          <Badge variant="outline" className="shrink-0 capitalize">
                             {item.type}
                           </Badge>
                         </div>
@@ -297,141 +315,180 @@ export default function ProfilePage() {
                 </div>
               </TabsContent>
 
-              {/* Settings Tab */}
+              {/* settings */}
               <TabsContent value="settings" className="mt-6">
                 <div className="space-y-6">
-                  {/* Appearance Settings */}
-                  <Card className="trauma-safe">
-                    <CardHeader>
-                      <CardTitle>Appearance</CardTitle>
-                      <CardDescription>Customize how your app looks and feels</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <label className="font-medium">Dark mode</label>
-                          <p className="text-sm text-muted-foreground">Toggle between light and dark themes</p>
-                        </div>
-                        <Switch
-                          checked={isDarkMode}
-                          onCheckedChange={setIsDarkMode}
-                          className="trauma-safe"
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* AI Settings */}
-                  <Card className="trauma-safe">
-                    <CardHeader>
-                      <CardTitle>AI Preferences</CardTitle>
-                      <CardDescription>Configure your chat experience</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="font-medium">Default model</label>
-                        <Select value={defaultModel} onValueChange={setDefaultModel}>
-                          <SelectTrigger className="trauma-safe gentle-focus">
-                            <SelectValue placeholder="Select AI model" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
-                            <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                            <SelectItem value="claude-3">Claude 3</SelectItem>
-                          </SelectContent>
-                        </Select>
+                  <SettingsCard
+                    title="Appearance"
+                    description="Customize how your app looks and feels"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">Dark mode</div>
                         <p className="text-sm text-muted-foreground">
-                          Choose which AI model to use by default for conversations
+                          Toggle between light and dark themes
                         </p>
                       </div>
-                    </CardContent>
-                  </Card>
+                      <Switch checked={isDarkMode} onCheckedChange={setIsDarkMode} />
+                    </div>
+                  </SettingsCard>
 
-                  {/* Data Management */}
-                  <Card className="trauma-safe">
-                    <CardHeader>
-                      <CardTitle>Data Management</CardTitle>
-                      <CardDescription>Manage your personal data and account</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <Button 
-                        variant="outline" 
+                  <SettingsCard
+                    title="AI Preferences"
+                    description="Configure your chat experience"
+                  >
+                    <div className="space-y-2">
+                      <div className="font-medium">Default model</div>
+                      <Select value={defaultModel} onValueChange={setDefaultModel}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select AI model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
+                          <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                          <SelectItem value="claude-3">Claude 3</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">
+                        Choose which AI model to use by default for conversations
+                      </p>
+                    </div>
+                  </SettingsCard>
+
+                  <SettingsCard
+                    title="Data Management"
+                    description="Manage your personal data and account"
+                  >
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button
+                        variant="outline"
                         onClick={handleExportData}
-                        className="w-full sm:w-auto trauma-safe gentle-focus"
+                        className="sm:w-auto"
                       >
                         <Download className="w-4 h-4 mr-2" />
                         Export my data
                       </Button>
 
-                      <div>
-                        <Button 
-                          variant="destructive" 
-                          onClick={() => {
-                            const confirmed = window.confirm(
-                              "Are you absolutely sure?\n\nThis action cannot be undone. This will permanently delete your account and remove all your data from our servers, including conversations and saved items."
-                            );
-                            if (confirmed) {
-                              handleDeleteAccount();
-                            }
-                          }}
-                          className="w-full sm:w-auto trauma-safe gentle-focus"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete account
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          const ok = window.confirm(
+                            "Are you absolutely sure?\n\nThis will permanently delete your account and remove all your data."
+                          );
+                          if (ok) handleDeleteAccount();
+                        }}
+                        className="sm:w-auto"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete account
+                      </Button>
+                    </div>
+                  </SettingsCard>
                 </div>
               </TabsContent>
             </Tabs>
-          </div>
+          </section>
 
-          {/* Right Column - Session Summary */}
+          {/* right panel */}
           {selectedConversation && (
-            <div className="lg:col-span-1">
-              <Card className="trauma-safe sticky top-6">
-                <CardHeader>
-                  <CardTitle>Session Summary</CardTitle>
-                  <CardDescription>{selectedConversation.title}</CardDescription>
+            <aside className="lg:col-span-1">
+              <Card className="sticky top-6 rounded-2xl shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Session Summary</CardTitle>
+                  <CardDescription className="truncate">
+                    {selectedConversation.title}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <p className="text-sm">
-                    {selectedConversation.id === '1' && 
-                      "Discussed project database schema and Supabase setup. Explored best practices for data modeling and API design patterns."
-                    }
-                    {selectedConversation.id === '2' && 
-                      "Worked through anxiety management techniques and developed personalized coping strategies for challenging situations."
-                    }
-                    {selectedConversation.id === '3' && 
-                      "Explored career development opportunities and created an action plan for skill building and networking."
-                    }
-                    {selectedConversation.id === '4' && 
-                      "Practiced mindfulness exercises and discussed the benefits of regular meditation for mental wellbeing."
-                    }
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {selectedConversation.id === "1" &&
+                      "Discussed project database schema and Supabase setup. Explored best practices for data modeling and API design patterns."}
+                    {selectedConversation.id === "2" &&
+                      "Worked through anxiety management techniques and developed personalized coping strategies for challenging situations."}
+                    {selectedConversation.id === "3" &&
+                      "Explored career development opportunities and created an action plan for skill building and networking."}
+                    {selectedConversation.id === "4" &&
+                      "Practiced mindfulness exercises and discussed the benefits of regular meditation for mental wellbeing."}
                   </p>
-                  
-                  <div className="flex flex-col space-y-2">
-                    <Badge variant="outline" className="w-fit trauma-safe">
+
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline" className="capitalize">
                       {selectedConversation.status}
                     </Badge>
-                    <p className="text-xs text-muted-foreground">
-                      Last activity: {selectedConversation.lastMessage}
-                    </p>
+                    <span className="text-xs text-muted-foreground">
+                      Last: {selectedConversation.lastMessage}
+                    </span>
                   </div>
 
-                  <Button 
-                    className="w-full trauma-safe gentle-focus"
-                    onClick={handleNavigateToChat} 
-                  >
+                  <Button className="w-full rounded-full" onClick={handleNavigateToChat}>
                     Resume Conversation
                   </Button>
                 </CardContent>
               </Card>
-            </div>
+            </aside>
           )}
         </div>
-      </div>
+      </main>
     </div>
+  );
+}
+
+/* ------------------------------ subcomponents ----------------------------- */
+
+function ConversationRow({
+  conversation,
+  onContinue,
+}: {
+  conversation: Conversation;
+  onContinue: () => void;
+}) {
+  const isOngoing = conversation.status === "ongoing";
+  return (
+    <Card className="group cursor-pointer rounded-xl border shadow-sm transition-all hover:shadow-md">
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h3 className="truncate text-base font-medium">{conversation.title}</h3>
+              <Badge variant={isOngoing ? "default" : "secondary"} className="uppercase">
+                {isOngoing ? "Ongoing" : "Completed"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground truncate">
+              Last message: {conversation.lastMessage}
+            </p>
+          </div>
+          <Button
+            onClick={(e) => {
+              e.stopPropagation();
+              onContinue();
+            }}
+            className="rounded-full px-4"
+          >
+            Continue
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SettingsCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
+    </Card>
   );
 }
