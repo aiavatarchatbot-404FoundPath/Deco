@@ -3,20 +3,15 @@
 import React, { useState } from 'react';
 import Home from "components/Home";
 import ProfileScreen from "components/ProfileScreen";
+import SettingsScreen from "components/SettingsScreen"; // ✅ new import
 
-
-type Screen = 'welcome' | 'profile';
+type Screen = 'welcome' | 'profile' | 'settings';
 
 export default function Page() {
   const [chatMode, setChatMode] = useState<'avatar' | 'standard'>('avatar');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<any>({ id: "14", username: "Arun" });
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
-
-  const handleNavigate = (screen: any) => {
-    console.log(`Navigating to: ${screen}`);
-    setCurrentScreen(screen);
-  };
 
   const handleNavigateToChat = () => {
     console.log("Navigating to chat page...");
@@ -27,7 +22,7 @@ export default function Page() {
     setChatMode(mode);
     console.log(`Chat mode changed to: ${mode}`);
   };
-  
+
   const handleLogout = () => {
     setIsLoggedIn(false);
     setUser(undefined);
@@ -35,27 +30,34 @@ export default function Page() {
   };
 
   return (
-  <>
-    {currentScreen === "welcome" && (
-      <Home
-        onNavigate={setCurrentScreen}
-        onNavigateToChat={handleNavigateToChat}
-        chatMode={chatMode}
-        onChatModeChange={handleChatModeChange}
-        user={user}
-        isLoggedIn={isLoggedIn}
-        onLogout={handleLogout}
-      />
-    )}
+    <>
+      {currentScreen === "welcome" && (
+        <Home
+          onNavigate={setCurrentScreen}
+          onNavigateToChat={handleNavigateToChat}
+          chatMode={chatMode}
+          onChatModeChange={handleChatModeChange}
+          user={user}
+          isLoggedIn={isLoggedIn}
+          onLogout={handleLogout}
+        />
+      )}
 
-    {currentScreen === "profile" && (
-      <ProfileScreen
-        onNavigate={setCurrentScreen}
-        user={user ?? { id: "1", username: "GuestUser" }}
-      />
-    )}
-  </>
-);
+      {currentScreen === "profile" && (
+        <ProfileScreen
+          onNavigate={setCurrentScreen}
+          user={user ?? { id: "1", username: "GuestUser" }}
+        />
+      )}
+
+      {currentScreen === "settings" && (
+        <SettingsScreen
+          onNavigate={setCurrentScreen}
+          user={user}
+        />
+      )}
+    </>
+  );
 }
   
   // return (
