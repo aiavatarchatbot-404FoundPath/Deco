@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 import Navbar from "@/components/Navbar";
+import { ReadyPlayerMeSelector } from './ReadyPlayerMeSelector';
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,7 +46,19 @@ import {
   Download,
   Trash2,
   ArrowLeft,
+  User,
+  Check,
+  Crown,
 } from "lucide-react";
+
+interface ReadyPlayerMeAvatar {
+  id: string;
+  name: string;
+  url: string;
+  type: 'user' | 'companion';
+  thumbnail?: string;
+  isCustom?: boolean;
+}
 
 /* ----------------------------- types & mocks ----------------------------- */
 
@@ -70,35 +83,46 @@ type Profile = {
   full_name?: string | null;
   avatar_url?: string | null;
   session_mode?: string | null;
+  readyPlayerMeAvatars?: {
+    userAvatar?: ReadyPlayerMeAvatar;
+    companionAvatar?: ReadyPlayerMeAvatar;
+  };
 };
 
 const MOCK_CONVERSATIONS: Conversation[] = [
-  { id: "1", title: "DB schema & Supabase setup", status: "completed", lastMessage: "Aug 30" },
-  { id: "2", title: "Coping strategies", status: "ongoing", lastMessage: "Aug 29" },
-  { id: "3", title: "Career plan & outreach", status: "completed", lastMessage: "Aug 27" },
-  { id: "4", title: "Mindfulness routine", status: "completed", lastMessage: "Aug 25" },
+  { id: "1", title: "Chat with Mentor", status: "ongoing", lastMessage: "Yesterday · 14:05" },
+  { id: "2", title: "Anxiety Support Session", status: "completed", lastMessage: "Aug 28 · 16:30" },
+  { id: "3", title: "Career Guidance Chat", status: "ongoing", lastMessage: "Aug 27 · 10:15" },
+  { id: "4", title: "Mindfulness Practice", status: "completed", lastMessage: "Aug 25 · 19:45" },
 ];
 
 const MOCK_SAVED: SavedItem[] = [
   {
     id: "s1",
-    title: "Supabase RLS cheat-sheet",
-    content: "Enable RLS, then add select/insert/update self policies…",
+    title: "Pinned Answer — Data pipeline explanation",
+    content: "Detailed explanation about setting up data pipelines with best practices...",
     timestamp: Date.now() - 1000 * 60 * 60 * 24 * 2,
     type: "note",
   },
   {
     id: "s2",
-    title: "Prompt style guide",
-    content: "Keep system role minimal, add examples, avoid over-long context…",
+    title: "Coping Strategies for Stress",
+    content: "Five effective techniques for managing stress in challenging situations...",
     timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
     type: "snippet",
+  },
+  {
+    id: "s3",
+    title: "Career Resources List",
+    content: "Comprehensive list of career development resources and tools...",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 10,
+    type: "clip",
   },
 ];
 
 /* -------------------------------- component ------------------------------ */
 
-export default function ProfilePage() {
+export default function ProfilePageSupabase() {
   const router = useRouter();
 
   // profile from Supabase
@@ -106,7 +130,7 @@ export default function ProfilePage() {
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   // local UI state
-  const [activeTab, setActiveTab] = useState<"conversations" | "saved" | "settings">("conversations");
+  const [activeTab, setActiveTab] = useState<"conversations" | "avatars" | "saved" | "settings">("conversations");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -136,7 +160,22 @@ export default function ProfilePage() {
       if (error) {
         console.error("Error loading profile:", error);
       }
-      setProfile(data ?? { id: user.id, username: user.email ?? "Anonymous" });
+      
+      // Load stored ReadyPlayerMe avatars from localStorage
+      const storedAvatars = localStorage.getItem('readyPlayerMe_avatars');
+      let readyPlayerMeAvatars = undefined;
+      if (storedAvatars) {
+        try {
+          readyPlayerMeAvatars = JSON.parse(storedAvatars);
+        } catch (error) {
+          console.error('Error parsing stored avatars:', error);
+        }
+      }
+
+      setProfile({ 
+        ...(data ?? { id: user.id, username: user.email ?? "Anonymous" }),
+        readyPlayerMeAvatars 
+      });
       setLoadingProfile(false);
     })();
   }, [router]);
@@ -158,6 +197,24 @@ export default function ProfilePage() {
   const handleNavigateToChat = () => router.push("/chat");
   const handleNavigation = (href: string) => router.push(href);
 
+  // ReadyPlayerMe avatar handler
+  const handleReadyPlayerMeAvatarSelect = (avatar: ReadyPlayerMeAvatar, type: 'user' | 'companion') => {
+    if (!profile) return;
+
+    const updatedProfile = {
+      ...profile,
+      readyPlayerMeAvatars: {
+        ...profile.readyPlayerMeAvatars,
+        [type === 'user' ? 'userAvatar' : 'companionAvatar']: avatar
+      }
+    };
+    
+    setProfile(updatedProfile);
+    
+    // Store avatars in localStorage
+    localStorage.setItem('readyPlayerMe_avatars', JSON.stringify(updatedProfile.readyPlayerMeAvatars));
+  };
+
   // actions
   const handleExportData = () => {
     // placeholder; wire to your export endpoint later
@@ -166,7 +223,17 @@ export default function ProfilePage() {
 
   const handleDeleteAccount = async () => {
     // In real app: call a server action / API route that uses service_role to delete user + profile
-    alert("Account deletion flow (placeholder). Implement server-side with service role.");
+    const confirmed = window.confirm(
+      "Are you absolutely sure?\\n\\nThis action cannot be undone. This will permanently delete your account and remove all your data from our servers, including conversations and saved items."
+    );
+    if (confirmed) {
+      alert("Account deletion flow (placeholder). Implement server-side with service role.");
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login"); // redirect after logout
   };
 
   if (loadingProfile) {
@@ -184,78 +251,97 @@ export default function ProfilePage() {
     );
   }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/login"); // redirect after logout
-  };
-
-
-
   return (
     <div className="min-h-screen bg-background">
       <Navbar onNavigate={handleNavigation as any} />
 
-      <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-8">
-        {/* back */}
-        <Button variant="ghost" onClick={handleBackToHome} className="mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Home
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
+        {/* Back Button */}
+        <Button
+          variant="ghost"
+          onClick={handleBackToHome}
+          className="mb-6 trauma-safe gentle-focus"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Home
         </Button>
 
-        {/* welcome */}
-        <h1 className="text-xl font-semibold mb-4">Welcome, {displayName}</h1>
-
-        {/* header */}
-        <section className="rounded-2xl border bg-card p-6 shadow-sm">
-          <div className="flex flex-col sm:flex-row gap-5 sm:items-center">
-            <Avatar className="h-20 w-20 ring-2 ring-foreground/10">
-              <AvatarImage
-                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`}
-                alt="User Avatar"
-              />
-              <AvatarFallback className="text-xl">
+        {/* Profile Header */}
+        <div className="bg-card rounded-lg border border-border p-6 mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
+            {/* Avatar */}
+            <Avatar className="w-20 h-20">
+              {profile?.readyPlayerMeAvatars?.userAvatar?.thumbnail ? (
+                <AvatarImage src={profile.readyPlayerMeAvatars.userAvatar.thumbnail} alt="User Avatar" />
+              ) : (
+                <AvatarImage 
+                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`} 
+                  alt="User Avatar" 
+                />
+              )}
+              <AvatarFallback className="bg-gradient-to-br from-soft-teal to-soft-lilac text-white text-xl">
                 {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
+
+            {/* User Info */}
             <div className="flex-1">
-              <h2 className="text-2xl font-semibold tracking-tight">{displayName}</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                <Clock className="inline mr-1 h-4 w-4" />
+              <h1 className="mb-1">{displayName}</h1>
+              <p className="text-muted-foreground mb-2">
+                <Clock className="w-4 h-4 inline mr-1" />
                 Last active: {new Date().toLocaleDateString()}
               </p>
-              <div className="mt-2 flex gap-3 text-sm text-muted-foreground">
+              <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                 <span>12 conversations</span>
                 <span>•</span>
                 <span>3 saved chats</span>
-                <div className="flex justify-end"></div>
-                <Button variant="outline" onClick={handleLogout}>
-                  Log out
-                </Button>
-                </div>
+                {profile?.readyPlayerMeAvatars?.userAvatar && (
+                  <>
+                    <span>•</span>
+                    <span className="text-teal-600 dark:text-teal-400">🎭 3D Avatar Ready</span>
+                  </>
+                )}
               </div>
+              {profile?.readyPlayerMeAvatars?.companionAvatar && (
+                <div className="mt-2">
+                  <Badge variant="secondary" className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                    💜 Companion: {profile.readyPlayerMeAvatars.companionAvatar.name}
+                  </Badge>
+                </div>
+              )}
             </div>
-          
-           
-        </section>
+            
+            <Button variant="outline" onClick={handleLogout} className="trauma-safe gentle-focus">
+              Log out
+            </Button>
+          </div>
+        </div>
 
-        {/* content */}
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <section className="lg:col-span-2">
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-              <TabsList className="w-full grid grid-cols-3 rounded-full bg-muted/60 p-1">
-                <TabsTrigger value="conversations" className="rounded-full data-[state=active]:bg-background">
-                  <MessageCircle className="mr-2 h-4 w-4" /> Conversations
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Tabs */}
+          <div className="lg:col-span-2">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+              <TabsList className="grid w-full grid-cols-4 trauma-safe">
+                <TabsTrigger value="conversations" className="trauma-safe gentle-focus">
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  Conversations
                 </TabsTrigger>
-                <TabsTrigger value="saved" className="rounded-full data-[state=active]:bg-background">
-                  <BookmarkCheck className="mr-2 h-4 w-4" /> Saved
+                <TabsTrigger value="avatars" className="trauma-safe gentle-focus">
+                  <User className="w-4 h-4 mr-2" />
+                  3D Avatars
                 </TabsTrigger>
-                <TabsTrigger value="settings" className="rounded-full data-[state=active]:bg-background">
-                  <SettingsIcon className="mr-2 h-4 w-4" /> Settings
+                <TabsTrigger value="saved" className="trauma-safe gentle-focus">
+                  <BookmarkCheck className="w-4 h-4 mr-2" />
+                  Saved
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="trauma-safe gentle-focus">
+                  <SettingsIcon className="w-4 h-4 mr-2" />
+                  Settings
                 </TabsTrigger>
               </TabsList>
 
-             
-
-              {/* conversations */}
+              {/* Conversations Tab */}
               <TabsContent value="conversations" className="mt-6">
                 <div className="space-y-4">
                   <div className="relative">
@@ -264,48 +350,89 @@ export default function ProfilePage() {
                       placeholder="Search chats…"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
+                      className="pl-9 trauma-safe gentle-focus"
                     />
                   </div>
 
                   <div className="space-y-3">
                     {filteredConversations.length === 0 ? (
-                      <Card className="rounded-xl">
+                      <Card className="trauma-safe">
                         <CardContent className="p-8 text-center text-muted-foreground">
-                          <p>No chats match “{searchQuery}”.</p>
+                          <p>No chats match "{searchQuery}".</p>
                         </CardContent>
                       </Card>
                     ) : (
-                      filteredConversations.map((c) => (
-                        <div key={c.id} onClick={() => setSelectedConversation(c)}>
-                          <ConversationRow conversation={c} onContinue={handleNavigateToChat} />
-                        </div>
+                      filteredConversations.map((conversation) => (
+                        <Card 
+                          key={conversation.id} 
+                          className="trauma-safe calm-hover cursor-pointer transition-all duration-200"
+                          onClick={() => setSelectedConversation(conversation)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-3 mb-2">
+                                  <h3>{conversation.title}</h3>
+                                  <Badge 
+                                    variant={conversation.status === 'ongoing' ? 'default' : 'secondary'}
+                                    className="trauma-safe"
+                                  >
+                                    {conversation.status === 'ongoing' ? 'Ongoing' : 'Completed'}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  Last message: {conversation.lastMessage}
+                                </p>
+                              </div>
+                              <Button 
+                                size="sm" 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNavigateToChat();
+                                }}
+                                className="trauma-safe gentle-focus"
+                              >
+                                Continue
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
                       ))
                     )}
                   </div>
                 </div>
               </TabsContent>
 
-              {/* saved */}
+              {/* 3D Avatars Tab */}
+              <TabsContent value="avatars" className="mt-6">
+                <ReadyPlayerMeSelector
+                  onAvatarSelect={handleReadyPlayerMeAvatarSelect}
+                  currentUserAvatar={profile?.readyPlayerMeAvatars?.userAvatar}
+                  currentCompanionAvatar={profile?.readyPlayerMeAvatars?.companionAvatar}
+                />
+              </TabsContent>
+
+              {/* Saved Tab */}
               <TabsContent value="saved" className="mt-6">
                 <div className="space-y-4">
                   {MOCK_SAVED.map((item) => (
-                    <Card key={item.id} className="rounded-xl hover:shadow-md transition-shadow">
-                      <CardContent className="p-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <h3 className="text-base font-medium mb-1">{item.title}</h3>
-                            <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{item.content}</p>
+                    <Card key={item.id} className="trauma-safe calm-hover">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h3 className="mb-2">{item.title}</h3>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {item.content}
+                            </p>
                             <p className="text-xs text-muted-foreground">
-                              Saved on{" "}
-                              {new Date(item.timestamp).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
+                              Saved on {new Date(item.timestamp).toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                year: 'numeric' 
                               })}
                             </p>
                           </div>
-                          <Badge variant="outline" className="shrink-0 capitalize">
+                          <Badge variant="outline" className="ml-3 trauma-safe">
                             {item.type}
                           </Badge>
                         </div>
@@ -315,180 +442,134 @@ export default function ProfilePage() {
                 </div>
               </TabsContent>
 
-              {/* settings */}
+              {/* Settings Tab */}
               <TabsContent value="settings" className="mt-6">
                 <div className="space-y-6">
-                  <SettingsCard
-                    title="Appearance"
-                    description="Customize how your app looks and feels"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">Dark mode</div>
+                  {/* Appearance Settings */}
+                  <Card className="trauma-safe">
+                    <CardHeader>
+                      <CardTitle>Appearance</CardTitle>
+                      <CardDescription>Customize how your app looks and feels</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="font-medium">Dark mode</label>
+                          <p className="text-sm text-muted-foreground">Toggle between light and dark themes</p>
+                        </div>
+                        <Switch
+                          checked={isDarkMode}
+                          onCheckedChange={setIsDarkMode}
+                          className="trauma-safe"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* AI Settings */}
+                  <Card className="trauma-safe">
+                    <CardHeader>
+                      <CardTitle>AI Preferences</CardTitle>
+                      <CardDescription>Configure your chat experience</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="font-medium">Default model</label>
+                        <Select value={defaultModel} onValueChange={setDefaultModel}>
+                          <SelectTrigger className="trauma-safe gentle-focus">
+                            <SelectValue placeholder="Select AI model" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
+                            <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                            <SelectItem value="claude-3">Claude 3</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <p className="text-sm text-muted-foreground">
-                          Toggle between light and dark themes
+                          Choose which AI model to use by default for conversations
                         </p>
                       </div>
-                      <Switch checked={isDarkMode} onCheckedChange={setIsDarkMode} />
-                    </div>
-                  </SettingsCard>
+                    </CardContent>
+                  </Card>
 
-                  <SettingsCard
-                    title="AI Preferences"
-                    description="Configure your chat experience"
-                  >
-                    <div className="space-y-2">
-                      <div className="font-medium">Default model</div>
-                      <Select value={defaultModel} onValueChange={setDefaultModel}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select AI model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="gpt-4o-mini">GPT-4o mini</SelectItem>
-                          <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                          <SelectItem value="claude-3">Claude 3</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-sm text-muted-foreground">
-                        Choose which AI model to use by default for conversations
-                      </p>
-                    </div>
-                  </SettingsCard>
-
-                  <SettingsCard
-                    title="Data Management"
-                    description="Manage your personal data and account"
-                  >
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <Button
-                        variant="outline"
+                  {/* Data Management */}
+                  <Card className="trauma-safe">
+                    <CardHeader>
+                      <CardTitle>Data Management</CardTitle>
+                      <CardDescription>Manage your personal data and account</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <Button 
+                        variant="outline" 
                         onClick={handleExportData}
-                        className="sm:w-auto"
+                        className="w-full sm:w-auto trauma-safe gentle-focus"
                       >
                         <Download className="w-4 h-4 mr-2" />
                         Export my data
                       </Button>
 
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          const ok = window.confirm(
-                            "Are you absolutely sure?\n\nThis will permanently delete your account and remove all your data."
-                          );
-                          if (ok) handleDeleteAccount();
-                        }}
-                        className="sm:w-auto"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete account
-                      </Button>
-                    </div>
-                  </SettingsCard>
+                      <div>
+                        <Button 
+                          variant="destructive" 
+                          onClick={handleDeleteAccount}
+                          className="w-full sm:w-auto trauma-safe gentle-focus"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete account
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               </TabsContent>
             </Tabs>
-          </section>
+          </div>
 
-          {/* right panel */}
+          {/* Right Column - Session Summary */}
           {selectedConversation && (
-            <aside className="lg:col-span-1">
-              <Card className="sticky top-6 rounded-2xl shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Session Summary</CardTitle>
-                  <CardDescription className="truncate">
-                    {selectedConversation.title}
-                  </CardDescription>
+            <div className="lg:col-span-1">
+              <Card className="trauma-safe sticky top-6">
+                <CardHeader>
+                  <CardTitle>Session Summary</CardTitle>
+                  <CardDescription>{selectedConversation.title}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    {selectedConversation.id === "1" &&
-                      "Discussed project database schema and Supabase setup. Explored best practices for data modeling and API design patterns."}
-                    {selectedConversation.id === "2" &&
-                      "Worked through anxiety management techniques and developed personalized coping strategies for challenging situations."}
-                    {selectedConversation.id === "3" &&
-                      "Explored career development opportunities and created an action plan for skill building and networking."}
-                    {selectedConversation.id === "4" &&
-                      "Practiced mindfulness exercises and discussed the benefits of regular meditation for mental wellbeing."}
+                  <p className="text-sm">
+                    {selectedConversation.id === '1' && 
+                      "Discussed project database schema and Supabase setup. Explored best practices for data modeling and API design patterns."
+                    }
+                    {selectedConversation.id === '2' && 
+                      "Worked through anxiety management techniques and developed personalized coping strategies for challenging situations."
+                    }
+                    {selectedConversation.id === '3' && 
+                      "Explored career development opportunities and created an action plan for skill building and networking."
+                    }
+                    {selectedConversation.id === '4' && 
+                      "Practiced mindfulness exercises and discussed the benefits of regular meditation for mental wellbeing."
+                    }
                   </p>
-
-                  <div className="flex items-center justify-between">
-                    <Badge variant="outline" className="capitalize">
+                  
+                  <div className="flex flex-col space-y-2">
+                    <Badge variant="outline" className="w-fit trauma-safe">
                       {selectedConversation.status}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      Last: {selectedConversation.lastMessage}
-                    </span>
+                    <p className="text-xs text-muted-foreground">
+                      Last activity: {selectedConversation.lastMessage}
+                    </p>
                   </div>
 
-                  <Button className="w-full rounded-full" onClick={handleNavigateToChat}>
+                  <Button 
+                    className="w-full trauma-safe gentle-focus"
+                    onClick={handleNavigateToChat}
+                  >
                     Resume Conversation
                   </Button>
                 </CardContent>
               </Card>
-            </aside>
+            </div>
           )}
         </div>
       </main>
     </div>
-  );
-}
-
-/* ------------------------------ subcomponents ----------------------------- */
-
-function ConversationRow({
-  conversation,
-  onContinue,
-}: {
-  conversation: Conversation;
-  onContinue: () => void;
-}) {
-  const isOngoing = conversation.status === "ongoing";
-  return (
-    <Card className="group cursor-pointer rounded-xl border shadow-sm transition-all hover:shadow-md">
-      <CardContent className="p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <h3 className="truncate text-base font-medium">{conversation.title}</h3>
-              <Badge variant={isOngoing ? "default" : "secondary"} className="uppercase">
-                {isOngoing ? "Ongoing" : "Completed"}
-              </Badge>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground truncate">
-              Last message: {conversation.lastMessage}
-            </p>
-          </div>
-          <Button
-            onClick={(e) => {
-              e.stopPropagation();
-              onContinue();
-            }}
-            className="rounded-full px-4"
-          >
-            Continue
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SettingsCard({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        {description ? <CardDescription>{description}</CardDescription> : null}
-      </CardHeader>
-      <CardContent className="space-y-4">{children}</CardContent>
-    </Card>
   );
 }
