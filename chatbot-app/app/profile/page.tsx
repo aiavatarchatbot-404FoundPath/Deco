@@ -5,38 +5,16 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 import Navbar from "@/components/Navbar";
-import { ReadyPlayerMeSelector } from './ReadyPlayerMeSelector';
+import { ReadyPlayerMeSelector } from "./ReadyPlayerMeSelector";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Search,
   MessageCircle,
@@ -54,10 +32,34 @@ import {
 interface ReadyPlayerMeAvatar {
   id: string;
   name: string;
-  url: string;
-  type: 'user' | 'companion';
-  thumbnail?: string;
+  url: string; // usually .glb
+  type: "user" | "companion";
+  thumbnail?: string; // we compute a .png for display
   isCustom?: boolean;
+}
+
+/* ----------------------------- helpers ----------------------------- */
+
+// Convert a Ready Player Me URL (.glb) into a displayable PNG
+function toThumbnail(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.endsWith(".png")) return url;
+  if (url.endsWith(".glb")) return url.replace(".glb", ".png");
+
+  // Try to extract avatar id and use the official PNG endpoint
+  try {
+    const last = url.split("/").pop() || "";
+    const id = last.replace(".glb", "");
+    if (id && id.length > 10) {
+      return `https://api.readyplayer.me/v1/avatars/${id}.png`;
+    }
+  } catch {}
+  return null;
+}
+
+function idFromUrl(url: string): string {
+  const last = url.split("/").pop() || "";
+  return last.replace(".glb", "") || `custom-${Date.now()}`;
 }
 
 /* ----------------------------- types & mocks ----------------------------- */
@@ -83,10 +85,10 @@ type Profile = {
   full_name?: string | null;
   avatar_url?: string | null;
   session_mode?: string | null;
-  readyPlayerMeAvatars?: {
-    userAvatar?: ReadyPlayerMeAvatar;
-    companionAvatar?: ReadyPlayerMeAvatar;
-  };
+
+  // 🔥 DB-backed avatar URLs
+  rpm_user_url?: string | null;
+  rpm_companion_url?: string | null;
 };
 
 const MOCK_CONVERSATIONS: Conversation[] = [
@@ -125,7 +127,7 @@ const MOCK_SAVED: SavedItem[] = [
 export default function ProfilePageSupabase() {
   const router = useRouter();
 
-  // profile from Supabase
+  // profile from Supabase (DB truth)
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -140,45 +142,129 @@ export default function ProfilePageSupabase() {
   const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
 
   useEffect(() => {
-    (async () => {
-      setLoadingProfile(true);
+  let cancelled = false;
 
-      // ensure signed in
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+  // wait up to ~1s for the session to hydrate after login
+  async function getStableSession() {
+    for (let i = 0; i < 10; i++) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) return session;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  }
+
+  async function load() {
+    if (!cancelled) setLoadingProfile(true);
+    try {
+      const session = await getStableSession();
+      const u = session?.user;
+
+      if (!u) {
+        if (!cancelled) {
+          setProfile(null);
+          setLoadingProfile(false);
+        }
         router.replace("/login");
         return;
       }
 
-      // fetch profiles row
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, username, full_name, avatar_url, session_mode")
-        .eq("id", user.id)
-        .single();
+        .select("id, username, full_name, avatar_url, session_mode, rpm_user_url, rpm_companion_url")
+        .eq("id", u.id)
+        .maybeSingle(); // ✅ doesn't throw if the row doesn't exist yet
+
+      if (cancelled) return;
 
       if (error) {
-        console.error("Error loading profile:", error);
+        console.warn("profiles load error:", error);
+        setProfile({
+          id: u.id,
+          username: u.email ?? "Anonymous",
+          rpm_user_url: null,
+          rpm_companion_url: null,
+        });
+      } else {
+        setProfile(
+          data ?? {
+            id: u.id,
+            username: u.email ?? "Anonymous",
+            rpm_user_url: null,
+            rpm_companion_url: null,
+          }
+        );
       }
-      
-      // Load stored ReadyPlayerMe avatars from localStorage
-      const storedAvatars = localStorage.getItem('readyPlayerMe_avatars');
-      let readyPlayerMeAvatars = undefined;
-      if (storedAvatars) {
-        try {
-          readyPlayerMeAvatars = JSON.parse(storedAvatars);
-        } catch (error) {
-          console.error('Error parsing stored avatars:', error);
-        }
-      }
+    } catch (e) {
+      console.error("profile load exception:", e);
+      if (!cancelled) setProfile(null);
+    } finally {
+      if (!cancelled) setLoadingProfile(false);
+    }
+  }
 
-      setProfile({ 
-        ...(data ?? { id: user.id, username: user.email ?? "Anonymous" }),
-        readyPlayerMeAvatars 
-      });
-      setLoadingProfile(false);
-    })();
-  }, [router]);
+  // initial load
+  load();
+
+  // keep in sync with auth changes
+  const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_IN") load();
+    if (event === "SIGNED_OUT") {
+      if (!cancelled) {
+        setProfile(null);
+        setLoadingProfile(false);
+      }
+      router.replace("/login");
+    }
+  });
+
+  return () => {
+    cancelled = true;
+    sub.subscription.unsubscribe();
+  };
+}, [router]);
+
+
+  // When the selector fires, we update DB via selector (it already saves)
+  // and also reflect the new URL immediately in our profile state so the header updates.
+  const handleReadyPlayerMeAvatarSelect = (avatar: ReadyPlayerMeAvatar, type: "user" | "companion") => {
+    setProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            rpm_user_url: type === "user" ? avatar.url : prev.rpm_user_url ?? null,
+            rpm_companion_url: type === "companion" ? avatar.url : prev.rpm_companion_url ?? null,
+          }
+        : prev
+    );
+  };
+
+  // Build DB-backed avatar objects for the selector (for its UI)
+  const currentUserAvatarFromDB: ReadyPlayerMeAvatar | undefined = useMemo(() => {
+    const url = profile?.rpm_user_url ?? null;
+    if (!url) return undefined;
+    return {
+      id: idFromUrl(url),
+      name: "Custom Avatar",
+      url,
+      type: "user",
+      thumbnail: toThumbnail(url) ?? undefined,
+      isCustom: true,
+    };
+  }, [profile?.rpm_user_url]);
+
+  const currentCompanionAvatarFromDB: ReadyPlayerMeAvatar | undefined = useMemo(() => {
+    const url = profile?.rpm_companion_url ?? null;
+    if (!url) return undefined;
+    return {
+      id: idFromUrl(url),
+      name: "Custom Companion",
+      url,
+      type: "companion",
+      thumbnail: toThumbnail(url) ?? undefined,
+      isCustom: true,
+    };
+  }, [profile?.rpm_companion_url]);
 
   // conversations filter
   const filteredConversations = useMemo(() => {
@@ -197,49 +283,19 @@ export default function ProfilePageSupabase() {
   const handleNavigateToChat = () => router.push("/chat");
   const handleNavigation = (href: string) => router.push(href);
 
-  // ReadyPlayerMe avatar handler
-  const handleReadyPlayerMeAvatarSelect = (avatar: ReadyPlayerMeAvatar, type: 'user' | 'companion') => {
-    if (!profile) return;
-
-    const updatedProfile = {
-      ...profile,
-      readyPlayerMeAvatars: {
-        ...profile.readyPlayerMeAvatars,
-        [type === 'user' ? 'userAvatar' : 'companionAvatar']: avatar
-      }
-    };
-    
-    setProfile(updatedProfile);
-    
-    // Store avatars in localStorage
-    localStorage.setItem('readyPlayerMe_avatars', JSON.stringify(updatedProfile.readyPlayerMeAvatars));
-  };
-
-  // actions
-  const handleExportData = () => {
-    // placeholder; wire to your export endpoint later
-    alert("Export started (placeholder).");
-  };
-
+  const handleExportData = () => alert("Export started (placeholder).");
   const handleDeleteAccount = async () => {
-    // In real app: call a server action / API route that uses service_role to delete user + profile
     const confirmed = window.confirm(
-      "Are you absolutely sure?\\n\\nThis action cannot be undone. This will permanently delete your account and remove all your data from our servers, including conversations and saved items."
+      "Are you absolutely sure?\n\nThis will permanently delete your account and data."
     );
-    if (confirmed) {
-      alert("Account deletion flow (placeholder). Implement server-side with service role.");
-    }
+    if (confirmed) alert("Account deletion flow (placeholder). Use a server route with service role.");
   };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/login"); // redirect after logout
+    router.push("/login");
   };
 
-  if (loadingProfile) {
-    return <p className="p-6">Loading profile…</p>;
-  }
-
+  if (loadingProfile) return <p className="p-6">Loading profile…</p>;
   if (!profile) {
     return (
       <div className="p-6">
@@ -251,17 +307,16 @@ export default function ProfilePageSupabase() {
     );
   }
 
+  // 👇 Header avatar thumbnail comes straight from DB (per-user)
+  const headerThumb = toThumbnail(profile.rpm_user_url);
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar onNavigate={handleNavigation as any} />
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
         {/* Back Button */}
-        <Button
-          variant="ghost"
-          onClick={handleBackToHome}
-          className="mb-6 trauma-safe gentle-focus"
-        >
+        <Button variant="ghost" onClick={handleBackToHome} className="mb-6 trauma-safe gentle-focus">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Button>
@@ -269,14 +324,14 @@ export default function ProfilePageSupabase() {
         {/* Profile Header */}
         <div className="bg-card rounded-lg border border-border p-6 mb-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
-            {/* Avatar */}
+            {/* Avatar (DB-backed) */}
             <Avatar className="w-20 h-20">
-              {profile?.readyPlayerMeAvatars?.userAvatar?.thumbnail ? (
-                <AvatarImage src={profile.readyPlayerMeAvatars.userAvatar.thumbnail} alt="User Avatar" />
+              {headerThumb ? (
+                <AvatarImage src={headerThumb} alt="User Avatar" />
               ) : (
-                <AvatarImage 
-                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`} 
-                  alt="User Avatar" 
+                <AvatarImage
+                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`}
+                  alt="User Avatar"
                 />
               )}
               <AvatarFallback className="bg-gradient-to-br from-soft-teal to-soft-lilac text-white text-xl">
@@ -295,22 +350,22 @@ export default function ProfilePageSupabase() {
                 <span>12 conversations</span>
                 <span>•</span>
                 <span>3 saved chats</span>
-                {profile?.readyPlayerMeAvatars?.userAvatar && (
+                {profile.rpm_user_url && (
                   <>
                     <span>•</span>
                     <span className="text-teal-600 dark:text-teal-400">🎭 3D Avatar Ready</span>
                   </>
                 )}
               </div>
-              {profile?.readyPlayerMeAvatars?.companionAvatar && (
+              {profile.rpm_companion_url && (
                 <div className="mt-2">
                   <Badge variant="secondary" className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
-                    💜 Companion: {profile.readyPlayerMeAvatars.companionAvatar.name}
+                    💜 Companion: Custom Companion
                   </Badge>
                 </div>
               )}
             </div>
-            
+
             <Button variant="outline" onClick={handleLogout} className="trauma-safe gentle-focus">
               Log out
             </Button>
@@ -355,16 +410,16 @@ export default function ProfilePageSupabase() {
                   </div>
 
                   <div className="space-y-3">
-                    {filteredConversations.length === 0 ? (
+                    {MOCK_CONVERSATIONS.length === 0 ? (
                       <Card className="trauma-safe">
                         <CardContent className="p-8 text-center text-muted-foreground">
-                          <p>No chats match "{searchQuery}".</p>
+                          <p>No chats.</p>
                         </CardContent>
                       </Card>
                     ) : (
-                      filteredConversations.map((conversation) => (
-                        <Card 
-                          key={conversation.id} 
+                      MOCK_CONVERSATIONS.map((conversation) => (
+                        <Card
+                          key={conversation.id}
                           className="trauma-safe calm-hover cursor-pointer transition-all duration-200"
                           onClick={() => setSelectedConversation(conversation)}
                         >
@@ -373,19 +428,17 @@ export default function ProfilePageSupabase() {
                               <div className="flex-1">
                                 <div className="flex items-center space-x-3 mb-2">
                                   <h3>{conversation.title}</h3>
-                                  <Badge 
-                                    variant={conversation.status === 'ongoing' ? 'default' : 'secondary'}
+                                  <Badge
+                                    variant={conversation.status === "ongoing" ? "default" : "secondary"}
                                     className="trauma-safe"
                                   >
-                                    {conversation.status === 'ongoing' ? 'Ongoing' : 'Completed'}
+                                    {conversation.status === "ongoing" ? "Ongoing" : "Completed"}
                                   </Badge>
                                 </div>
-                                <p className="text-sm text-muted-foreground">
-                                  Last message: {conversation.lastMessage}
-                                </p>
+                                <p className="text-sm text-muted-foreground">Last message: {conversation.lastMessage}</p>
                               </div>
-                              <Button 
-                                size="sm" 
+                              <Button
+                                size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleNavigateToChat();
@@ -407,8 +460,8 @@ export default function ProfilePageSupabase() {
               <TabsContent value="avatars" className="mt-6">
                 <ReadyPlayerMeSelector
                   onAvatarSelect={handleReadyPlayerMeAvatarSelect}
-                  currentUserAvatar={profile?.readyPlayerMeAvatars?.userAvatar}
-                  currentCompanionAvatar={profile?.readyPlayerMeAvatars?.companionAvatar}
+                  currentUserAvatar={currentUserAvatarFromDB}
+                  currentCompanionAvatar={currentCompanionAvatarFromDB}
                 />
               </TabsContent>
 
@@ -421,14 +474,13 @@ export default function ProfilePageSupabase() {
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <h3 className="mb-2">{item.title}</h3>
-                            <p className="text-sm text-muted-foreground mb-2">
-                              {item.content}
-                            </p>
+                            <p className="text-sm text-muted-foreground mb-2">{item.content}</p>
                             <p className="text-xs text-muted-foreground">
-                              Saved on {new Date(item.timestamp).toLocaleDateString('en-US', { 
-                                month: 'short', 
-                                day: 'numeric', 
-                                year: 'numeric' 
+                              Saved on{" "}
+                              {new Date(item.timestamp).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
                               })}
                             </p>
                           </div>
@@ -445,7 +497,6 @@ export default function ProfilePageSupabase() {
               {/* Settings Tab */}
               <TabsContent value="settings" className="mt-6">
                 <div className="space-y-6">
-                  {/* Appearance Settings */}
                   <Card className="trauma-safe">
                     <CardHeader>
                       <CardTitle>Appearance</CardTitle>
@@ -457,16 +508,11 @@ export default function ProfilePageSupabase() {
                           <label className="font-medium">Dark mode</label>
                           <p className="text-sm text-muted-foreground">Toggle between light and dark themes</p>
                         </div>
-                        <Switch
-                          checked={isDarkMode}
-                          onCheckedChange={setIsDarkMode}
-                          className="trauma-safe"
-                        />
+                        <Switch checked={isDarkMode} onCheckedChange={setIsDarkMode} className="trauma-safe" />
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* AI Settings */}
                   <Card className="trauma-safe">
                     <CardHeader>
                       <CardTitle>AI Preferences</CardTitle>
@@ -485,32 +531,25 @@ export default function ProfilePageSupabase() {
                             <SelectItem value="claude-3">Claude 3</SelectItem>
                           </SelectContent>
                         </Select>
-                        <p className="text-sm text-muted-foreground">
-                          Choose which AI model to use by default for conversations
-                        </p>
+                        <p className="text-sm text-muted-foreground">Choose the default model for conversations</p>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* Data Management */}
                   <Card className="trauma-safe">
                     <CardHeader>
                       <CardTitle>Data Management</CardTitle>
                       <CardDescription>Manage your personal data and account</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <Button 
-                        variant="outline" 
-                        onClick={handleExportData}
-                        className="w-full sm:w-auto trauma-safe gentle-focus"
-                      >
+                      <Button variant="outline" onClick={handleExportData} className="w-full sm:w-auto trauma-safe gentle-focus">
                         <Download className="w-4 h-4 mr-2" />
                         Export my data
                       </Button>
 
                       <div>
-                        <Button 
-                          variant="destructive" 
+                        <Button
+                          variant="destructive"
                           onClick={handleDeleteAccount}
                           className="w-full sm:w-auto trauma-safe gentle-focus"
                         >
@@ -535,33 +574,21 @@ export default function ProfilePageSupabase() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm">
-                    {selectedConversation.id === '1' && 
-                      "Discussed project database schema and Supabase setup. Explored best practices for data modeling and API design patterns."
-                    }
-                    {selectedConversation.id === '2' && 
-                      "Worked through anxiety management techniques and developed personalized coping strategies for challenging situations."
-                    }
-                    {selectedConversation.id === '3' && 
-                      "Explored career development opportunities and created an action plan for skill building and networking."
-                    }
-                    {selectedConversation.id === '4' && 
-                      "Practiced mindfulness exercises and discussed the benefits of regular meditation for mental wellbeing."
-                    }
+                    {/* placeholder summaries */}
+                    {selectedConversation.id === "1" && "Discussed project database schema and Supabase setup."}
+                    {selectedConversation.id === "2" && "Worked through anxiety management techniques."}
+                    {selectedConversation.id === "3" && "Explored career development opportunities."}
+                    {selectedConversation.id === "4" && "Practiced mindfulness exercises."}
                   </p>
-                  
+
                   <div className="flex flex-col space-y-2">
                     <Badge variant="outline" className="w-fit trauma-safe">
                       {selectedConversation.status}
                     </Badge>
-                    <p className="text-xs text-muted-foreground">
-                      Last activity: {selectedConversation.lastMessage}
-                    </p>
+                    <p className="text-xs text-muted-foreground">Last activity: {selectedConversation.lastMessage}</p>
                   </div>
 
-                  <Button 
-                    className="w-full trauma-safe gentle-focus"
-                    onClick={handleNavigateToChat}
-                  >
+                  <Button className="w-full trauma-safe gentle-focus" onClick={handleNavigateToChat}>
                     Resume Conversation
                   </Button>
                 </CardContent>
