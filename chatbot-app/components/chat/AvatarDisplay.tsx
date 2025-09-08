@@ -1,65 +1,86 @@
-// components/chat/AvatarDisplay.tsx
-"use client";
+'use client';
 
 import React from 'react';
+import { motion } from 'framer-motion';  // used for smooth speaking indicator animation
 
-interface AvatarDisplayProps {
-  userAvatar?: any;
-  aiAvatar: {
-    name: string;
-    type: string;
-  };
-  isAISpeaking: boolean;
+// Define the props the component can accept
+export interface AvatarDisplayProps {
+  aiAvatar?: { name: string; url?: string };   // The AI companion avatar info
+  userAvatar?: { name: string; url?: string }; // The user's avatar info
+  speaking?: boolean;                          // Whether the AI is "speaking/typing"
+  motionSafe?: boolean;                        // If true, use gentler animation
 }
 
-export default function AvatarDisplay({ userAvatar, aiAvatar, isAISpeaking }: AvatarDisplayProps) {
+// AvatarDisplay component renders the AI avatar (and optionally the user avatar)
+export function AvatarDisplay({
+  aiAvatar = { name: 'Companion' },  // default fallback if no AI avatar is passed
+  userAvatar = { name: 'You' },      // default fallback if no user avatar is passed
+  speaking = false,                  // default: bot not speaking
+  motionSafe = true,                 // default: motion reduced
+}: AvatarDisplayProps) {
   return (
-    <div className="w-80 bg-gradient-to-b from-purple-100 to-blue-100 flex flex-col items-center justify-center p-6 border-r border-gray-200">
-      <div className="flex flex-col items-center space-y-8">
-        {/* AI Avatar - Adam */}
-        <div className="relative">
-          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center shadow-lg">
-            {/* Avatar representation - you can replace with actual 3D model or image */}
-            <div className="w-28 h-28 rounded-full bg-white flex items-center justify-center">
-              <div className="text-4xl">👨‍💼</div>
-            </div>
-          </div>
-          {/* Speaking indicator */}
-          {isAISpeaking && (
-            <div className="absolute -bottom-2 -right-2">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-              </div>
-            </div>
+    <div className="flex flex-col items-center gap-6 p-4">
+      
+      {/* ============== AI Avatar (Companion) ============== */}
+      <div className="flex flex-col items-center">
+        <div className="relative w-28 h-28 rounded-full 
+                        bg-gradient-to-br from-teal-200 to-purple-200 
+                        dark:from-neutral-800 dark:to-neutral-700 
+                        overflow-hidden flex items-center justify-center">
+          
+          {/* Show AI avatar image if url is provided, otherwise show their name */}
+          {aiAvatar.url ? (
+            <img
+              src={aiAvatar.url}
+              alt={aiAvatar.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+              {aiAvatar.name}
+            </span>
           )}
-          <div className="text-center mt-3">
-            <p className="font-medium text-gray-800">{aiAvatar.name}</p>
-          </div>
+
+          {/* Speaking indicator (small green dot at bottom of avatar) */}
+          {speaking && (
+            <motion.div
+              initial={{ opacity: 0 }}                       // start invisible
+              animate={{ opacity: [0.4, 1, 0.4] }}           // pulse effect
+              transition={{ repeat: Infinity, duration: motionSafe ? 2 : 1 }}
+              className="absolute bottom-2 w-3 h-3 rounded-full bg-emerald-500"
+            />
+          )}
         </div>
 
-        {/* User Avatar */}
-        <div className="relative">
-          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-teal-400 to-blue-500 flex items-center justify-center shadow-lg">
-            <div className="w-28 h-28 rounded-full bg-white flex items-center justify-center">
-              {userAvatar ? (
-                <div className="text-4xl">{userAvatar.emoji || '👤'}</div>
-              ) : (
-                <div className="text-4xl">👤</div>
-              )}
-            </div>
-          </div>
-          <div className="text-center mt-3">
-            <p className="font-medium text-gray-800">You</p>
-          </div>
-        </div>
+        {/* Label under the AI avatar */}
+        <div className="mt-2 text-sm font-medium">{aiAvatar.name}</div>
       </div>
 
-      {/* Connection Line */}
-      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
-        <div className="w-px h-16 bg-gradient-to-b from-purple-300 to-teal-300 opacity-50"></div>
-      </div>
+      {/* ============== User Avatar (You) ============== */}
+      {userAvatar && (
+        <div className="flex flex-col items-center">
+          <div className="w-20 h-20 rounded-full 
+                          bg-neutral-200 dark:bg-neutral-700 
+                          flex items-center justify-center overflow-hidden">
+            
+            {/* Show user avatar image if url exists, otherwise show their name */}
+            {userAvatar.url ? (
+              <img
+                src={userAvatar.url}
+                alt={userAvatar.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
+                {userAvatar.name}
+              </span>
+            )}
+          </div>
+          
+          {/* Label under the User avatar */}
+          <div className="mt-1 text-xs text-neutral-500">You</div>
+        </div>
+      )}
     </div>
   );
 }
