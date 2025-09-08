@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
@@ -27,10 +27,10 @@ export default function SimpleChatPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       <ChatInterfaceScreen
         onNavigate={handleNavigation}
-        chatMode="standard"
-        user={null}
-        currentAvatar={null}
-        currentMood={null}
+        chatMode="standard"     // <- simple mode
+        user={null}             // no signed-in user needed for simple mode
+        currentAvatar={null}    // no avatar panel in simple mode
+        currentMood={null}      // no preloaded mood check-in
       />
     </div>
   );

@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,15 +7,15 @@ import { ChatInterfaceScreen } from '../../../components/ChatInterfaceScreen';
 export default function AvatarChatPage() {
   const router = useRouter();
 
-  // This would come from your auth/state management
+  // need to replace it with readyplayer me
   const mockUser = {
     id: '1',
-    username: 'User123'
+    username: 'User123',
   };
 
   const mockAvatar = {
     name: 'Alex',
-    type: 'custom'
+    type: 'custom',
   };
 
   const mockMood = {
@@ -23,7 +23,7 @@ export default function AvatarChatPage() {
     intensity: 4,
     reason: 'court date next week',
     support: 'need someone to talk to',
-    timestamp: new Date()
+    timestamp: new Date(),
   };
 
   const handleNavigation = (screen: string) => {
@@ -54,5 +54,3 @@ export default function AvatarChatPage() {
     </div>
   );
 }
-
-// app/chat/simple/page.tsx
