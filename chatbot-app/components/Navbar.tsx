@@ -1,30 +1,44 @@
 "use client";
 
-import React from 'react';
-import { Button } from './ui/button';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { Button } from "./ui/button";
+import { useRouter } from "next/navigation";
 
 interface NavbarProps {
   onNavigate: (screen: string) => void;
   isLoggedIn: boolean;
-  currentPage?: string;
 }
 
-export default function Navbar({ onNavigate, isLoggedIn, currentPage }: NavbarProps) {
+export default function Navbar({ onNavigate }: { onNavigate: (s: string) => void }) {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const router = useRouter();
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setIsLoggedIn(!!data.user);
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session?.user);
+    });
+
+    return () => subscription.subscription.unsubscribe();
+  }, []);
+
+
   return (
-    <nav className="flex items-center justify-center p-4 bg-white/80 backdrop-blur-sm border-b border-gray-100">
+    <nav className="flex items-center justify-between p-4 bg-white/80 backdrop-blur-sm border-b border-gray-100">
+      <div className="flex items-center space-x-1">
+        <span className="font-medium text-gray-700">Your Safe Chat Space</span>
+      </div>
+      
       <div className="flex items-center space-x-2">
         <Button
-          onClick={() => onNavigate('/')}
+          onClick={() => onNavigate('welcome')}
           variant="ghost"
           size="sm"
-          className={`px-4 py-1 rounded-full text-sm transition-colors ${
-            currentPage === '/welcome' || currentPage === 'welcome' || currentPage === 'home'
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
+          className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-4 py-1 rounded-full text-sm"
         >
           Home
         </Button>
@@ -32,14 +46,25 @@ export default function Navbar({ onNavigate, isLoggedIn, currentPage }: NavbarPr
           onClick={() => onNavigate('settings')}
           variant="ghost"
           size="sm"
-          className={`px-4 py-1 rounded-full text-sm transition-colors ${
-            currentPage === 'settings'
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
+          className="text-gray-600 hover:bg-gray-100 px-4 py-1 rounded-full text-sm"
         >
           Preferences
         </Button>
+        
+       <nav className="flex justify-end p-4 bg-gray-100">
+      
+        {isLoggedIn ? (
+          <Button onClick={() => router.push("/profile")} variant="ghost" size="sm">
+            Profile
+          </Button>
+        ) : (
+          <Button onClick={() => router.push("/login")} variant="ghost" size="sm">
+            Login
+          </Button>
+        )}
+      
+    </nav>
+  
       </div>
     </nav>
   );
