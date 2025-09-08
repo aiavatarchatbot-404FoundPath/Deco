@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { useRouter } from 'next/navigation';
 import Navbar from '../components/Navbar'; 
+import MoodCheckIn from '../components/MoodCheckIn';
+
 import { 
   Shield, 
   Heart, 
@@ -23,6 +25,9 @@ interface MoodData {
   intensity: number;
   reason?: string;
   support?: string;
+}
+
+interface StoredMoodData extends MoodData {
   timestamp: Date;
 }
 
@@ -40,18 +45,16 @@ export default function HomePage() {
   const [chatMode, setChatMode] = useState<'avatar' | 'standard'>('avatar');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [currentMood, setCurrentMood] = useState<MoodData | null>(null);
+  const [currentMood, setCurrentMood] = useState<StoredMoodData | null>(null);
+  const [showMoodCheckIn, setShowMoodCheckIn] = useState(false);
 
   const handleNavigateToProfile = () => {
     router.push('/profile');
   };
 
   const handleNavigateToChat = () => {
-    if (chatMode === 'avatar') {
-    router.push('/chat/avatar');
-  } else {
-    router.push('/chat/simple');
-  }
+    // Always show mood check-in when starting a new chat session
+    setShowMoodCheckIn(true);
   };
 
   const handleChatModeChange = (mode: 'avatar' | 'standard') => {
@@ -62,17 +65,67 @@ export default function HomePage() {
   const handleNavigation = (screen: string) => {
     switch (screen) {
       case 'welcome':
+      case '/':
+      case 'home':
         // Already on home page, could scroll to top or refresh
         window.scrollTo({ top: 0, behavior: 'smooth' });
         break;
       case 'settings':
-        // Navigate to settings page (adjust path as needed)
+        // Navigate to settings page
         router.push('/settings');
         break;
       default:
         console.log(`Navigate to: ${screen}`);
     }
   };
+
+  const handleMoodSubmit = (moodData: MoodData) => {
+    const moodWithTimestamp: StoredMoodData = {
+      ...moodData,
+      timestamp: new Date()
+    };
+    
+    setCurrentMood(moodWithTimestamp);
+    localStorage.setItem('avatarCompanion_mood', JSON.stringify(moodWithTimestamp));
+    setShowMoodCheckIn(false);
+    
+    // Now navigate to chat
+    if (chatMode === 'avatar') {
+      router.push('/chat/avatar');
+    } else {
+      router.push('/chat/simple');
+    }
+  };
+
+  const handleMoodSkip = () => {
+    setShowMoodCheckIn(false);
+    
+    // Navigate to chat without mood data
+    if (chatMode === 'avatar') {
+      router.push('/chat/avatar');
+    } else {
+      router.push('/chat/simple');
+    }
+  };
+
+  // Load saved mood data on mount
+  useEffect(() => {
+    const savedMood = localStorage.getItem('avatarCompanion_mood');
+    if (savedMood) {
+      try {
+        const moodData = JSON.parse(savedMood);
+        // Check if mood data is recent (within 4 hours)
+        if (new Date().getTime() - new Date(moodData.timestamp).getTime() < 4 * 60 * 60 * 1000) {
+          setCurrentMood(moodData);
+        } else {
+          localStorage.removeItem('avatarCompanion_mood');
+        }
+      } catch (error) {
+        console.error('Error loading mood data:', error);
+        localStorage.removeItem('avatarCompanion_mood');
+      }
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
@@ -81,6 +134,14 @@ export default function HomePage() {
         onNavigate={handleNavigation}
         isLoggedIn={isLoggedIn}
       />
+
+      {/* Mood Check-In Modal */}
+      {showMoodCheckIn && (
+        <MoodCheckIn
+          onComplete={handleMoodSubmit}
+          onSkip={handleMoodSkip}
+        />
+      )}
       
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         
@@ -417,6 +478,7 @@ export default function HomePage() {
           </div>
         </div>
 
+
         {/* Bottom Actions */}
         <div className="text-center">
           <p className="text-gray-600 mb-6">
@@ -452,4 +514,5 @@ export default function HomePage() {
       </div>
     </div>
   );
+
 }
