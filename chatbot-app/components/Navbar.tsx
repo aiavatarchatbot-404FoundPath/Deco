@@ -8,7 +8,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 interface NavbarProps {
   onNavigate: (screen: string) => void;
-  isLoggedIn?: boolean; 
+  isLoggedIn: boolean;
+  currentPage?: string;
 }
 
 export default function Navbar({ onNavigate }: { onNavigate: (s: string) => void }) {
@@ -75,20 +76,4 @@ export default function Navbar({ onNavigate }: { onNavigate: (s: string) => void
       </div>
     </nav>
   );
-  //     <div className="flex items-center gap-2">
-  //       {isLoggedIn ? (
-  //         <>
-  //           <Button variant="ghost" size="sm" onClick={() => onNavigate('profile')}>
-  //             Profile
-  //           </Button>
-  //           <Button variant="ghost" size="sm" onClick={() => onNavigate('settings')}>
-  //             Settings
-  //           </Button>
-  //         </>
-  //       ) : (
-          
-  //       )}
-  //     </div>
-  //   </nav>
-  // );
 }
