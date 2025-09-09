@@ -32,6 +32,10 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
   const [selectedAvatar, setSelectedAvatar] = useState<string>('custom');
   const router = useRouter();
 
+  // Debug: Log user data to see what we're getting
+  console.log('AvatarBuilderScreen user data:', user);
+  console.log('User rpm_user_url:', user?.rpm_user_url);
+
   // Ready Player Me avatar URLs - Replace these with your actual avatar links
   const readyPlayerMeAvatars = {
     adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
@@ -113,7 +117,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           >
             <div className="space-y-4">
               {/* Avatar Image - Show user's custom avatar if available */}
-              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-orange-300 to-red-400 rounded-full flex items-center justify-center overflow-hidden">
+              <div className="w-32 h-32 mx-auto bg-gradient-to-br from-orange-300 to-red-400 rounded-full flex items-center justify-center overflow-hidden">
                 {user?.rpm_user_url ? (
                   <img 
                     src={toThumbnail(user.rpm_user_url) || ""} 
@@ -129,8 +133,8 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                     }}
                   />
                 ) : null}
-                <div className={`w-20 h-20 bg-orange-200 rounded-full flex items-center justify-center ${user?.rpm_user_url ? 'hidden' : ''}`}>
-                  <User className="w-12 h-12 text-orange-600" />
+                <div className={`w-28 h-28 bg-orange-200 rounded-full flex items-center justify-center ${user?.rpm_user_url ? 'hidden' : ''}`}>
+                  <User className="w-16 h-16 text-orange-600" />
                 </div>
               </div>
               
