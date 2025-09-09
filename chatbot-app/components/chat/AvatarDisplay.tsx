@@ -1,86 +1,94 @@
+// components/chat/AvatarDisplay.tsx
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';  // used for smooth speaking indicator animation
 
-// Define the props the component can accept
-export interface AvatarDisplayProps {
-  aiAvatar?: { name: string; url?: string };   // The AI companion avatar info
-  userAvatar?: { name: string; url?: string }; // The user's avatar info
-  speaking?: boolean;                          // Whether the AI is "speaking/typing"
-  motionSafe?: boolean;                        // If true, use gentler animation
+interface AvatarDisplayProps {
+  aiAvatar?: { name?: string; url?: string };
+  userAvatar?: { name?: string; url?: string };
 }
 
-// AvatarDisplay component renders the AI avatar (and optionally the user avatar)
-export function AvatarDisplay({
-  aiAvatar = { name: 'Companion' },  // default fallback if no AI avatar is passed
-  userAvatar = { name: 'You' },      // default fallback if no user avatar is passed
-  speaking = false,                  // default: bot not speaking
-  motionSafe = true,                 // default: motion reduced
+/**
+ * AvatarDisplay
+ * Shows the AI avatar (left) and the user's avatar (right)
+ */
+export default function AvatarDisplay({
+  aiAvatar = { name: 'Adam' },
+  userAvatar = { name: 'You' },
 }: AvatarDisplayProps) {
+  const AI_NAME = aiAvatar?.name || 'Adam';
+  const USER_NAME = userAvatar?.name || 'You';
+
   return (
-    <div className="flex flex-col items-center gap-6 p-4">
-      
-      {/* ============== AI Avatar (Companion) ============== */}
-      <div className="flex flex-col items-center">
-        <div className="relative w-28 h-28 rounded-full 
-                        bg-gradient-to-br from-teal-200 to-purple-200 
-                        dark:from-neutral-800 dark:to-neutral-700 
-                        overflow-hidden flex items-center justify-center">
-          
-          {/* Show AI avatar image if url is provided, otherwise show their name */}
-          {aiAvatar.url ? (
-            <img
-              src={aiAvatar.url}
-              alt={aiAvatar.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
-              {aiAvatar.name}
-            </span>
-          )}
+    <aside
+      className="
+        hidden lg:flex       /* only show on large screens */
+        w-[32rem] max-w-[36rem]
+        bg-white
+        border border-gray-200
+        rounded-2xl
+        p-6
+        mr-4
+        self-stretch
+        flex-col
+      "
+      aria-label="Avatar display"
+    >
+      {/* Avatar stage */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="grid grid-cols-2 items-center w-full">
+          {/* AI avatar (left) */}
+          <figure className="flex flex-col items-center justify-center">
+            <div
+              className="
+                w-44 h-44 md:w-48 md:h-48
+                rounded-full overflow-hidden
+                bg-gradient-to-br from-blue-100 to-purple-100
+                border border-gray-200
+                flex items-center justify-center
+              "
+            >
+              {aiAvatar?.url ? (
+                <img
+                  src={aiAvatar.url}
+                  alt={AI_NAME}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-4xl" aria-hidden="true">🧑‍💼</span>
+              )}
+            </div>
+            <figcaption className="mt-3 text-sm text-gray-700">{AI_NAME}</figcaption>
+          </figure>
 
-          {/* Speaking indicator (small green dot at bottom of avatar) */}
-          {speaking && (
-            <motion.div
-              initial={{ opacity: 0 }}                       // start invisible
-              animate={{ opacity: [0.4, 1, 0.4] }}           // pulse effect
-              transition={{ repeat: Infinity, duration: motionSafe ? 2 : 1 }}
-              className="absolute bottom-2 w-3 h-3 rounded-full bg-emerald-500"
-            />
-          )}
+          {/* User avatar (right) */}
+          <figure className="flex flex-col items-center justify-center">
+            <div
+              className="
+                w-44 h-44 md:w-48 md:h-48
+                rounded-full overflow-hidden
+                bg-gradient-to-br from-teal-100 to-blue-100
+                border border-gray-200
+                flex items-center justify-center
+              "
+            >
+              {userAvatar?.url ? (
+                <img
+                  src={userAvatar.url}
+                  alt={USER_NAME}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-4xl" aria-hidden="true">🧑‍🎤</span>
+              )}
+            </div>
+            <figcaption className="mt-3 text-sm text-gray-700">You</figcaption>
+          </figure>
         </div>
-
-        {/* Label under the AI avatar */}
-        <div className="mt-2 text-sm font-medium">{aiAvatar.name}</div>
       </div>
 
-      {/* ============== User Avatar (You) ============== */}
-      {userAvatar && (
-        <div className="flex flex-col items-center">
-          <div className="w-20 h-20 rounded-full 
-                          bg-neutral-200 dark:bg-neutral-700 
-                          flex items-center justify-center overflow-hidden">
-            
-            {/* Show user avatar image if url exists, otherwise show their name */}
-            {userAvatar.url ? (
-              <img
-                src={userAvatar.url}
-                alt={userAvatar.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                {userAvatar.name}
-              </span>
-            )}
-          </div>
-          
-          {/* Label under the User avatar */}
-          <div className="mt-1 text-xs text-neutral-500">You</div>
-        </div>
-      )}
-    </div>
+      {/* divider line */}
+      <div className="mt-6 border-t border-gray-200" />
+    </aside>
   );
 }
