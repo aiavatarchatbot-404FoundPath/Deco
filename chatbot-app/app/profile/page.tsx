@@ -32,15 +32,14 @@ import {
 interface ReadyPlayerMeAvatar {
   id: string;
   name: string;
-  url: string; // usually .glb
+  url: string;
   type: "user" | "companion";
-  thumbnail?: string; // we compute a .png for display
+  thumbnail?: string; 
   isCustom?: boolean;
 }
 
-/* ----------------------------- helpers ----------------------------- */
 
-// Convert a Ready Player Me URL (.glb) into a displayable PNG
+// GLB --> Png
 function toThumbnail(url?: string | null): string | null {
   if (!url) return null;
   if (url.endsWith(".png")) return url;
@@ -62,8 +61,7 @@ function idFromUrl(url: string): string {
   return last.replace(".glb", "") || `custom-${Date.now()}`;
 }
 
-/* ----------------------------- types & mocks ----------------------------- */
-
+// JUST FOR NOW ITS THE mock data
 type Conversation = {
   id: string;
   title: string;
@@ -86,7 +84,7 @@ type Profile = {
   avatar_url?: string | null;
   session_mode?: string | null;
 
-  // 🔥 DB-backed avatar URLs
+  
   rpm_user_url?: string | null;
   rpm_companion_url?: string | null;
 };
@@ -122,18 +120,18 @@ const MOCK_SAVED: SavedItem[] = [
   },
 ];
 
-/* -------------------------------- component ------------------------------ */
 
 export default function ProfilePageSupabase() {
   const router = useRouter();
 
-  // profile from Supabase (DB truth)
+  // STATE of profile from DB....
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(true); 
+  // loading.....
 
-  // local UI state
+  // FOR UI!!!!
   const [activeTab, setActiveTab] = useState<"conversations" | "avatars" | "saved" | "settings">("conversations");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(""); // for search
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [defaultModel, setDefaultModel] = useState("gpt-4o-mini");
@@ -144,7 +142,7 @@ export default function ProfilePageSupabase() {
   useEffect(() => {
   let cancelled = false;
 
-  // wait up to ~1s for the session to hydrate after login
+ 
   async function getStableSession() {
     for (let i = 0; i < 10; i++) {
       const { data: { session } } = await supabase.auth.getSession();
@@ -173,7 +171,7 @@ export default function ProfilePageSupabase() {
         .from("profiles")
         .select("id, username, full_name, avatar_url, session_mode, rpm_user_url, rpm_companion_url")
         .eq("id", u.id)
-        .maybeSingle(); // ✅ doesn't throw if the row doesn't exist yet
+        .maybeSingle(); 
 
       if (cancelled) return;
 
@@ -307,7 +305,7 @@ export default function ProfilePageSupabase() {
     );
   }
 
-  // 👇 Header avatar thumbnail comes straight from DB (per-user)
+  //  Header avatar thumbnail comes straight from DB (per-user)
   const headerThumb = toThumbnail(profile.rpm_user_url);
 
   return (

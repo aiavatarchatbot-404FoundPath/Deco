@@ -14,10 +14,10 @@ import { ArrowLeft, User, Lock, UserPlus, Shield, Info } from "lucide-react";
 export default function LoginPage() {
   const router = useRouter();
 
-  // Auth form state
+  
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
-  const [username, setUsername] = useState(""); // used only for sign-up
+  const [username, setUsername] = useState(""); 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -38,7 +38,7 @@ export default function LoginPage() {
           return;
         }
 
-        // Sign up + store username in user_metadata
+        // FOR SIGNUP!!!!!!!!!!! here
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -46,7 +46,7 @@ export default function LoginPage() {
         });
         if (error) throw error;
 
-        // If email confirmation is ON, user must confirm first
+        // USER HAS. to confm email to work
         alert("Check your email to confirm your account, then log in.");
         setIsSignUp(false); // flip back to login
         setPassword("");
@@ -72,7 +72,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       <div className="max-w-md mx-auto px-4 py-8">
-        {/* Back Button */}
+        
         <Button onClick={handleBack} variant="ghost" className="mb-6 trauma-safe gentle-focus">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Home
@@ -92,7 +92,7 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            {/* Privacy Notice */}
+            
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-start space-x-3">
                 <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
@@ -106,14 +106,14 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Error */}
+            
             {err && (
               <div className="text-sm rounded-md border border-red-300 bg-red-50 text-red-700 p-3">
                 {err}
               </div>
             )}
 
-            {/* Form */}
+           
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label htmlFor="email">Email</Label>
@@ -186,7 +186,7 @@ export default function LoginPage() {
 
             <Separator />
 
-            {/* Toggle between login/signup */}
+            {/* login & signup stuff */}
             <div className="text-center">
               <p className="text-sm text-muted-foreground mb-3">
                 {isSignUp ? "Already have an account?" : "Don't have an account?"}
@@ -196,7 +196,7 @@ export default function LoginPage() {
               </Button>
             </div>
 
-            {/* Benefits of Account */}
+            
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
               <div className="flex items-center space-x-2 mb-3">
                 <Info className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -218,7 +218,7 @@ export default function LoginPage() {
               </ul>
             </div>
 
-            {/* Continue without account */}
+           
             <div className="text-center pt-4 border-t border-border">
               <p className="text-sm text-muted-foreground mb-3">Prefer to stay anonymous?</p>
               <Button variant="ghost" onClick={handleBack} className="trauma-safe gentle-focus">

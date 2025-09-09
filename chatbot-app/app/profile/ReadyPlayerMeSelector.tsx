@@ -120,7 +120,7 @@ export function ReadyPlayerMeSelector({
     };
   }, []);
 
-  /* ---------------------- save helper (upsert by id) ---------------------- */
+  
   const saveAvatarToDB = useCallback(async (type: "user" | "companion", url: string) => {
     const { data: auth } = await supabase.auth.getUser();
     const u = auth?.user;
@@ -145,17 +145,16 @@ export function ReadyPlayerMeSelector({
       return;
     }
 
-    // reflect latest saved values
+    
     setUserUrl(data?.rpm_user_url ?? null);
     setCompanionUrl(data?.rpm_companion_url ?? null);
   }, []);
 
-  /* --------------- ReadyPlayerMe postMessage → save to DB ---------------- */
+  /* --------------- ReadyPlayerMe --> -->  save to DB ---------------- */
   const handleReadyPlayerMeMessage = (event: MessageEvent) => {
     let avatarUrl: string | null = null;
     if (!event?.data) return;
 
-    // ignore RPM error events
     if (event.data.eventName && (event.data.eventName.includes("error") || event.data.type === "error")) {
       return;
     }
@@ -221,7 +220,7 @@ export function ReadyPlayerMeSelector({
     setTimeout(() => setIsLoading(false), 800);
   };
 
-  // compute display images from DB (prefer DB over props)
+  // db
   const userImg = toThumbnail(userUrl) || currentUserAvatar?.thumbnail || null;
   const companionImg = toThumbnail(companionUrl) || currentCompanionAvatar?.thumbnail || null;
 
@@ -375,7 +374,7 @@ export function ReadyPlayerMeSelector({
                       key={avatar.id}
                       className={`trauma-safe cursor-pointer border-2 transition-all duration-300 hover:border-purple-200 dark:hover:border-purple-700`}
                       onClick={() => {
-                        // save the prebuilt companion (url is .glb; thumbnail will render via toThumbnail)
+                        // SAVEING
                         onAvatarSelect(avatar, "companion");
                         void saveAvatarToDB("companion", avatar.url);
                       }}
