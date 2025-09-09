@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, User } from 'lucide-react';
 import { Button } from './ui/button';
+import { useRouter } from 'next/navigation';
 
 interface AvatarBuilderScreenProps {
   onNavigate: (screen: string) => void;
@@ -29,11 +30,12 @@ function toThumbnail(url?: string | null): string | null {
 
 export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectAvatar }: AvatarBuilderScreenProps) {
   const [selectedAvatar, setSelectedAvatar] = useState<string>('custom');
+  const router = useRouter();
 
   // Ready Player Me avatar URLs - Replace these with your actual avatar links
   const readyPlayerMeAvatars = {
-    adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb", // Your Adam avatar URL
-    eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"   // Your Eve avatar URL
+    adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
+    eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
   };
 
   const handleAvatarSelect = (avatarId: string) => {
@@ -301,7 +303,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
         {/* Start Chatting Button */}
         <div className="pt-2">
           <Button 
-            onClick={onNavigateToChat}
+            onClick={() => router.push('/chat/avatar')}
             className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50"
             // style={{ minWidth: '20px', paddingLeft: '100px', paddingRight: '100px' }}
           >

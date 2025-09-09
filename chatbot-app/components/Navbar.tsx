@@ -12,8 +12,8 @@ interface NavbarProps {
   currentPage?: string;
 }
 
-export default function Navbar({ onNavigate }: { onNavigate: (s: string) => void }) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn }: { onNavigate: (s: string) => void; isLoggedIn?: boolean }) {
+  const [isLoggedIn, setIsLoggedIn] = useState(propIsLoggedIn || false);
     const router = useRouter();
   
     useEffect(() => {
@@ -44,7 +44,7 @@ export default function Navbar({ onNavigate }: { onNavigate: (s: string) => void
       
       <div className="flex items-center space-x-2">
         <Button
-          onClick={() => onNavigate('welcome')}
+          onClick={() => onNavigate('/')}
           variant="ghost"
           size="sm"
           className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-4 py-1 rounded-full text-sm"

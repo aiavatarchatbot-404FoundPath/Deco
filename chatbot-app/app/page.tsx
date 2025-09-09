@@ -74,6 +74,12 @@ export default function HomePage() {
         // Navigate to settings page
         router.push('/settings');
         break;
+      case 'avatarbuilder':
+        router.push('/avatarbuilder');
+        break;
+      case 'login':
+        router.push('/login');
+        break;
       default:
         console.log(`Navigate to: ${screen}`);
     }
@@ -328,6 +334,9 @@ export default function HomePage() {
                       variant="outline"
                       size="sm"
                       className="w-full text-xs border-orange-200 text-orange-600 hover:bg-orange-50"
+                      onClick={() => {
+                        handleNavigation('avatarbuilder');
+                      }}
                     >
                       Customize Avatar First
                     </Button>
@@ -337,6 +346,9 @@ export default function HomePage() {
                         variant="ghost"
                         size="sm"
                         className="w-full text-xs text-gray-500 hover:bg-gray-50"
+                        onClick={() => {
+                        handleNavigation('login');
+                      }}
                       >
                         Login to Save Avatars
                       </Button>

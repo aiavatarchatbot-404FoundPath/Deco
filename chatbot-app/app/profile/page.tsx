@@ -280,7 +280,7 @@ export default function ProfilePageSupabase() {
 
   // nav handlers
   const handleBackToHome = () => router.push("/");
-  const handleNavigateToChat = () => router.push("/chat");
+  const handleNavigateToChat = () => router.push("/chat/avatar");
   const handleNavigation = (href: string) => router.push(href);
 
   const handleExportData = () => alert("Export started (placeholder).");
