@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, User } from 'lucide-react';
+import { Button } from './ui/button';
 
 interface AvatarBuilderScreenProps {
   onNavigate: (screen: string) => void;
@@ -9,12 +10,71 @@ interface AvatarBuilderScreenProps {
   onSelectAvatar: (avatar: any) => void;
 }
 
+// Convert a Ready Player Me URL (.glb) into a displayable PNG
+function toThumbnail(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.endsWith(".png")) return url;
+  if (url.endsWith(".glb")) return url.replace(".glb", ".png");
+
+  // Try to extract avatar id and use the official PNG endpoint
+  try {
+    const last = url.split("/").pop() || "";
+    const id = last.replace(".glb", "");
+    if (id && id.length > 10) {
+      return `https://api.readyplayer.me/v1/avatars/${id}.png`;
+    }
+  } catch {}
+  return null;
+}
+
 export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectAvatar }: AvatarBuilderScreenProps) {
   const [selectedAvatar, setSelectedAvatar] = useState<string>('custom');
 
+  // Ready Player Me avatar URLs - Replace these with your actual avatar links
+  const readyPlayerMeAvatars = {
+    adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb", // Your Adam avatar URL
+    eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"   // Your Eve avatar URL
+  };
+
   const handleAvatarSelect = (avatarId: string) => {
     setSelectedAvatar(avatarId);
-    onSelectAvatar({ id: avatarId });
+    
+    // Pass the appropriate avatar data based on selection
+    let avatarData;
+    
+    if (avatarId === 'custom') {
+      // Use user's custom avatar if available, otherwise prompt to create one
+      avatarData = {
+        id: 'custom',
+        name: user?.rpm_user_url ? 'Custom Avatar' : 'Create Custom Avatar',
+        type: 'readyplayerme',
+        url: user?.rpm_user_url || null,
+        isCustom: true
+      };
+    } else if (avatarId === 'eve') {
+      avatarData = {
+        id: 'eve',
+        name: 'Eve',
+        type: 'readyplayerme',
+        url: readyPlayerMeAvatars.eve
+      };
+    } else if (avatarId === 'ready-adam') {
+      avatarData = {
+        id: 'ready-adam',
+        name: 'Adam',
+        type: 'readyplayerme',
+        url: readyPlayerMeAvatars.adam
+      };
+    } else {
+      avatarData = {
+        id: avatarId,
+        name: avatarId,
+        type: 'default',
+        url: null
+      };
+    }
+    
+    onSelectAvatar(avatarData);
   };
 
   const handleCreateAvatar = () => {
@@ -42,7 +102,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
         <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
           {/* Custom Avatar */}
           <div 
-            onClick={() => handleAvatarSelect('custom')}
+            onClick={() => user?.rpm_user_url ? handleAvatarSelect('custom') : handleCreateAvatar()}
             className={`bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all ${
               selectedAvatar === 'custom' 
                 ? 'ring-4 ring-blue-300 shadow-xl' 
@@ -50,22 +110,46 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
             }`}
           >
             <div className="space-y-4">
-              {/* Avatar Image Placeholder */}
-              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-orange-300 to-red-400 rounded-full flex items-center justify-center">
-                {/* Female avatar placeholder */}
-                <div className="w-20 h-20 bg-orange-200 rounded-full flex items-center justify-center">
+              {/* Avatar Image - Show user's custom avatar if available */}
+              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-orange-300 to-red-400 rounded-full flex items-center justify-center overflow-hidden">
+                {user?.rpm_user_url ? (
+                  <img 
+                    src={toThumbnail(user.rpm_user_url) || ""} 
+                    alt="Your Custom Avatar"
+                    className="w-full h-full object-cover rounded-full"
+                    onError={(e) => {
+                      // Fallback to icon if image fails to load
+                      e.currentTarget.style.display = 'none';
+                      const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (nextElement) {
+                        nextElement.style.display = 'flex';
+                      }
+                    }}
+                  />
+                ) : null}
+                <div className={`w-20 h-20 bg-orange-200 rounded-full flex items-center justify-center ${user?.rpm_user_url ? 'hidden' : ''}`}>
                   <User className="w-12 h-12 text-orange-600" />
                 </div>
               </div>
               
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Your Custom Avatar
+                  {user?.rpm_user_url ? 'Your Custom Avatar' : 'Create Custom Avatar'}
                 </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {user?.rpm_user_url ? 'Ready Player Me Avatar' : 'Click to create with Ready Player Me'}
+                </p>
                 {selectedAvatar === 'custom' && (
                   <div className="mt-2">
                     <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
                       Selected
+                    </span>
+                  </div>
+                )}
+                {!user?.rpm_user_url && (
+                  <div className="mt-3">
+                    <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
+                      ✨ Create Your Own
                     </span>
                   </div>
                 )}
@@ -114,23 +198,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           </h2>
           
           <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-            {/* Eve */}
-            <div 
-              onClick={() => handleAvatarSelect('eve')}
-              className={`bg-white rounded-2xl p-6 shadow-lg cursor-pointer transition-all ${
-                selectedAvatar === 'eve' 
-                  ? 'ring-4 ring-blue-300 shadow-xl' 
-                  : 'hover:shadow-xl'
-              }`}
-            >
-              <div className="space-y-3">
-                <div className="w-20 h-20 mx-auto bg-gradient-to-br from-teal-300 to-cyan-400 rounded-full flex items-center justify-center">
-                  <User className="w-10 h-10 text-teal-700" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900">Eve</h3>
-              </div>
-            </div>
-
             {/* Adam */}
             <div 
               onClick={() => handleAvatarSelect('ready-adam')}
@@ -141,10 +208,75 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
               }`}
             >
               <div className="space-y-3">
-                <div className="w-20 h-20 mx-auto bg-gradient-to-br from-gray-300 to-gray-500 rounded-full flex items-center justify-center">
-                  <User className="w-10 h-10 text-gray-700" />
+                <div className="w-32 h-32 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full overflow-hidden flex items-center justify-center">
+                  {/* You can replace this with an actual Ready Player Me preview image */}
+                  <img 
+                    src={toThumbnail(readyPlayerMeAvatars.adam) || ""}
+                    alt="Adam Avatar"
+                    className="w-full h-full object-cover rounded-full"
+                    onError={(e) => {
+                      // Fallback to icon if image fails to load
+                      e.currentTarget.style.display = 'none';
+                      const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (nextElement) {
+                        nextElement.style.display = 'block';
+                      }
+                    }}
+                  />
+                  <User className="w-12 h-12 text-blue-700 hidden" />
                 </div>
-                <h3 className="text-lg font-medium text-gray-900">Adam</h3>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Adam</h3>
+                  <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
+                </div>
+                {selectedAvatar === 'ready-adam' && (
+                  <div className="mt-2">
+                    <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
+                      Selected
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Eve */}
+            <div 
+              onClick={() => handleAvatarSelect('eve')}
+              className={`bg-white rounded-2xl p-6 shadow-lg cursor-pointer transition-all ${
+                selectedAvatar === 'eve' 
+                  ? 'ring-4 ring-blue-300 shadow-xl' 
+                  : 'hover:shadow-xl'
+              }`}
+            >
+              <div className="space-y-3">
+                <div className="w-32 h-32 mx-auto bg-gradient-to-br from-pink-300 to-purple-400 rounded-full overflow-hidden flex items-center justify-center">
+                  {/* You can replace this with an actual Ready Player Me preview image */}
+                  <img 
+                    src={toThumbnail(readyPlayerMeAvatars.eve) || ""}
+                    alt="Eve Avatar"
+                    className="w-full h-full object-cover rounded-full"
+                    onError={(e) => {
+                      // Fallback to icon if image fails to load
+                      e.currentTarget.style.display = 'none';
+                      const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (nextElement) {
+                        nextElement.style.display = 'block';
+                      }
+                    }}
+                  />
+                  <User className="w-12 h-12 text-pink-700 hidden" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Eve</h3>
+                  <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
+                </div>
+                {selectedAvatar === 'eve' && (
+                  <div className="mt-2">
+                    <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
+                      Selected
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -158,23 +290,24 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           <p className="text-gray-700 text-sm mb-4">
             Ready Player Me provides cutting-edge 3D avatar technology. Create custom avatars with facial expressions, animations, and personalized features for an immersive chat experience.
           </p>
-          <button 
+          <Button 
             onClick={handleCreateAvatar}
             className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-full text-sm font-medium transition-colors"
           >
             Create Avatar
-          </button>
+          </Button>
         </div>
 
         {/* Start Chatting Button */}
-        <div className="pt-8">
-          <button 
+        <div className="pt-2">
+          <Button 
             onClick={onNavigateToChat}
-            className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-medium transition-all hover:shadow-lg flex items-center mx-auto"
+            className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50"
+            // style={{ minWidth: '20px', paddingLeft: '100px', paddingRight: '100px' }}
           >
             Start Chatting
-            <ArrowRight className="ml-2 h-5 w-5" />
-          </button>
+            <ArrowRight className="ml-0.5 h-6 w-5" />
+          </Button>
         </div>
       </div>
     </div>
