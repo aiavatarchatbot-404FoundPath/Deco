@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 import Navbar from '../components/Navbar'; 
 import MoodCheckIn from '../components/MoodCheckIn';
 
@@ -33,10 +34,28 @@ interface StoredMoodData extends MoodData {
 
 interface User {
   username: string;
+  rpm_user_url?: string | null;
   currentAvatar?: {
     name: string;
     type: string;
   };
+}
+
+// Convert a Ready Player Me URL (.glb) into a displayable PNG
+function toThumbnail(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.endsWith(".png")) return url;
+  if (url.endsWith(".glb")) return url.replace(".glb", ".png");
+
+  // Try to extract avatar id and use the official PNG endpoint
+  try {
+    const last = url.split("/").pop() || "";
+    const id = last.replace(".glb", "");
+    if (id && id.length > 10) {
+      return `https://api.readyplayer.me/v1/avatars/${id}.png`;
+    }
+  } catch {}
+  return null;
 }
 
 export default function HomePage() {
@@ -74,9 +93,15 @@ export default function HomePage() {
         // Navigate to settings page
         router.push('/settings');
         break;
+        // Navigate to profile page
+      case 'profile':
+        router.push('/profile');
+        break;
+        // Navigate to avatar builder page
       case 'avatarbuilder':
         router.push('/avatarbuilder');
         break;
+      // Navigate to login page
       case 'login':
         router.push('/login');
         break;
@@ -95,7 +120,7 @@ export default function HomePage() {
     localStorage.setItem('avatarCompanion_mood', JSON.stringify(moodWithTimestamp));
     setShowMoodCheckIn(false);
     
-    // Now navigate to chat
+    // Navigate to chat
     if (chatMode === 'avatar') {
       router.push('/chat/avatar');
     } else {
@@ -114,13 +139,58 @@ export default function HomePage() {
     }
   };
 
-  // Load saved mood data on mount
+  // Load saved mood data and user data on mount
   useEffect(() => {
+    // Load user authentication state
+    const loadUserData = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUser = session?.user;
+        
+        if (currentUser) {
+          setIsLoggedIn(true);
+          
+          // Fetch user profile data
+          const { data: profile, error } = await supabase
+            .from("profiles")
+            .select("id, username, full_name, avatar_url, session_mode, rpm_user_url, rpm_companion_url")
+            .eq("id", currentUser.id)
+            .maybeSingle();
+            
+          if (profile) {
+            setUser({
+              username: profile.username || profile.full_name || currentUser.email || 'User',
+              rpm_user_url: profile.rpm_user_url,
+              currentAvatar: profile.rpm_user_url ? {
+                name: 'Custom Avatar',
+                type: 'custom'
+              } : undefined
+            });
+          } else {
+            // Fallback user data if profile doesn't exist yet
+            setUser({
+              username: currentUser.email?.split('@')[0] || 'User'
+            });
+          }
+        } else {
+          setIsLoggedIn(false);
+          setUser(null);
+        }
+      } catch (error) {
+        console.error("Error loading user data:", error);
+        setIsLoggedIn(false);
+        setUser(null);
+      }
+    };
+
+    loadUserData();
+
+    // Load saved mood data
     const savedMood = localStorage.getItem('avatarCompanion_mood');
     if (savedMood) {
       try {
         const moodData = JSON.parse(savedMood);
-        // Check if mood data is recent (within 4 hours)
+        // Check if mood data is recent 
         if (new Date().getTime() - new Date(moodData.timestamp).getTime() < 4 * 60 * 60 * 1000) {
           setCurrentMood(moodData);
         } else {
@@ -131,6 +201,18 @@ export default function HomePage() {
         localStorage.removeItem('avatarCompanion_mood');
       }
     }
+
+    // Listen for auth state changes
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        loadUserData();
+      } else if (event === 'SIGNED_OUT') {
+        setIsLoggedIn(false);
+        setUser(null);
+      }
+    });
+
+    return () => subscription.subscription.unsubscribe();
   }, []);
 
   return (
@@ -139,6 +221,7 @@ export default function HomePage() {
       <Navbar 
         onNavigate={handleNavigation}
         isLoggedIn={isLoggedIn}
+        currentPage="home"
       />
 
       {/* Mood Check-In Modal */}
@@ -153,24 +236,40 @@ export default function HomePage() {
         
         {/* User Welcome (if logged in) */}
         {isLoggedIn && user && (
-          <div className="mb-8">
+          <div className="mb-8 max-w-md mx-auto">
             <Card className="border-2 border-teal-200 bg-gradient-to-r from-white to-teal-50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-teal-500 rounded-full flex items-center justify-center">
-                      <span className="text-white font-semibold">{user.username.charAt(0)}</span>
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">Welcome back, {user.username}!</h3>
-                      <div className="flex items-center space-x-4 text-sm text-gray-600">
-                        <span>Ready to continue your journey</span>
-                        {currentMood && (
-                          <Badge className="bg-teal-50 text-teal-700 border-teal-200">
-                            Currently feeling {currentMood.feeling.toLowerCase()}
-                          </Badge>
-                        )}
-                      </div>
+              <CardContent className="p-2">
+                <div className="flex items-center space-x-4 text-center justify-center">
+                  <div className="w-16 h-16 bg-teal-500 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {user.rpm_user_url ? (
+                      <img 
+                        src={toThumbnail(user.rpm_user_url) || ""}
+                        alt="Your Avatar"
+                        className="w-18 h-18 object-cover rounded-full scale-120"
+                        style={{ objectPosition: 'center top' }}
+                        onError={(e) => {
+                          // Fallback to initials if avatar image fails to load
+                          e.currentTarget.style.display = 'none';
+                          const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
+                          if (nextElement) {
+                            nextElement.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <span className={`text-white font-semibold ${user.rpm_user_url ? 'hidden' : ''}`}>
+                      {user.username.charAt(0)}
+                    </span>
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-semibold">Welcome back, {user.username}!</h3>
+                    <div className="flex flex-col space-y-1 text-sm text-gray-600 mt-1">
+                      <span>Ready to continue your journey?</span>
+                      {currentMood && (
+                        <Badge className="bg-teal-50 text-teal-700 border-teal-200 w-fit">
+                          Currently feeling {currentMood.feeling.toLowerCase()}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </div>

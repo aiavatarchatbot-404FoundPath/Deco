@@ -310,7 +310,7 @@ export default function ProfilePageSupabase() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar onNavigate={handleNavigation as any} />
+      <Navbar onNavigate={handleNavigation as any} currentPage="profile" />
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
         {/* Back Button */}

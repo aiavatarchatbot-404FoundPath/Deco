@@ -11,7 +11,7 @@ interface NavbarProps {
   currentPage?: string;
 }
 
-export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn }: { onNavigate: (s: string) => void; isLoggedIn?: boolean }) {
+export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn, currentPage }: { onNavigate: (s: string) => void; isLoggedIn?: boolean; currentPage?: string }) {
   const [isLoggedIn, setIsLoggedIn] = useState(propIsLoggedIn || false);
     const router = useRouter();
   
@@ -36,7 +36,7 @@ export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn }: { onN
     //   >
     //     Adam • Companion
     //   </button>
-    <nav className="flex items-center justify-between p-4 bg-white/80 backdrop-blur-sm border-b border-gray-100">
+    <nav className="flex items-center justify-between px-8 py-2 bg-white/80 backdrop-blur-sm border-b border-gray-100">
       <div className="flex items-center space-x-1">
         <span className="font-medium text-gray-700">Your Safe Chat Space</span>
       </div>
@@ -46,7 +46,11 @@ export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn }: { onN
           onClick={() => onNavigate('/')}
           variant="ghost"
           size="sm"
-          className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-4 py-1 rounded-full text-sm"
+          className={`px-4 py-1 rounded-full text-sm ${
+            currentPage === 'home' || currentPage === '/' 
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' 
+              : 'text-gray-600 hover:bg-emerald-100 hover:text-emerald-700'
+          }`}
         >
           Home
         </Button>
@@ -54,23 +58,38 @@ export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn }: { onN
           onClick={() => onNavigate('settings')}
           variant="ghost"
           size="sm"
-          className="text-gray-600 hover:bg-gray-100 px-4 py-1 rounded-full text-sm"
+          className={`px-4 py-1 rounded-full text-sm ${
+            currentPage === 'settings' 
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' 
+              : 'text-gray-600 hover:bg-emerald-100 hover:text-emerald-700'
+          }`}
         >
           Preferences
         </Button>
         
-       <nav className="flex justify-end p-4 bg-gray-100">
-      
         {isLoggedIn ? (
-          <Button onClick={() => router.push("/profile")} size="sm" variant="ghost">
+          <Button 
+            onClick={() => router.push("/profile")} 
+            size="sm" 
+            variant="ghost"
+            className={`px-4 py-1 rounded-full text-sm ${
+              currentPage === 'profile' 
+                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' 
+                : 'text-gray-600 hover:bg-emerald-100 hover:text-emerald-700'
+            }`}
+          >
             Profile
           </Button>
         ) : (
-          <Button size="sm" onClick={() => router.push("/login")} variant="ghost">
+          <Button 
+            size="sm" 
+            onClick={() => router.push("/login")} 
+            variant="ghost"
+            className="px-4 py-1 rounded-full text-sm text-gray-600 hover:bg-emerald-100 hover:text-emerald-700"
+          >
             Log in
           </Button>
         )}
-      </nav>
 
       </div>
     </nav>

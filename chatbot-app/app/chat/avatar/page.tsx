@@ -25,6 +25,7 @@ export default function AvatarChatPage() {
   const handleNavigation = (screen: string) => {
     switch (screen) {
       case 'home':
+      case '/':
         router.push('/');
         break;
       case 'profile':
