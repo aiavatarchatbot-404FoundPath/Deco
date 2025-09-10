@@ -66,7 +66,9 @@ The system prioritises **trauma-informed design**, **youth-friendly UX**, and **
   Create a .env.local file:
 
   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+  
   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_key
+  
   OPENAI_API_KEY=your_openai_api_key
 
 **4. Run Locally**
