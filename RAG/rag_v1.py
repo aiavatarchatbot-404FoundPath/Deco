@@ -121,14 +121,13 @@ def ai_emotion_analyser(query):
 
     # Initializes the score when checking for emotions in the user query
     score = 0 
-    
-    for word in query:
+
+    # Score is updated based on whether a negative or positive word is detected in the query
+    for word in query.lower().split():
         if word in negative_words:
             score -= 1
-        else if word in positive_words:
+        elif word in positive_words:
             score += 1
-        else:
-            score = 0
 
     if score < 0:
         return "Negative"
