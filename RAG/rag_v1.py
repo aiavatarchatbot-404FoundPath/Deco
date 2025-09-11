@@ -132,7 +132,7 @@ def ai_emotion_analyser(query):
     # Returns the user's emotion based on the score
     if score < 0:
         return "Negative"
-    else if score == 0:
+    elif score == 0:
         return "Neutral"
     else:
         return "Positive"
