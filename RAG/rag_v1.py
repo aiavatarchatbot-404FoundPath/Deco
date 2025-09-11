@@ -115,10 +115,43 @@ def ask(query):
     )
     return resp.choices[0].message.content
 
-def ai_emotion_analyser(query):
-    negative_words = ["anxious", "sad", "unhappy", "miserable", "stressed", "upset", "worthless", "horrible", "awful", "bad"]
-    positive_words = ["happy", "great", "amazing", "fantastic", "confident", "relaxed", "good"]
+# Global variables 
+negative_words = [
+    # Emotions & Feelings
+    "sad", "unhappy", "depressed", "lonely", "miserable",
+    "anxious", "stressed", "overwhelmed", "hopeless", "worthless",
 
+    # Judgments / Self-talk
+    "stupid", "dumb", "failure", "useless", "weak",
+    "horrible", "awful", "bad", "terrible", "disgusting",
+
+    # Conflict / Anger
+    "hate", "angry", "mad", "frustrated", "annoyed",
+    "upset", "pissed", "furious", "jealous", "resent",
+
+    # Fear / Worry
+    "scared", "afraid", "worried", "nervous", "insecure",
+    "panicked", "trapped", "stuck", "danger"
+]
+
+positive_words = [
+    # Emotions & Feelings
+    "happy", "joyful", "content", "cheerful", "excited",
+    "relaxed", "calm", "peaceful", "grateful", "hopeful",
+
+    # Self-talk / Confidence
+    "confident", "strong", "capable", "smart", "worthy",
+    "successful", "brave", "resilient", "motivated", "proud",
+
+    # Praise / Goodness
+    "amazing", "fantastic", "wonderful", "great", "awesome",
+    "excellent", "beautiful", "kind", "positive", "good",
+
+    # Love / Connection
+    "love", "caring", "friendly", "supportive", "compassionate",
+    "generous", "loyal", "respectful", "trusting", "connected"
+]
+def ai_emotion_analyser(query):
     # Initializes the score when checking for emotions in the user query
     score = 0 
 
@@ -137,6 +170,25 @@ def ai_emotion_analyser(query):
     else:
         return "Positive"
 
+def ai_tier_classifier(query, emotion):
+    emotion = ai_emotion_analyser(query)
+
+    query_word_list = query.lower().split()
+    count_neg = sum(1 for w in query_word_list if w in negative_words)
+
+    # Classifies tier based on number of negative words in user's query
+    if emotion == "Negative":
+        if count_neg <= 2:
+            tier = "Low"
+        elif count_neg <= 4:
+            tier = "Moderate"
+        elif count_neg <= 6:
+            tier = "High"
+        else:
+            tier = "Imminent Danger"
+        return tier
+    else:
+        return None # Return None if emotion is not negative
 # -------------------------
 # Run Chat Loop
 # -------------------------
