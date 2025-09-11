@@ -115,6 +115,28 @@ def ask(query):
     )
     return resp.choices[0].message.content
 
+def ai_emotion_analyser(query):
+    negative_words = ["anxious", "sad", "unhappy", "miserable", "stressed", "upset", "worthless", "horrible", "awful", "bad"]
+    positive_words = ["happy", "great", "amazing", "fantastic", "confident", "relaxed", "good"]
+
+    # Initializes the score when checking for emotions in the user query
+    score = 0 
+    
+    for word in query:
+        if word in negative_words:
+            score -= 1
+        else if word in positive_words:
+            score += 1
+        else:
+            score = 0
+
+    if score < 0:
+        return "Negative"
+    else if score == 0:
+        return "Neutral"
+    else:
+        return "Positive"
+
 # -------------------------
 # Run Chat Loop
 # -------------------------
