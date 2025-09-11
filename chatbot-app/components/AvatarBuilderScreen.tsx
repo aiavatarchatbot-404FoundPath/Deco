@@ -17,7 +17,7 @@ function toThumbnail(url?: string | null): string | null {
   if (url.endsWith(".png")) return url;
   if (url.endsWith(".glb")) return url.replace(".glb", ".png");
 
-  // Try to extract avatar id and use the official PNG endpoint
+  // extract avatar using png
   try {
     const last = url.split("/").pop() || "";
     const id = last.replace(".glb", "");
@@ -32,11 +32,11 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
   const [selectedAvatar, setSelectedAvatar] = useState<string>('custom');
   const router = useRouter();
 
-  // Debug: Log user data to see what we're getting
+  // Debug: Log user data 
   console.log('AvatarBuilderScreen user data:', user);
   console.log('User rpm_user_url:', user?.rpm_user_url);
 
-  // Ready Player Me avatar URLs - Replace these with your actual avatar links
+  // Ready Player Me avatar URLs
   const readyPlayerMeAvatars = {
     adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
     eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
@@ -175,7 +175,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
             <div className="space-y-4">
               {/* Avatar Image Placeholder */}
               <div className="w-24 h-24 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full flex items-center justify-center">
-                {/* Male avatar placeholder */}
                 <div className="w-20 h-20 bg-blue-200 rounded-full flex items-center justify-center">
                   <User className="w-12 h-12 text-blue-600" />
                 </div>
@@ -215,7 +214,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
             >
               <div className="space-y-3">
                 <div className="w-32 h-32 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full overflow-hidden flex items-center justify-center">
-                  {/* You can replace this with an actual Ready Player Me preview image */}
                   <img 
                     src={toThumbnail(readyPlayerMeAvatars.adam) || ""}
                     alt="Adam Avatar"
@@ -256,7 +254,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
             >
               <div className="space-y-3">
                 <div className="w-32 h-32 mx-auto bg-gradient-to-br from-pink-300 to-purple-400 rounded-full overflow-hidden flex items-center justify-center">
-                  {/* You can replace this with an actual Ready Player Me preview image */}
                   <img 
                     src={toThumbnail(readyPlayerMeAvatars.eve) || ""}
                     alt="Eve Avatar"

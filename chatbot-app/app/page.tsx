@@ -47,7 +47,7 @@ function toThumbnail(url?: string | null): string | null {
   if (url.endsWith(".png")) return url;
   if (url.endsWith(".glb")) return url.replace(".glb", ".png");
 
-  // Try to extract avatar id and use the official PNG endpoint
+  // extract avatar id and use the official PNG endpoint
   try {
     const last = url.split("/").pop() || "";
     const id = last.replace(".glb", "");

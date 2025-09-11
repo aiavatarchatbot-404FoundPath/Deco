@@ -52,31 +52,29 @@ The system prioritises **trauma-informed design**, **youth-friendly UX**, and **
 ---
 ## Setup 
 **1. Clone Repository**
-
+```
   git clone https://github.com/<org>/<repo>.git
-
   cd ai-avatar-chatbot
+```
 
 **2. Install Dependencies**
 
-  npm install
+  `npm install`
 
 **3. Environment Variables**
-
   Create a .env.local file:
-
+```
   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-  
   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_key
-  
   OPENAI_API_KEY=your_openai_api_key
+```
 
 **4. Run Locally**
 
-  npm run dev
+  `npm run dev`
 
 
-App runs on http://localhost:3000
+App runs on `http://localhost:3000`
 
 ---
 ## License & IP
