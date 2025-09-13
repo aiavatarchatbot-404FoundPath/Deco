@@ -115,7 +115,7 @@ def ask(query):
     )
     return resp.choices[0].message.content
 
-# Global variables 
+# For analysing the user's emotion
 negative_words = [
     # Emotions & Feelings
     "sad", "unhappy", "depressed", "lonely", "miserable",
@@ -151,44 +151,79 @@ positive_words = [
     "love", "caring", "friendly", "supportive", "compassionate",
     "generous", "loyal", "respectful", "trusting", "connected"
 ]
+
+happy_emojis = {"😊", "😃", "😄", "😁", "🥳", "🥰", "😂", "😎", "🤠"}
+sad_emojis   = {"😢", "😭", "😞", "☹️", "😔", "🙁", "😩", "😡", "😠"}
+
 def ai_emotion_analyser(query):
-    # Initializes the score when checking for emotions in the user query
-    score = 0 
+    # Case 1: Checks emotion based on capitalization of user's query
+    if query.isupper():
+        if any(word in query.lower() for word in negative_words):
+            return "Negative"
+        elif any(word in query.lower() for word in positive_words):
+            return "Positive"
+        else:
+            return "Neutral"
 
-    # Score is updated based on whether a negative or positive word is detected in the query
-    for word in query.lower().split():
-        if word in negative_words:
-            score -= 1
-        elif word in positive_words:
-            score += 1
-
-    # Returns the user's emotion based on the score
-    if score < 0:
-        return "Negative"
-    elif score == 0:
-        return "Neutral"
-    else:
+    # Case 2: Detects whether there are any emojis used in user's query
+    if any(emoji in query for emoji in happy_emojis):
         return "Positive"
+    elif any(emoji in query for emoji in sad_emojis):
+        return "Negative"
+    else:
+        return "Neutral"
+
+    # Initializes the count of negative and positive words when checking for emotions in the user query
+    count_neg = 0 
+    count_pos = 0
+        
+
+    # Case 3: Count is updated based on whether a negative or positive word is detected in the query
+    for word in query.split():
+        if word in negative_words:
+            count_neg += 1
+        elif word in positive_words:
+            count_pos += 1
+
+    # Returns the user's emotion based on the number of negative and positive words in the query
+    if count_neg < count_pos:
+        return "Positive"
+    elif count_neg > count_pos:
+        return "Negative"
+    else:
+        return "Neutral"
 
 def ai_tier_classifier(query, emotion):
-    emotion = ai_emotion_analyser(query)
+    # Intensity is used to measure how strong of an emotion the user is experiencing
+    intensity = 0
 
-    query_word_list = query.lower().split()
-    count_neg = sum(1 for w in query_word_list if w in negative_words)
-
-    # Classifies tier based on number of negative words in user's query
+    # Calculates level of intensity based on capitalisation, punctuation, words and emojis 
     if emotion == "Negative":
-        if count_neg <= 2:
-            tier = "Low"
-        elif count_neg <= 4:
-            tier = "Moderate"
-        elif count_neg <= 6:
-            tier = "High"
-        else:
-            tier = "Imminent Danger"
-        return tier
+        if query.isupper():
+            intensity += 2
+
+        for word in query.split():
+            if word in ["suicide", "kill", "die", "death"]:
+                intensity += 10
+
+            intensity += query.count("!")
+            intensity += sum(query.count(e) for e in sad_emojis)
+            intensity += sum(query.count(word) for word in negative_words)
     else:
-        return None # Return None if emotion is not negative
+        return None # If emotion is not negative
+
+    # Classifies tier based on level of intensity
+    if intensity <= 2:
+        tier = "Low"
+    elif intensity <= 5:
+        tier = "Moderate"
+    elif intensity <= 8:
+        tier = "High"
+    else:
+        tier = "Imminent Danger"
+
+    return tier
+        
 # -------------------------
 # Run Chat Loop
 # -------------------------
