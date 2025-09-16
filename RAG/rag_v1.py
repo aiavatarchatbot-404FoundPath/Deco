@@ -108,119 +108,12 @@ def ask(query):
         model="gpt-5-nano",
         # This part is how to change the tone and control the responses of the model
         messages=[
-            {"role":"system","content":"You are a helpful, supportive chatbot for young people in Queensland's youth justice system. Prioritise the provided context when answering. If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case. Be concise and empathetic."},
+            {"role":"system","content":"You are a helpful, supportive chatbot for young people in Queensland's youth justice system. Prioritise the provided context when answering. If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case. Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger). Be concise and empathetic."},
             {"role":"user","content": f"Context:\n{context}\n\nQuestion: {query}"}
         ]
         
     )
     return resp.choices[0].message.content
-
-# For analysing the user's emotion
-negative_words = [
-    # Emotions & Feelings
-    "sad", "unhappy", "depressed", "lonely", "miserable",
-    "anxious", "stressed", "overwhelmed", "hopeless", "worthless",
-
-    # Judgments / Self-talk
-    "stupid", "dumb", "failure", "useless", "weak",
-    "horrible", "awful", "bad", "terrible", "disgusting",
-
-    # Conflict / Anger
-    "hate", "angry", "mad", "frustrated", "annoyed",
-    "upset", "pissed", "furious", "jealous", "resent",
-
-    # Fear / Worry
-    "scared", "afraid", "worried", "nervous", "insecure",
-    "panicked", "trapped", "stuck", "danger"
-]
-
-positive_words = [
-    # Emotions & Feelings
-    "happy", "joyful", "content", "cheerful", "excited",
-    "relaxed", "calm", "peaceful", "grateful", "hopeful",
-
-    # Self-talk / Confidence
-    "confident", "strong", "capable", "smart", "worthy",
-    "successful", "brave", "resilient", "motivated", "proud",
-
-    # Praise / Goodness
-    "amazing", "fantastic", "wonderful", "great", "awesome",
-    "excellent", "beautiful", "kind", "positive", "good",
-
-    # Love / Connection
-    "love", "caring", "friendly", "supportive", "compassionate",
-    "generous", "loyal", "respectful", "trusting", "connected"
-]
-
-happy_emojis = {"😊", "😃", "😄", "😁", "🥳", "🥰", "😂", "😎", "🤠"}
-sad_emojis   = {"😢", "😭", "😞", "☹️", "😔", "🙁", "😩", "😡", "😠"}
-
-def ai_emotion_analyser(query):
-    # Case 1: Checks emotion based on capitalization of user's query
-    if query.isupper():
-        if any(word in query.lower() for word in negative_words):
-            return "Negative"
-        elif any(word in query.lower() for word in positive_words):
-            return "Positive"
-        else:
-            return "Neutral"
-
-    # Case 2: Detects whether there are any emojis used in user's query
-    if any(emoji in query for emoji in happy_emojis):
-        return "Positive"
-    elif any(emoji in query for emoji in sad_emojis):
-        return "Negative"
-
-    # Initializes the count of negative and positive words when checking for emotions in the user query
-    count_neg = 0 
-    count_pos = 0
-        
-
-    # Case 3: Count is updated based on whether a negative or positive word is detected in the query
-    for word in query.split():
-        if word in negative_words:
-            count_neg += 1
-        elif word in positive_words:
-            count_pos += 1
-
-    # Returns the user's emotion based on the number of negative and positive words in the query
-    if count_neg < count_pos:
-        return "Positive"
-    elif count_neg > count_pos:
-        return "Negative"
-    else:
-        return "Neutral"
-
-def ai_tier_classifier(query, emotion):
-    # Intensity is used to measure how strong of an emotion the user is experiencing
-    intensity = 0
-
-    # Calculates level of intensity based on capitalisation, punctuation, words and emojis 
-    if emotion == "Negative":
-        if query.isupper():
-            intensity += 2
-
-        for word in query.split():
-            if word in ["suicide", "kill", "die", "death"]:
-                intensity += 10
-
-            intensity += query.count("!")
-            intensity += sum(query.count(e) for e in sad_emojis)
-            intensity += sum(query.count(word) for word in negative_words)
-    else:
-        return None # If emotion is not negative
-
-    # Classifies tier based on level of intensity
-    if intensity <= 2:
-        tier = "Low"
-    elif intensity <= 5:
-        tier = "Moderate"
-    elif intensity <= 8:
-        tier = "High"
-    else:
-        tier = "Imminent Danger"
-
-    return tier
 
 # TODO: Add escalate to safety function (RAG)
 
