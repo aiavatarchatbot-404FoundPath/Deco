@@ -3,6 +3,7 @@ import faiss
 import numpy as np
 from pypdf import PdfReader
 from openai import OpenAI
+import json
 
 # OPTIONAL (only if using CSV word chunks)
 try:
@@ -108,29 +109,118 @@ def ask(query):
         model="gpt-5-nano",
         # This part is how to change the tone and control the responses of the model
         messages=[
-            {"role":"system","content":"You are a helpful, supportive chatbot for young people in Queensland's youth justice system. Prioritise the provided context when answering. If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case. Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger). Be concise and empathetic."},
+            {"role":"system","content": (
+                     "You are a helpful, supportive chatbot for young people in Queensland's youth justice system." 
+                     "Prioritise the provided context when answering." 
+                     "If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case." 
+                     "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger)." 
+                     "Be concise and empathetic."  
+                     "Provide a structured JSON output with keys: 'answer', 'emotion', 'tier', 'suggestions'. "
+                     "Suggestions should be appropriate next steps based on the user's emotion and tier.")
+            },
             {"role":"user","content": f"Context:\n{context}\n\nQuestion: {query}"}
         ]
         
     )
-    return response.choices[0].message.content
-
-# TODO: Add escalate to safety function (RAG)
+    try:
+        return json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError:
+        return {
+            "answer": response.choices[0].message.content,
+            "emotion": "Neutral",
+            "tier": "None",
+            "suggestions": []
+        }
 
 def continue_conversation():
-    input("Do you want to continue? Type 'Yes' or 'No': ")
+    return input("Do you want to continue? Type 'Yes' or 'No': ")
+
+def escalate_to_safety_protocol():
+    return ("⚠️ I’m really concerned about your safety. "
+        "If you are in immediate danger, please call 000 (Australia) or your local emergency services. "
+        "You are not alone — you can also reach out to Lifeline on 13 11 14 for 24/7 support.")
+
+def session_closure():
+    return ("Thank you for sharing with me today. You are not alone, and support is available whenever you need it." 
+            "Take care of yourself and goodbye. 👋")
+
+def check_filters(user_input):
+    danger_words = ["suicide", "die", "kill myself", "end my life", "death", "murder myself"]
+    if any(word in user_input.lower() for word in danger_words):
+        return "Imminent Danger"
+    return None
+
+def clear_session_memory(session_memory):
+    session_memory["history"] = []
+    session_memory["last_emotion"] = None
+    session_memory["last_tier"] = None
+    session_memory["last_suggestions"] = []
+    
+def rag_ai_pipeline():
+    session_memory = {
+        "history": [], 
+        "last_emotion": None, 
+        "last_tier": None, 
+        "last_suggestions": []
+    }
+    
+    print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
+    
+    while True:
+        query = input("You: ")
+        if query.lower() == "exit":
+            print("👋 Goodbye!")
+            clear_session_memory(session_memory)
+            break
+            
+        # Step 1/2. Detect emotion + risk level
+        analysis = ask(query)
+        
+        emotion = analysis.get("emotion")
+        tier = analysis.get("tier")
+        answer = analysis.get("answer")
+        suggestions = analysis.get("suggestions")
+
+        if suggestions is None:
+            suggestions = []
+
+        # Check filters for any danger words
+        tier = check_filters(query) or tier
+        
+        # Step 3. Safety escalation
+        if tier == "Imminent Danger":
+            safety_msg = escalate_to_safety_protocol()
+            print(safety_msg)
+    
+            user_choice = continue_conversation()
+            if user_choice.lower() == "no":
+                closure_msg = session_closure()
+                print(closure_msg)
+                break
+
+    session_memory["history"].append(
+        {"You": query,
+         "Bot": answer
+        }
+    )
+    session_memory["last_emotion"] = emotion
+    session_memory["last_tier"] = tier
+    session_memory["last_suggestions"] = suggestions
+                
+    return session_memory
 
 # -------------------------
 # Run Chat Loop
 # -------------------------
 print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
 while True:
+    session_memory = {}
     user_q = input("You: ")
     if user_q.lower() in ["exit", "quit"]:
         print("👋 Goodbye!")
         break
     try:
-        answer = ask(user_q)
+        model_response = rag_ai_pipeline(user_q, session_memory)
         print(f"Bot: {answer}\n")
     except Exception as e:
         print(f"⚠️ Error: {e}\n")
