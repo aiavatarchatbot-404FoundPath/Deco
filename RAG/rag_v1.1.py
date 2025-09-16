@@ -155,15 +155,16 @@ def clear_session_memory(session_memory):
     session_memory["last_emotion"] = None
     session_memory["last_tier"] = None
     session_memory["last_suggestions"] = []
-    
-def rag_ai_pipeline():
-    session_memory = {
+
+
+# Memory is stored as a global variable so it can be modified externally
+session_memory = {
         "history": [], 
         "last_emotion": None, 
         "last_tier": None, 
         "last_suggestions": []
     }
-    
+def rag_ai_pipeline():
     print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
     
     while True:
@@ -212,15 +213,14 @@ def rag_ai_pipeline():
 # -------------------------
 # Run Chat Loop
 # -------------------------
-print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
-while True:
-    session_memory = {}
-    user_q = input("You: ")
-    if user_q.lower() in ["exit", "quit"]:
-        print("👋 Goodbye!")
-        break
-    try:
-        model_response = rag_ai_pipeline(user_q, session_memory)
-        print(f"Bot: {answer}\n")
-    except Exception as e:
-        print(f"⚠️ Error: {e}\n")
+# print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
+# while True:
+#     user_q = input("You: ")
+#     if user_q.lower() in ["exit", "quit"]:
+#         print("👋 Goodbye!")
+#         break
+#     try:
+#         model_response = rag_ai_pipeline()
+#         print(f"Bot: {answer}\n")
+#     except Exception as e:
+#         print(f"⚠️ Error: {e}\n")
