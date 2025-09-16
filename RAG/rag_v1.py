@@ -104,16 +104,16 @@ def retrieve(query, k=3):
 # -------------------------
 def ask(query):
     context = "\n".join(retrieve(query))
-    resp = client.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-5-nano",
         # This part is how to change the tone and control the responses of the model
-        messages=[
+        instructions=[
             {"role":"system","content":"You are a helpful, supportive chatbot for young people in Queensland's youth justice system. Prioritise the provided context when answering. If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case. Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger). Be concise and empathetic."},
             {"role":"user","content": f"Context:\n{context}\n\nQuestion: {query}"}
         ]
         
     )
-    return resp.choices[0].message.content
+    return response.choices[0].message.content
 
 # TODO: Add escalate to safety function (RAG)
 
