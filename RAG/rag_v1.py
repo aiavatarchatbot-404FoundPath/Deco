@@ -170,8 +170,6 @@ def ai_emotion_analyser(query):
         return "Positive"
     elif any(emoji in query for emoji in sad_emojis):
         return "Negative"
-    else:
-        return "Neutral"
 
     # Initializes the count of negative and positive words when checking for emotions in the user query
     count_neg = 0 
@@ -223,7 +221,12 @@ def ai_tier_classifier(query, emotion):
         tier = "Imminent Danger"
 
     return tier
-        
+
+# TODO: Add escalate to safety function (RAG)
+
+def continue_conversation():
+    input("Do you want to continue? Type 'Yes' or 'No': ")
+
 # -------------------------
 # Run Chat Loop
 # -------------------------
