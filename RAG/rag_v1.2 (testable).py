@@ -155,16 +155,8 @@ def clear_session_memory(session_memory):
     session_memory["last_emotion"] = None
     session_memory["last_tier"] = None
     session_memory["last_suggestions"] = []
-
-
-# Memory is stored as a global variable so it can be modified externally
-session_memory = {
-        "history": [], 
-        "last_emotion": None, 
-        "last_tier": None, 
-        "last_suggestions": []
-    }
-def rag_ai_pipeline():
+    
+def rag_ai_pipeline(session_memory):
     print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
     
     while True:
@@ -180,10 +172,7 @@ def rag_ai_pipeline():
         emotion = analysis.get("emotion")
         tier = analysis.get("tier")
         answer = analysis.get("answer")
-        suggestions = analysis.get("suggestions")
-
-        if suggestions is None:
-            suggestions = []
+        suggestions = analysis.get("suggestions") or []
 
         # Check filters for any danger words
         tier = check_filters(query) or tier
@@ -199,20 +188,39 @@ def rag_ai_pipeline():
                 print(closure_msg)
                 break
 
-    session_memory["history"].append(
-        {"You": query,
-         "Bot": answer
-        }
-    )
-    session_memory["last_emotion"] = emotion
-    session_memory["last_tier"] = tier
-    session_memory["last_suggestions"] = suggestions
-                
+        # Step 4. Print answer to user's problem
+        print(f"🤖 {answer}")
+
+        # Step 5. Provide suggestions to the user from the suggestion list
+        if suggestions:
+            print(f"🤖 Here are some suggestions that will help: ")
+            for s in suggestions:
+                print(f"- {s}")
+                  
+        # Step 6. Update session memory after providing a solution and suggestions to the user
+        session_memory["history"].append(
+            {"You": query,
+             "Bot": answer
+            }
+        )
+        session_memory["last_emotion"] = emotion
+        session_memory["last_tier"] = tier
+        session_memory["last_suggestions"] = suggestions
+
+    # Step 7. Return session memory once conversation is finished
     return session_memory
 
 # -------------------------
 # Run Chat Loop
 # -------------------------
+session_memory = {
+        "history": [], 
+        "last_emotion": None, 
+        "last_tier": None, 
+        "last_suggestions": []
+    }
+rag_ai_pipeline(session_memory)
+
 # print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
 # while True:
 #     user_q = input("You: ")
