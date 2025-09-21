@@ -39,7 +39,7 @@ type ChatInterfaceScreenProps = {
     support?: string;
     timestamp: Date;
   } | null;
-  onSend: (text: string) => void;
+  onSend?: (text: string) => void;
   messages?: DbMessage[];     // from DB (page)
   isTyping?: boolean;
 };
@@ -147,7 +147,7 @@ export function ChatInterfaceScreen({
             onSendMessage={(text) => {
               const t = text.trim();
               if (!t) return;
-              onSend(t);           // parent saves to DB; realtime will render it here
+              (onSend ?? (() => {}))(t);           // parent saves to DB; realtime will render it here
               setInputValue("");
             }}
             isAnonymous={true}

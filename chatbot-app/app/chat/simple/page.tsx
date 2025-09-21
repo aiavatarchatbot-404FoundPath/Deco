@@ -76,10 +76,11 @@ const handleNavigation = (screen: string) => {
 
       {/* Main chat interface (no avatar panel) */}
       <ChatInterfaceScreen
-        onNavigate={handleNavigation}
-        chatMode="standard"
-        currentMood={mood}
-      />
+  onNavigate={handleNavigation}
+  chatMode="standard"
+  currentMood={mood}
+  onSend={() => {}}                 // <-- add this
+/>
     </div>
   );
 }
