@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
+import ConversationList from '@/components/conversation';
 import Navbar from "@/components/Navbar";
 import { ReadyPlayerMeSelector } from "./ReadyPlayerMeSelector";
 
@@ -28,6 +28,20 @@ import {
   Check,
   Crown,
 } from "lucide-react";
+// at top of your Profile page file:
+//import { useEffect, useMemo, useState } from 'react';
+//import { supabase } from '@/lib/supabaseClient';
+import { getSessionUserId } from '@/lib/auth';
+//import { useRouter } from 'next/navigation';
+
+type ConversationRow = {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type LastByConvo = Record<string, { content: string; created_at: string }>;
 
 interface ReadyPlayerMeAvatar {
   id: string;
@@ -139,10 +153,21 @@ export default function ProfilePageSupabase() {
   // derived
   const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
 
-  useEffect(() => {
+// ProfileConversationsTab component moved outside useEffect
+function ProfileConversationsTab() {
+  const router = useRouter();
+  return (
+    <ConversationList
+      onSelect={(id) => router.push(`/chat/avatar?convo=${id}`)}
+      showSearch
+      mineOnly={true}
+    />
+  );
+}
+
+useEffect(() => {
   let cancelled = false;
 
- 
   async function getStableSession() {
     for (let i = 0; i < 10; i++) {
       const { data: { session } } = await supabase.auth.getSession();
@@ -151,7 +176,6 @@ export default function ProfilePageSupabase() {
     }
     return null;
   }
-
   async function load() {
     if (!cancelled) setLoadingProfile(true);
     try {
@@ -395,64 +419,11 @@ export default function ProfilePageSupabase() {
               </TabsList>
 
               {/* Conversations Tab */}
+              
               <TabsContent value="conversations" className="mt-6">
-                <div className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search chats…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 trauma-safe gentle-focus"
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    {MOCK_CONVERSATIONS.length === 0 ? (
-                      <Card className="trauma-safe">
-                        <CardContent className="p-8 text-center text-muted-foreground">
-                          <p>No chats.</p>
-                        </CardContent>
-                      </Card>
-                    ) : (
-                      MOCK_CONVERSATIONS.map((conversation) => (
-                        <Card
-                          key={conversation.id}
-                          className="trauma-safe calm-hover cursor-pointer transition-all duration-200"
-                          onClick={() => setSelectedConversation(conversation)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center space-x-3 mb-2">
-                                  <h3>{conversation.title}</h3>
-                                  <Badge
-                                    variant={conversation.status === "ongoing" ? "default" : "secondary"}
-                                    className="trauma-safe"
-                                  >
-                                    {conversation.status === "ongoing" ? "Ongoing" : "Completed"}
-                                  </Badge>
-                                </div>
-                                <p className="text-sm text-muted-foreground">Last message: {conversation.lastMessage}</p>
-                              </div>
-                              <Button
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleNavigateToChat();
-                                }}
-                                className="trauma-safe gentle-focus"
-                              >
-                                Continue
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))
-                    )}
-                  </div>
-                </div>
+                <ProfileConversationsTab />
               </TabsContent>
+
 
               {/* 3D Avatars Tab */}
               <TabsContent value="avatars" className="mt-6">

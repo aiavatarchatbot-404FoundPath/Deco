@@ -8,6 +8,8 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Navbar from '../components/Navbar'; 
 import MoodCheckIn from '../components/MoodCheckIn';
+import { createConversation } from '@/lib/conversations'; // adjust path if needed
+import { getSessionUserId } from '@/lib/auth';
 
 import { 
   Shield, 
@@ -66,6 +68,8 @@ export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [currentMood, setCurrentMood] = useState<StoredMoodData | null>(null);
   const [showMoodCheckIn, setShowMoodCheckIn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const handleNavigateToProfile = () => {
     router.push('/profile');
@@ -79,6 +83,8 @@ export default function HomePage() {
   const handleChatModeChange = (mode: 'avatar' | 'standard') => {
     setChatMode(mode);
   };
+
+
 
   // Navigation handler for the Navbar component
   const handleNavigation = (screen: string) => {
@@ -110,10 +116,13 @@ export default function HomePage() {
     }
   };
 
-  const handleMoodSubmit = (moodData: MoodData) => {
+  const handleMoodSubmit = async (moodData: MoodData) => {
+    
     const moodWithTimestamp: StoredMoodData = {
       ...moodData,
       timestamp: new Date()
+      
+      
     };
     
     setCurrentMood(moodWithTimestamp);
@@ -122,18 +131,32 @@ export default function HomePage() {
     
     // Navigate to chat
     if (chatMode === 'avatar') {
-      router.push('/chat/avatar');
+      const convoId = await maybeCreateConversation();
+      // when creating the conversation:
+      router.push(`/chat/avatar?convo=${convoId}`);
+
     } else {
       router.push('/chat/simple');
     }
   };
+    async function maybeCreateConversation() {
+  const uid = await getSessionUserId();          // null if anonymous
+  if (!uid) return null;                         // skip DB write when not logged in
+  const convoId = await createConversation('My chat');
+  console.log('[chat] created conversation:', convoId);
+  return convoId;
+}
 
-  const handleMoodSkip = () => {
+  
+
+  const handleMoodSkip = async () => {
     setShowMoodCheckIn(false);
+    
     
     // Navigate to chat without mood data
     if (chatMode === 'avatar') {
-      router.push('/chat/avatar');
+      const convoId = await maybeCreateConversation();
+      router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
     } else {
       router.push('/chat/simple');
     }
@@ -185,6 +208,9 @@ export default function HomePage() {
 
     loadUserData();
 
+    
+  
+
     // Load saved mood data
     const savedMood = localStorage.getItem('avatarCompanion_mood');
     if (savedMood) {
@@ -201,9 +227,10 @@ export default function HomePage() {
         localStorage.removeItem('avatarCompanion_mood');
       }
     }
+    
 
     // Listen for auth state changes
-    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         loadUserData();
       } else if (event === 'SIGNED_OUT') {
@@ -212,8 +239,26 @@ export default function HomePage() {
       }
     });
 
-    return () => subscription.subscription.unsubscribe();
+    // Cleanup subscription on unmount
+    return () => {
+      subscription?.unsubscribe?.();
+    };
   }, []);
+
+const onStartChat = async () => {
+  setBusy(true); setErr(null);
+  let convoId: string | null = null;
+  try {
+    convoId = await maybeCreateConversation();             // <— keep/create here too
+  } catch (e: any) {
+    setErr(e?.message ?? 'Failed to create conversation');
+    console.error(e);
+  } finally {
+    router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
+    setBusy(false);
+  }
+};
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
@@ -418,16 +463,13 @@ export default function HomePage() {
 
                   <div className="space-y-2">
                     <Button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleChatModeChange('avatar');
-                        handleNavigateToChat();
-                      }}
-                      className="w-full bg-teal-500 hover:bg-teal-600 text-white"
-                    >
-                      <MessageCircle className="h-4 w-4 mr-2" />
-                      Start Avatar Chat
-                    </Button>
+  onClick={(e) => { e.stopPropagation(); setChatMode("avatar"); onStartChat(); }}
+  disabled={busy}
+  className="w-full bg-teal-500 hover:bg-teal-600 text-white"
+>
+  <MessageCircle className="h-4 w-4 mr-2" />
+  {busy ? "Starting…" : "Start Avatar Chat"}
+</Button>
                     
                     <Button
                       variant="outline"

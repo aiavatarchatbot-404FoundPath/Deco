@@ -46,6 +46,11 @@ export default function LoginPage() {
         });
         if (error) throw error;
 
+         const signIn = async () => {
+          await supabase.auth.signInWithOAuth({ provider: 'google' }); // pick any provider you set up
+          };
+          return <button onClick={signIn}>Sign in</button>;
+
         // USER HAS. to confm email to work
         alert("Check your email to confirm your account, then log in.");
         setIsSignUp(false); // flip back to login
@@ -68,7 +73,6 @@ export default function LoginPage() {
     
   };
   
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       <div className="max-w-md mx-auto px-4 py-8">
