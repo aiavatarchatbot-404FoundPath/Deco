@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import ConversationList from '@/components/conversation';
 import Navbar from "@/components/Navbar";
+import { Loading } from "@/components/ui/loading";
 import { ReadyPlayerMeSelector } from "./ReadyPlayerMeSelector";
 
 import { Button } from "@/components/ui/button";
@@ -317,7 +318,14 @@ useEffect(() => {
     router.push("/login");
   };
 
-  if (loadingProfile) return <p className="p-6">Loading profile…</p>;
+  if (loadingProfile) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar onNavigate={handleNavigation as any} currentPage="profile" />
+        <Loading message="Loading profile..." />
+      </div>
+    );
+  }
   if (!profile) {
     return (
       <div className="p-6">

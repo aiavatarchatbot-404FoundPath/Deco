@@ -10,6 +10,7 @@ import Navbar from '../components/Navbar';
 import MoodCheckIn from '../components/MoodCheckIn';
 import { createConversation } from '@/lib/conversations'; // adjust path if needed
 import { getSessionUserId } from '@/lib/auth';
+import { Loading } from '../components/ui/loading';
 
 import { 
   Shield, 
@@ -70,13 +71,46 @@ export default function HomePage() {
   const [showMoodCheckIn, setShowMoodCheckIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Navigation handler with loading
+  const handleNavigation = async (screen: string) => {
+    setIsLoading(true);
+    
+    switch (screen) {
+      case 'welcome':
+      case '/':
+      case 'home':
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setIsLoading(false);
+        break;
+      case 'settings':
+        router.push('/settings');
+        
+        break;
+      case 'profile':
+        // profile page has own loading
+        router.push('/profile');
+        setIsLoading(false);
+        break;
+      case 'avatarbuilder':
+        router.push('/avatarbuilder');
+        
+        break;
+      case 'login':
+        router.push('/login');
+        
+        break;
+      default:
+        console.log(`Navigate to: ${screen}`);
+        setIsLoading(false);
+    }
+  };
 
   const handleNavigateToProfile = () => {
     router.push('/profile');
-  };
-
-  const handleNavigateToChat = () => {
-    // Always show mood check-in when starting a new chat session
+  };  const handleNavigateToChat = () => {
+    // Show mood check-in when starting a new chat session (no loading yet)
     setShowMoodCheckIn(true);
   };
 
@@ -84,39 +118,9 @@ export default function HomePage() {
     setChatMode(mode);
   };
 
-
-
-  // Navigation handler for the Navbar component
-  const handleNavigation = (screen: string) => {
-    switch (screen) {
-      case 'welcome':
-      case '/':
-      case 'home':
-        // Already on home page, could scroll to top or refresh
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        break;
-      case 'settings':
-        // Navigate to settings page
-        router.push('/settings');
-        break;
-        // Navigate to profile page
-      case 'profile':
-        router.push('/profile');
-        break;
-        // Navigate to avatar builder page
-      case 'avatarbuilder':
-        router.push('/avatarbuilder');
-        break;
-      // Navigate to login page
-      case 'login':
-        router.push('/login');
-        break;
-      default:
-        console.log(`Navigate to: ${screen}`);
-    }
-  };
-
   const handleMoodSubmit = async (moodData: MoodData) => {
+    // Show loading when user submits mood data
+    setIsLoading(true);
     
     const moodWithTimestamp: StoredMoodData = {
       ...moodData,
@@ -150,6 +154,8 @@ export default function HomePage() {
   
 
   const handleMoodSkip = async () => {
+    // Show loading when user skips mood check
+    setIsLoading(true);
     setShowMoodCheckIn(false);
     
     
@@ -246,7 +252,9 @@ export default function HomePage() {
   }, []);
 
 const onStartChat = async () => {
-  setBusy(true); setErr(null);
+  setBusy(true); 
+  setIsLoading(true);
+  setErr(null);
   let convoId: string | null = null;
   try {
     convoId = await maybeCreateConversation();             // <— keep/create here too
@@ -463,13 +471,16 @@ const onStartChat = async () => {
 
                   <div className="space-y-2">
                     <Button
-  onClick={(e) => { e.stopPropagation(); setChatMode("avatar"); onStartChat(); }}
-  disabled={busy}
-  className="w-full bg-teal-500 hover:bg-teal-600 text-white"
->
-  <MessageCircle className="h-4 w-4 mr-2" />
-  {busy ? "Starting…" : "Start Avatar Chat"}
-</Button>
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleChatModeChange('avatar');
+                      handleNavigateToChat();
+                    }}
+                    className="w-full bg-teal-500 hover:bg-teal-600 text-white"
+                  >
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Start Avatar Chat
+                  </Button>
                     
                     <Button
                       variant="outline"
@@ -665,6 +676,9 @@ const onStartChat = async () => {
           </div>
         </div>
       </div>
+      
+      {/* Loading overlay */}
+      {isLoading && <Loading />}
     </div>
   );
 

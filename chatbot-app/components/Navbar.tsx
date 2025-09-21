@@ -69,7 +69,7 @@ export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn, current
         
         {isLoggedIn ? (
           <Button 
-            onClick={() => router.push("/profile")} 
+            onClick={() => onNavigate('profile')} 
             size="sm" 
             variant="ghost"
             className={`px-4 py-1 rounded-full text-sm ${
@@ -83,7 +83,7 @@ export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn, current
         ) : (
           <Button 
             size="sm" 
-            onClick={() => router.push("/login")} 
+            onClick={() => onNavigate('login')} 
             variant="ghost"
             className="px-4 py-1 rounded-full text-sm text-gray-600 hover:bg-emerald-100 hover:text-emerald-700"
           >

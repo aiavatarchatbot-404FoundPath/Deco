@@ -7,6 +7,8 @@ import { Switch } from './ui/switch';
 import { Label } from './ui/label';
 import { Separator } from './ui/separator';
 import { Badge } from './ui/badge';
+import { Loading } from './ui/loading';
+
 import {
   Shield,
   Eye,
@@ -34,6 +36,15 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
     notifications: true,
     autoDelete: true,
   });
+
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Navigation with loading
+  const handleNavigation = async (screen: string) => {
+    setIsLoading(true);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    onNavigate(screen);
+  };
 
   const updateSetting = (key: keyof typeof settings) => {
     setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -283,16 +294,17 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
               Ready to start a safe, supportive conversation?
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
-              <Button onClick={() => onNavigate('chat')} className="trauma-safe calm-hover">
+              <Button onClick={() => handleNavigation('chat')} className="trauma-safe calm-hover">
                 Start Chatting
               </Button>
-              <Button onClick={() => onNavigate('welcome')} variant="outline" className="trauma-safe gentle-focus">
+              <Button onClick={() => handleNavigation('welcome')} variant="outline" className="trauma-safe gentle-focus">
                 Back to Home
               </Button>
             </div>
           </div>
         </div>
       </div>
+      {isLoading && <Loading />}
     </div>
   );
 }
