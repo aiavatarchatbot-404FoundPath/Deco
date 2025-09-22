@@ -137,7 +137,7 @@ export function ChatInterfaceScreen({
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      <Navbar onNavigate={onNavigate} isLoggedIn={!!user} />
+      <Navbar onNavigate={onNavigate} isLoggedIn={!!user && user.id !== 'anon'} />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
         <Sidebar onNavigate={onNavigate} onInjectMessage={injectSystemMessage} />
@@ -150,7 +150,7 @@ export function ChatInterfaceScreen({
                 url: user?.avatar?.url ?? undefined // ensure url is string | undefined
               }}
               aiAvatar={{
-                name: companionAvatar?.name,
+                name: companionAvatar?.name ?? 'Adam',
                 url: companionAvatar?.url ?? undefined // ensure url is string | undefined
               }}
             />
@@ -171,7 +171,7 @@ export function ChatInterfaceScreen({
               (onSend ?? (() => {}))(t);           // parent saves to DB; realtime will render it here
               setInputValue("");
             }}
-            isAnonymous={true}
+            isAnonymous={user.id === 'anon'}
             onToggleAnonymous={() => {}}
             disabled={false}
           />

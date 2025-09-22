@@ -79,7 +79,7 @@ export default function AvatarBuilderPage() {
 
   const handleSaveAvatar = useCallback((avatar: any) => {
     console.log('Save avatar:', avatar);
-    setUser((prevUser) => {
+    setUser((prevUser: any) => {
       if (prevUser) {
         // For logged-in users, update the existing profile
         return { ...prevUser, rpm_user_url: avatar.url };
