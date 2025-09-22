@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import ConversationList from '@/components/conversation';
 import Navbar from "@/components/Navbar";
 import { ReadyPlayerMeSelector } from "./ReadyPlayerMeSelector";
+import { useSearchParams, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,8 @@ import {
 import { getSessionUserId } from '@/lib/auth';
 //import { useRouter } from 'next/navigation';
 
+type Tab = "conversations" | "avatars" | "saved" | "settings";
+
 type ConversationRow = {
   id: string;
   title: string | null;
@@ -51,7 +53,6 @@ interface ReadyPlayerMeAvatar {
   thumbnail?: string; 
   isCustom?: boolean;
 }
-
 
 // GLB --> Png
 function toThumbnail(url?: string | null): string | null {
@@ -134,8 +135,80 @@ const MOCK_SAVED: SavedItem[] = [
   },
 ];
 
-// This component should be defined outside of the ProfilePageSupabase component
-// to prevent it from being recreated on every render.
+
+export default function ProfilePageSupabase() {
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+
+  // STATE of profile from DB....
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true); 
+  // loading.....
+
+  // FOR UI!!!!
+  const [searchQuery, setSearchQuery] = useState(""); // for search
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [defaultModel, setDefaultModel] = useState("gpt-4o-mini");
+
+  // derived
+  const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
+
+  const initialTab = (() => {
+    const t = searchParams.get("tab");
+    return (t === "conversations" || t === "avatars" || t === "saved" || t === "settings")
+      ? (t as Tab)
+      : "conversations";
+  })();
+
+  // your existing state — change the generic to use our Tab type
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+
+  type SavedConvo = { id: string; title: string | null; updated_at: string };
+
+  const [savedConvos, setSavedConvos] = useState<SavedConvo[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+
+  // keep state in sync if the query param changes (e.g., client nav)
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t && t !== activeTab && (t === "conversations" || t === "avatars" || t === "saved" || t === "settings")) {
+      setActiveTab(t as Tab);
+    }
+  }, [searchParams, activeTab]);
+
+  useEffect(() => {
+      if (!profile?.id) return;
+      if (activeTab !== "saved") return;
+
+      let cancelled = false;
+
+      (async () => {
+        try {
+          setLoadingSaved(true);
+          const { data, error } = await supabase
+            .from("conversations")
+            .select("id, title, updated_at")
+            .eq("created_by", profile.id)
+            .eq("status", "saved")
+            .order("updated_at", { ascending: false });
+
+          if (error) throw error;
+          if (!cancelled) setSavedConvos(data ?? []);
+        } catch (e) {
+          console.error("load saved convos failed:", e);
+          if (!cancelled) setSavedConvos([]);
+        } finally {
+          if (!cancelled) setLoadingSaved(false);
+        }
+      })();
+
+  return () => { cancelled = true; };
+}, [profile?.id, activeTab]);
+
+// ProfileConversationsTab component moved outside useEffect
 function ProfileConversationsTab() {
   const router = useRouter();
   return (
@@ -146,26 +219,6 @@ function ProfileConversationsTab() {
     />
   );
 }
-
-export default function ProfilePageSupabase() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const fromChatConvoId = searchParams.get('convo');
-
-  // STATE of profile from DB....
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loadingProfile, setLoadingProfile] = useState(true); 
-  // loading.....
-
-  // FOR UI!!!!
-  const [activeTab, setActiveTab] = useState<"conversations" | "avatars" | "saved" | "settings">("conversations");
-  const [searchQuery, setSearchQuery] = useState(""); // for search
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [defaultModel, setDefaultModel] = useState("gpt-4o-mini");
-
-  // derived
-  const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
 
 useEffect(() => {
   let cancelled = false;
@@ -189,7 +242,7 @@ useEffect(() => {
           setProfile(null);
           setLoadingProfile(false);
         }
-        router.replace("/login");
+        router.replace(`/login?redirect=${encodeURIComponent("/profile")}`);
         return;
       }
 
@@ -304,9 +357,6 @@ useEffect(() => {
 
   // nav handlers
   const handleBackToHome = () => router.push("/");
-  const handleBackToChat = () => {
-    if (fromChatConvoId) router.push(`/chat/avatar?convo=${fromChatConvoId}`);
-  };
   const handleNavigateToChat = () => router.push("/chat/avatar");
   const handleNavigation = (href: string) => router.push(href);
 
@@ -343,17 +393,10 @@ useEffect(() => {
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
         {/* Back Button */}
-        {fromChatConvoId ? (
-          <Button variant="ghost" onClick={handleBackToChat} className="mb-6 trauma-safe gentle-focus">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Chat
-          </Button>
-        ) : (
-          <Button variant="ghost" onClick={handleBackToHome} className="mb-6 trauma-safe gentle-focus">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Button>
-        )}
+        <Button variant="ghost" onClick={handleBackToHome} className="mb-6 trauma-safe gentle-focus">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Home
+        </Button>
 
         {/* Profile Header */}
         <div className="bg-card rounded-lg border border-border p-6 mb-6">
@@ -410,7 +453,19 @@ useEffect(() => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Tabs */}
           <div className="lg:col-span-2">
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+            <Tabs
+              value={activeTab}
+              onValueChange={(v) => {
+                const next = v as Tab;
+                setActiveTab(next);
+
+                // write the tab to the URL so refresh/deeplink stays correct
+                const sp = new URLSearchParams(Array.from(searchParams.entries()));
+                sp.set("tab", next);
+                router.replace(`?${sp.toString()}`); // stays on /profile but updates query
+              }}
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-4 trauma-safe">
                 <TabsTrigger value="conversations" className="trauma-safe gentle-focus">
                   <MessageCircle className="w-4 h-4 mr-2" />
@@ -448,32 +503,46 @@ useEffect(() => {
 
               {/* Saved Tab */}
               <TabsContent value="saved" className="mt-6">
-                <div className="space-y-4">
-                  {MOCK_SAVED.map((item) => (
-                    <Card key={item.id} className="trauma-safe calm-hover">
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h3 className="mb-2">{item.title}</h3>
-                            <p className="text-sm text-muted-foreground mb-2">{item.content}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Saved on{" "}
-                              {new Date(item.timestamp).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}
-                            </p>
-                          </div>
-                          <Badge variant="outline" className="ml-3 trauma-safe">
-                            {item.type}
-                          </Badge>
-                        </div>
+                  {loadingSaved ? (
+                    <Card className="trauma-safe">
+                      <CardContent className="p-8 text-center text-muted-foreground">
+                        Loading saved chats…
                       </CardContent>
                     </Card>
-                  ))}
-                </div>
-              </TabsContent>
+                  ) : savedConvos.length === 0 ? (
+                    <Card className="trauma-safe">
+                      <CardContent className="p-8 text-center text-muted-foreground">
+                        No saved chats yet.
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-3">
+                      {savedConvos.map((c) => (
+                        <Card key={c.id} className="trauma-safe calm-hover">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-3 mb-2">
+                                  <h3>{c.title || "Untitled Chat"}</h3>
+                                  <Badge variant="secondary" className="trauma-safe">
+                                    {new Date(c.updated_at).toLocaleDateString()}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => router.push(`/chat/avatar?convo=${c.id}`)}
+                                className="trauma-safe gentle-focus"
+                              >
+                                View
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
 
               {/* Settings Tab */}
               <TabsContent value="settings" className="mt-6">
@@ -523,9 +592,12 @@ useEffect(() => {
                       <CardDescription>Manage your personal data and account</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <Button variant="outline" onClick={handleExportData} className="w-full sm:w-auto trauma-safe gentle-focus">
+                      <Button onClick={handleExportData} className="w-full sm:w-auto trauma-safe gentle-focus"
+                        variant="destructive">
+
                         <Download className="w-4 h-4 mr-2" />
-                        Export my data
+
+                        Delete History
                       </Button>
 
                       <div>
@@ -535,7 +607,7 @@ useEffect(() => {
                           className="w-full sm:w-auto trauma-safe gentle-focus"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
-                          Delete account
+                          Delete Account
                         </Button>
                       </div>
                     </CardContent>

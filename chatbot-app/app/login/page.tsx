@@ -62,7 +62,12 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
-        router.push("/profile");
+        const params = new URLSearchParams(window.location.search);
+        const redirectTo = params.get("redirect");
+
+        // basic safety: only allow internal paths
+        const safeTarget = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/profile";
+        router.push(safeTarget);
       }
     } catch (e: any) {
       console.error(e);

@@ -6,6 +6,8 @@ import MoodCheckIn from '../../../components/MoodCheckIn';
 import { sendUserMessage } from '@/lib/messages';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { endConversation } from "@/lib/conversations";
+
 
 type MessageRow = {
   id: string;
@@ -70,6 +72,9 @@ export default function ClientAvatarChat() {
       case 'settings':
         router.push(`/settings?convo=${conversationId}`);
         break;
+      case "endchat":
+        handleEndChat();
+      break;
       default:
         console.log(`Navigate to: ${screen}`);
     }
@@ -169,6 +174,20 @@ export default function ClientAvatarChat() {
     };
   }, [conversationId]);
 
+  // to change "ongoing to ended" status on End Chat
+  async function handleEndChat() {
+  try {
+    // Mark it as saved in DB if we have an id
+    if (conversationId) {
+      await endConversation(conversationId);
+    }
+    // Go to Profile → Saved tab
+    router.push("/profile?tab=saved");
+  } catch (e) {
+    console.error("Failed to end chat:", e);
+    // optional: toast error
+  }
+}
   // Simple AI stub — replace with your model call
   async function getAdamReply(userText: string): Promise<string> {
     const canned = [

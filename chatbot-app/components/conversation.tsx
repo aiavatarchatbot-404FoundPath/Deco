@@ -16,6 +16,7 @@ type ConversationRow = {
   created_at: string;
   updated_at: string;
   created_by: string;
+  status: string;
 };
 
 type MessagePreview = { conversation_id: string; content: string; created_at: string };
@@ -66,8 +67,9 @@ export default function ConversationList({
       if (mineOnly) {
         convosRes = await supabase
           .from('conversations')
-          .select('id, title, created_at, updated_at, created_by')
+          .select('id, title, created_at, updated_at, created_by, status')
           .eq('created_by', uid)
+          .eq('status', 'ongoing')
           .order('updated_at', { ascending: false })
           .limit(limit);
       } else {
