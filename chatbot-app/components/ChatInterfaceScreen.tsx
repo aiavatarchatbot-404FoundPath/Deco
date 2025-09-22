@@ -27,11 +27,23 @@ type UIMsg = {
   anonymous?: boolean;
 };
 
+type User = {
+  id: string;
+  username: string;
+  avatar?: Avatar;
+};
+
+type Avatar = {
+  name: string;
+  type: 'custom' | 'default';
+  url?: string | null;
+};
+
 type ChatInterfaceScreenProps = {
   onNavigate: (screen: string) => void;
   chatMode: "avatar" | "standard";
-  user?: any;
-  currentAvatar?: any;
+  user?: User;
+  companionAvatar?: Avatar;
   currentMood?: {
     feeling: string;
     intensity: number;
@@ -45,7 +57,7 @@ type ChatInterfaceScreenProps = {
 };
 
 function moodGreeting(mood?: ChatInterfaceScreenProps["currentMood"]) {
-  if (!mood) {
+  if (!mood || !mood.feeling) {
     return `Hi there! I'm Adam, your Avatar Companion. I'm here to listen and support you in a safe, confidential space. How are you feeling today?`;
   }
   const feeling = mood.feeling.toLowerCase();
@@ -69,8 +81,8 @@ function moodGreeting(mood?: ChatInterfaceScreenProps["currentMood"]) {
 export function ChatInterfaceScreen({
   onNavigate,
   chatMode,
-  user,
-  currentAvatar,
+  user = { id: 'anon', username: 'You', avatar: { name: 'User', type: 'default', url: null } },
+  companionAvatar = { name: 'Adam', type: 'default', url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb" },
   currentMood,
   onSend,
   messages = [],
@@ -132,7 +144,16 @@ export function ChatInterfaceScreen({
 
         {chatMode === "avatar" && (
           <div className="flex items-center justify-center w-[40%] border-r border-gray-200 bg-gradient-to-br from-purple-50 to-pink-50">
-            <AvatarDisplay userAvatar={currentAvatar} aiAvatar={{ name: "Adam" }} />
+            <AvatarDisplay
+              userAvatar={{
+                name: user?.avatar?.name ?? 'User',
+                url: user?.avatar?.url ?? undefined // ensure url is string | undefined
+              }}
+              aiAvatar={{
+                name: companionAvatar?.name,
+                url: companionAvatar?.url ?? undefined // ensure url is string | undefined
+              }}
+            />
           </div>
         )}
 

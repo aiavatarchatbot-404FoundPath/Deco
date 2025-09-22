@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Switch } from './ui/switch';
@@ -21,6 +22,7 @@ import {
   UserX,
   Clock,
   AlertTriangle,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface SettingsScreenProps {
@@ -28,6 +30,10 @@ interface SettingsScreenProps {
 }
 
 export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromChatConvoId = searchParams.get('convo');
+
   const [settings, setSettings] = useState({
     anonymousMode: true,
     transcriptStorage: false,
@@ -48,6 +54,12 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
 
   const updateSetting = (key: keyof typeof settings) => {
     setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleBackToChat = () => {
+    if (fromChatConvoId) {
+      router.push(`/chat/avatar?convo=${fromChatConvoId}`);
+    }
   };
 
   const privacyFeatures = [
@@ -294,10 +306,17 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
               Ready to start a safe, supportive conversation?
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
-              <Button onClick={() => handleNavigation('chat')} className="trauma-safe calm-hover">
-                Start Chatting
-              </Button>
-              <Button onClick={() => handleNavigation('welcome')} variant="outline" className="trauma-safe gentle-focus">
+              {fromChatConvoId ? (
+                <Button onClick={handleBackToChat} className="trauma-safe calm-hover">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back to Chat
+                </Button>
+              ) : (
+                <Button onClick={() => onNavigate('chat')} className="trauma-safe calm-hover">
+                  Start Chatting
+                </Button>
+              )}
+              <Button onClick={() => onNavigate('welcome')} variant="outline" className="trauma-safe gentle-focus">
                 Back to Home
               </Button>
             </div>

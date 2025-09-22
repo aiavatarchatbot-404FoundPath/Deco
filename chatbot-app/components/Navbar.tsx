@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Button } from '@/components/ui/button';
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 interface NavbarProps {
   onNavigate: (screen: string) => void;
@@ -11,21 +9,8 @@ interface NavbarProps {
   currentPage?: string;
 }
 
-export default function Navbar({ onNavigate, isLoggedIn: propIsLoggedIn, currentPage }: { onNavigate: (s: string) => void; isLoggedIn?: boolean; currentPage?: string }) {
-  const [isLoggedIn, setIsLoggedIn] = useState(propIsLoggedIn || false);
-    const router = useRouter();
-  
-    useEffect(() => {
-      supabase.auth.getUser().then(({ data }) => {
-        setIsLoggedIn(!!data.user);
-      });
-  
-      const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-        setIsLoggedIn(!!session?.user);
-      });
-  
-      return () => subscription.subscription.unsubscribe();
-    }, []);
+export default function Navbar({ onNavigate, isLoggedIn = false, currentPage }: { onNavigate: (s: string) => void; isLoggedIn?: boolean; currentPage?: string }) {
+  const router = useRouter();
 
   return (
     // <nav className="h-14 border-b bg-white flex items-center justify-between px-4">

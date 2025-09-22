@@ -14,9 +14,10 @@ interface MoodData {
 interface MoodCheckInProps {
   onComplete: (moodData: MoodData) => void;
   onSkip: () => void;
+  title?: string;
 }
 
-export default function MoodCheckIn({ onComplete, onSkip }: MoodCheckInProps) {
+export default function MoodCheckIn({ onComplete, onSkip, title }: MoodCheckInProps) {
   const [selectedFeeling, setSelectedFeeling] = useState<string>('');
 
   const feelings = [
@@ -49,7 +50,7 @@ export default function MoodCheckIn({ onComplete, onSkip }: MoodCheckInProps) {
         <CardHeader className="text-center bg-gradient-to-r from-teal-50 to-purple-50 dark:from-teal-900/20 dark:to-purple-900/20 rounded-t-lg">
           <div className="flex items-center justify-center space-x-2 mb-3">
             <Heart className="h-6 w-6 text-teal-600 dark:text-teal-400" />
-            <CardTitle className="text-xl">How are you feeling today? 💙</CardTitle>
+            <CardTitle className="text-xl">{title || 'How are you feeling today? 💙'}</CardTitle>
           </div>
         </CardHeader>
 
