@@ -1,7 +1,5 @@
 "use client";
 
-import { Suspense } from "react";
-export const dynamic = "force-dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import ConversationList from '@/components/conversation';
@@ -389,7 +387,7 @@ useEffect(() => {
   //  Header avatar thumbnail comes straight from DB (per-user)
   const headerThumb = toThumbnail(profile.rpm_user_url);
 
-  return (<Suspense fallback={<div className="p-6">Loading profile…</div>}>
+  return (
     <div className="min-h-screen bg-background">
       <Navbar onNavigate={handleNavigation as any} currentPage="profile" />
 
@@ -653,6 +651,5 @@ useEffect(() => {
         </div>
       </main>
     </div>
-    </Suspense>
   );
 }
