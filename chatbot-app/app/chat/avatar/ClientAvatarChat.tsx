@@ -1,13 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 import { ChatInterfaceScreen } from '../../../components/ChatInterfaceScreen';
 import MoodCheckIn from '../../../components/MoodCheckIn';
 import { sendUserMessage } from '@/lib/messages';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
-import { endConversation } from "@/lib/conversations";
-
 
 type MessageRow = {
   id: string;
@@ -33,113 +31,128 @@ type MoodData = {
   support?: string;
 };
 
-type MoodState = (MoodData & { timestamp: Date }) | { skipped: true; timestamp: Date } | null;
+type MoodState =
+  | (MoodData & { timestamp: Date })
+  | { skipped: true; timestamp: Date }
+  | null;
 
 const MOOD_SESSION_KEY = 'moodCheckedIn:v1';
 
+// Ensure we always hand a .glb to the viewer
+const ensureGlb = (u?: string | null) =>
+  !u ? null : u.endsWith('.glb') ? u : `${u}.glb`;
+
+// Hardcoded companion choices (Adam/Eve)
+const COMPANIONS = {
+  ADAM: { name: 'Adam', url: 'https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb' },
+  EVE:  { name: 'Eve',  url: 'https://models.readyplayer.me/68be6a2ac036016545747aa9.glb' },
+} as const;
+
 export default function ClientAvatarChat() {
   const router = useRouter();
-  const params = useSearchParams();               // safe here (client)
-  const conversationId = params.get('convo');     // null for anonymous
-  const companionUrlFromParams = params.get('companionUrl');
-  const userUrlFromParams = params.get('userUrl');
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const params = useSearchParams();
 
-  const [mood, setMood] = useState<MoodState>(null); // This will be populated by sessionStorage
+  // URL params
+  const conversationId = params.get('convo');        // UUID or null
+  const sessionIdFromParams = params.get('sid');     // anon session id
+  const companionUrlFromParams = params.get('companionUrl');
+  const companionNameFromParams = params.get('companionName');
+  const userUrlFromParams = params.get('userUrl');
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [mood, setMood] = useState<MoodState>(null);
   const [showExitMoodCheckIn, setShowExitMoodCheckIn] = useState(false);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isTyping, setIsTyping] = useState(false);
 
+  // If we fetch a temp avatar, stash it here (for anonymous users)
+  const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
+
+  // ---------------- Nav / Exit ----------------
   const handleNavigation = (screen: string) => {
-    // The "End Chat" button in the sidebar calls onNavigate('home').
-    // We'll use this specific string to trigger the exit mood check-in.
     if (screen === 'home') {
       setShowExitMoodCheckIn(true);
       return;
     }
-
-    // For all other navigation events, navigate directly without a mood check.
     switch (screen) {
       case 'summary':
         router.push('/chat/summary');
         break;
-      case '/': // The "Home" button in the Navbar calls onNavigate('/')
+      case '/':
         router.push('/');
         break;
       case 'profile':
-        router.push(`/profile?convo=${conversationId}`);
+        router.push(`/profile?convo=${conversationId ?? ''}`);
         break;
       case 'settings':
-        router.push(`/settings?convo=${conversationId}`);
+        router.push(`/settings?convo=${conversationId ?? ''}`);
         break;
-      case "endchat":
-        handleEndChat();
-      break;
       default:
         console.log(`Navigate to: ${screen}`);
     }
   };
 
   const completeExit = async (finalMood?: MoodData) => {
-    if (finalMood && conversationId) {
-      console.log('Mood after chat:', finalMood);
-      try {
-        const { error } = await supabase.from('conversations').update({ final_mood: finalMood }).eq('id', conversationId);
-        if (error) throw error;
-        console.log('Saved final mood to conversation:', conversationId);
-      } catch (e) {
-        console.error('Failed to save final mood:', e);
+    try {
+      if (conversationId) {
+        const patch: any = {
+          status: 'ended',
+          ended_at: new Date().toISOString(),
+        };
+        if (finalMood) patch.final_mood = finalMood;
+
+        const { error } = await supabase.from('conversations').update(patch).eq('id', conversationId);
+        if (error) console.error('Failed to update conversation on exit:', error);
       }
+    } catch (e) {
+      console.error('Exit error:', e);
+    } finally {
+      sessionStorage.removeItem(MOOD_SESSION_KEY);
+      router.push('/');
     }
-    sessionStorage.removeItem(MOOD_SESSION_KEY);
-    router.push('/');
   };
 
   const handleExitMoodComplete = (moodData: MoodData) => {
     setShowExitMoodCheckIn(false);
     completeExit(moodData);
   };
-
   const handleExitSkip = () => {
     setShowExitMoodCheckIn(false);
     completeExit();
   };
 
-  // Fetch profile to get avatar URLs
+  // ---------------- Profile ----------------
   useEffect(() => {
-    const fetchProfile = async () => {
+    (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, username, rpm_user_url, rpm_companion_url')
-          .eq('id', user.id)
-          .single();
-        
-        if (error) {
-          console.error('Error fetching profile', error);
-        } else if (data) {
-          setProfile(data);
-        }
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, rpm_user_url, rpm_companion_url')
+        .eq('id', user.id)
+        .single();
+      if (error) {
+        console.error('Error fetching profile', error);
+        return;
       }
-    };
-    fetchProfile();
+      if (data) setProfile(data);
+    })();
   }, []);
 
-  // Load initial mood from session storage if it exists from the homepage flow.
+  // ---------------- Mood (entry from session storage) ----------------
   useEffect(() => {
-    const storedMood = sessionStorage.getItem(MOOD_SESSION_KEY);
-    if (storedMood) {
-      try {
-        const parsed = JSON.parse(storedMood);
-        if (parsed.timestamp) parsed.timestamp = new Date(parsed.timestamp);
-        setMood(parsed);
-      } catch {
-        setMood({ skipped: true, timestamp: new Date() });
-      }
+    const stored = sessionStorage.getItem(MOOD_SESSION_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed.timestamp) parsed.timestamp = new Date(parsed.timestamp);
+      setMood(parsed);
+    } catch {
+      setMood({ skipped: true, timestamp: new Date() });
     }
   }, []);
-  
+
+  // ---------------- Messages (initial + realtime) ----------------
   useEffect(() => {
     if (!conversationId) return;
 
@@ -174,25 +187,37 @@ export default function ClientAvatarChat() {
     };
   }, [conversationId]);
 
-  // to change "ongoing to ended" status on End Chat
-  async function handleEndChat() {
-  try {
-    // Mark it as saved in DB if we have an id
-    if (conversationId) {
-      await endConversation(conversationId);
-    }
-    // Go to Profile → Saved tab
-    router.push("/profile?tab=saved");
-  } catch (e) {
-    console.error("Failed to end chat:", e);
-    // optional: toast error
-  }
-}
-  // Simple AI stub — replace with your model call
-  async function getAdamReply(userText: string): Promise<string> {
+  // ---------------- Temp avatar fallback (anonymous) ----------------
+  useEffect(() => {
+    if (!conversationId || !sessionIdFromParams) return;
+
+    const alreadyHasUrl = !!userUrlFromParams || !!profile?.rpm_user_url;
+    if (alreadyHasUrl) return;
+
+    (async () => {
+      try {
+        const q = new URLSearchParams({ conversationId, sessionId: sessionIdFromParams });
+        const res = await fetch(`/api/temp-avatars?${q.toString()}`);
+        if (!res.ok) return;
+        const json = await res.json(); // { rpm_url, thumbnail } | null
+        if (json?.rpm_url) {
+          setTempUserUrl(json.rpm_url as string);
+          // populate a lightweight profile so downstream UI has a name/id
+          setProfile((p) =>
+            p ?? { id: 'anon', username: 'You', rpm_user_url: json.rpm_url, rpm_companion_url: null }
+          );
+        }
+      } catch (e) {
+        console.error('Failed to fetch temporary avatar:', e);
+      }
+    })();
+  }, [conversationId, sessionIdFromParams, userUrlFromParams, profile?.rpm_user_url]);
+
+  // ---------------- AI stub (replace with your model) ----------------
+  async function getAdamReply(_: string): Promise<string> {
     const canned = [
       "I hear you — that sounds like a lot to carry. What would help you feel a little safer right now?",
-      "Thank you for sharing that. What support around you has felt helpful, even a little?",
+      'Thank you for sharing that. What support around you has felt helpful, even a little?',
       "That seems really tough. I'm here to listen. What would you like me to understand most about this?",
       "You're not alone. Would it help to break this down into smaller steps together?",
       "You're doing the right thing by talking about it. What might make the next hour a bit easier?",
@@ -200,7 +225,7 @@ export default function ClientAvatarChat() {
     return canned[Math.floor(Math.random() * canned.length)];
   }
 
-  // Optimistic send + persist user + assistant
+  // ---------------- Send flow ----------------
   const handleSend = async (text: string) => {
     if (!text.trim()) return;
 
@@ -208,13 +233,11 @@ export default function ClientAvatarChat() {
       setShowExitMoodCheckIn(true);
       return;
     }
-    if (!conversationId) return; // anonymous: no DB writes
+    if (!conversationId) return;
 
     const tempUserId = `temp-user-${Date.now()}`;
     const tempBotId = `temp-bot-${Date.now()}`;
 
-    // The AI reply can be fetched while the user message is being saved.
-    // We show the typing indicator during this process.
     setIsTyping(true);
     const assistantTextPromise = getAdamReply(text);
 
@@ -227,30 +250,24 @@ export default function ClientAvatarChat() {
       created_at: new Date().toISOString(),
       status: 'sending',
     };
-
-    // Add the user's message to the UI immediately.
-    setMessages(prev => [...prev, optimisticUserMessage]);
+    setMessages((prev) => [...prev, optimisticUserMessage]);
 
     try {
-      // Persist the user message and wait for the AI's reply.
       const [savedUser, assistantText] = await Promise.all([
         sendUserMessage(conversationId, text),
         assistantTextPromise,
       ]);
 
-      // Bot is no longer "typing" once we have the text.
       setIsTyping(false);
 
-      // Update the user message from temp to saved.
-      setMessages(prev => {
-        const withoutTemp = prev.filter(m => m.id !== tempUserId);
-        if (!withoutTemp.some(m => m.id === savedUser.id)) {
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((m) => m.id !== tempUserId);
+        if (!withoutTemp.some((m) => m.id === savedUser.id)) {
           withoutTemp.push({ ...savedUser, status: 'sent' });
         }
         return withoutTemp;
       });
 
-      // Add optimistic bot message and persist it.
       const optimisticBotMessage: MessageRow = {
         id: tempBotId,
         conversation_id: conversationId,
@@ -260,72 +277,62 @@ export default function ClientAvatarChat() {
         created_at: new Date().toISOString(),
         status: 'sending',
       };
-      setMessages(prev => [...prev, optimisticBotMessage]);
+      setMessages((prev) => [...prev, optimisticBotMessage]);
 
-      const savedBot = await fetch('/api/assistant-message', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId, content: assistantText }) }).then(res => res.json());
+      const savedBot = await fetch('/api/assistant-message', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversationId, content: assistantText }),
+      }).then((res) => res.json());
 
-      setMessages(prev => {
-        const withoutTemp = prev.filter(m => m.id !== tempBotId);
-        if (savedBot?.id && !withoutTemp.some(m => m.id === savedBot.id)) {
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((m) => m.id !== tempBotId);
+        if (savedBot?.id && !withoutTemp.some((m) => m.id === savedBot.id)) {
           withoutTemp.push({ ...savedBot, status: 'sent' });
         }
         return withoutTemp;
       });
     } catch (e) {
       console.error('send failed:', e);
-      // If anything fails, mark the optimistic messages as 'failed'.
-      setMessages(prev => prev.map(m => (m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m)));
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m))
+      );
       setIsTyping(false);
     }
   };
 
-  const userAvatar = useMemo(() => {
-    const url = userUrlFromParams || profile?.rpm_user_url;
-    if (url) {
-      return {
-        name: 'User',
-        type: 'custom' as const,
-        url: url,
-      };
-    }
-    // Fallback for anonymous user without a created avatar
-    return {
-      name: 'User',
-      type: 'default' as const,
-      url: null,
-    };
-  }, [profile, userUrlFromParams]);
+  // ---------------- Avatars (normalize to .glb) ----------------
+type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
 
-  const companionAvatar = useMemo(() => {
-    if (companionUrlFromParams) {
-      return {
-        name: 'Custom Companion',
-        type: 'custom' as const,
-        url: companionUrlFromParams,
-      };
-    }
-    if (profile?.rpm_companion_url) {
-      return {
-        name: 'Custom Companion',
-        type: 'custom' as const,
-        url: profile.rpm_companion_url,
-      };
-    }
-    // Default companion
-    return {
-      name: 'Adam',
-      type: 'default' as const,
-      url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
-    };
-  }, [profile, companionUrlFromParams]);
+const toAvatar = (name: string, url: string | null): AvatarShape => ({
+  name,
+  type: url ? 'custom' : 'default',
+  url,
+});
 
+const userAvatar = useMemo(() => {
+  const raw = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
+  const url = ensureGlb(raw);
+  return toAvatar(profile?.username || 'You', url);
+}, [profile?.username, profile?.rpm_user_url, userUrlFromParams, tempUserUrl]);
+
+const companionAvatar = useMemo(() => {
+  if (companionUrlFromParams) {
+    return toAvatar(companionNameFromParams || 'Companion', ensureGlb(companionUrlFromParams));
+  }
+  if (profile?.rpm_companion_url) {
+    return toAvatar('Custom Companion', ensureGlb(profile.rpm_companion_url));
+  }
+  const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
+  const pick = COMPANIONS[key] ?? COMPANIONS.ADAM;
+  return toAvatar(pick.name, pick.url);
+}, [profile?.rpm_companion_url, companionUrlFromParams, companionNameFromParams]);
+
+  // ---------------- Render ----------------
   const chatInterfaceMood = useMemo(() => {
-    if (mood && 'feeling' in mood) {
-      return mood;
-    }
-    return null;
-  }, [mood]);
-
+  if (mood && 'feeling' in mood) return mood;
+  return null;
+}, [mood]);
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       {showExitMoodCheckIn && (
@@ -339,7 +346,11 @@ export default function ClientAvatarChat() {
       <ChatInterfaceScreen
         onNavigate={handleNavigation}
         chatMode="avatar"
-        user={profile ? { id: profile.id, username: profile.username || 'User', avatar: userAvatar } : { id: 'anon', username: 'You', avatar: userAvatar }}
+        user={
+          profile
+            ? { id: profile.id, username: profile.username || 'User', avatar: userAvatar }
+            : { id: 'anon', username: 'You', avatar: userAvatar }
+        }
         companionAvatar={companionAvatar}
         currentMood={chatInterfaceMood}
         onSend={handleSend}
