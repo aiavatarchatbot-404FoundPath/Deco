@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { ArrowRight, User } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { ArrowRight, User, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
 
 interface AvatarBuilderScreenProps {
   onNavigate: (screen: string) => void;
@@ -28,36 +30,26 @@ function toThumbnail(url?: string | null): string | null {
   return null;
 }
 
+// Ready Player Me avatar URLs
+const readyPlayerMeAvatars = {
+  adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
+  eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
+};
+
 export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectAvatar }: AvatarBuilderScreenProps) {
-  const [selectedAvatar, setSelectedAvatar] = useState<string>('custom');
+  const [selectedAvatar, setSelectedAvatar] = useState<string>('ready-adam');
   const router = useRouter();
+  const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Debug: Log user data 
   console.log('AvatarBuilderScreen user data:', user);
   console.log('User rpm_user_url:', user?.rpm_user_url);
 
-  // Ready Player Me avatar URLs
-  const readyPlayerMeAvatars = {
-    adam: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
-    eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
-  };
-
-  const handleAvatarSelect = (avatarId: string) => {
+  const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
-    
-    // Pass the appropriate avatar data based on selection
     let avatarData;
-    
-    if (avatarId === 'custom') {
-      // Use user's custom avatar if available, otherwise prompt to create one
-      avatarData = {
-        id: 'custom',
-        name: user?.rpm_user_url ? 'Custom Avatar' : 'Create Custom Avatar',
-        type: 'readyplayerme',
-        url: user?.rpm_user_url || null,
-        isCustom: true
-      };
-    } else if (avatarId === 'eve') {
+    if (avatarId === 'eve') {
       avatarData = {
         id: 'eve',
         name: 'Eve',
@@ -81,17 +73,101 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
     }
     
     onSelectAvatar(avatarData);
-  };
+  }, [onSelectAvatar]);
+
+  // Set a default companion on initial render
+  useEffect(() => {
+    if (readyPlayerMeAvatars.adam) {
+      handleAvatarSelect('ready-adam');
+    }
+  }, [handleAvatarSelect]);
 
   const handleCreateAvatar = () => {
-    // Navigate to Ready Player Me selector
-    onNavigate('profile/ReadyPlayerMeSelector');
+    setIsCreatingAvatar(true);
+    setIsLoading(true);
   };
+
+  const saveAvatarToDB = useCallback(async (url: string) => {
+    const { data: auth } = await supabase.auth.getUser();
+    const u = auth?.user;
+    if (!u) {
+      // For anonymous users, we don't save to DB, but we still want to use the avatar for the session.
+      onSaveAvatar({ url });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .upsert({ id: u.id, rpm_user_url: url }, { onConflict: "id" });
+
+    if (error) {
+      console.error("upsert error:", error);
+      toast.error("Couldn't save avatar. Try again.");
+      return;
+    }
+    
+    onSaveAvatar({ url });
+  }, [onSaveAvatar]);
+
+  const handleReadyPlayerMeMessage = useCallback((event: MessageEvent) => {
+    let avatarUrl: string | null = null;
+    if (!event?.data) return;
+
+    if (event.data.eventName && (event.data.eventName.includes("error") || event.data.type === "error")) {
+      return;
+    }
+
+    if (event.data.eventName === "v1.avatar.exported" && event.data.url) {
+      avatarUrl = event.data.url;
+    } else if (event.data.url && typeof event.data.url === "string") {
+      avatarUrl = event.data.url;
+    } else if (event.data.avatar?.url) {
+      avatarUrl = event.data.avatar.url;
+    } else if (typeof event.data === "string" && event.data.includes("readyplayer.me")) {
+      avatarUrl = event.data;
+    }
+
+    if (!avatarUrl) return;
+
+    void saveAvatarToDB(avatarUrl);
+
+    setIsCreatingAvatar(false);
+    setIsLoading(false);
+
+    toast.success("🎉 Avatar saved!", {
+      description: "It will now appear as your custom avatar.",
+    });
+  }, [saveAvatarToDB]);
+
+  useEffect(() => {
+    window.addEventListener("message", handleReadyPlayerMeMessage);
+    return () => window.removeEventListener("message", handleReadyPlayerMeMessage);
+  }, [handleReadyPlayerMeMessage]);
+
+  if (isCreatingAvatar) {
+    return (
+      <div className="fixed inset-0 z-50 bg-white">
+        {isLoading && (
+          <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
+            <div className="text-center">
+              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-primary" />
+              <p>Loading ReadyPlayer.me…</p>
+            </div>
+          </div>
+        )}
+        <iframe
+          src="https://readyplayer.me/avatar?frameApi"
+          className="w-full h-full border-0"
+          allow="camera *; microphone *"
+          onLoad={() => setIsLoading(false)}
+          title="ReadyPlayer.me Avatar Creator"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4">
-      
-
       {/* Main Content */}
       <div className="w-full max-w-4xl text-center space-y-8">
         {/* Header */}
@@ -105,15 +181,11 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
         </div>
 
         {/* Avatar Selection Grid */}
-        <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-          {/* Custom Avatar */}
+        <div className="flex justify-center max-w-2xl mx-auto">
+          {/* Custom User Avatar - for creation, not selection */}
           <div 
-            onClick={() => user?.rpm_user_url ? handleAvatarSelect('custom') : handleCreateAvatar()}
-            className={`bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all ${
-              selectedAvatar === 'custom' 
-                ? 'ring-4 ring-blue-300 shadow-xl' 
-                : 'hover:shadow-xl'
-            }`}
+            onClick={handleCreateAvatar}
+            className="bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all hover:shadow-xl"
           >
             <div className="space-y-4">
               {/* Avatar Image - Show user's custom avatar if available */}
@@ -145,13 +217,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                 <p className="text-xs text-gray-500 mt-1">
                   {user?.rpm_user_url ? 'Ready Player Me Avatar' : 'Click to create with Ready Player Me'}
                 </p>
-                {selectedAvatar === 'custom' && (
-                  <div className="mt-2">
-                    <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
-                      Selected
-                    </span>
-                  </div>
-                )}
                 {!user?.rpm_user_url && (
                   <div className="mt-3">
                     <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
@@ -163,43 +228,12 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
             </div>
           </div>
 
-          {/* AI Assistant Adam */}
-          <div 
-            onClick={() => handleAvatarSelect('adam')}
-            className={`bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all ${
-              selectedAvatar === 'adam' 
-                ? 'ring-4 ring-blue-300 shadow-xl' 
-                : 'hover:shadow-xl'
-            }`}
-          >
-            <div className="space-y-4">
-              {/* Avatar Image Placeholder */}
-              <div className="w-24 h-24 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full flex items-center justify-center">
-                <div className="w-20 h-20 bg-blue-200 rounded-full flex items-center justify-center">
-                  <User className="w-12 h-12 text-blue-600" />
-                </div>
-              </div>
-              
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  AI Assistance Adam
-                </h3>
-                {selectedAvatar === 'adam' && (
-                  <div className="mt-2">
-                    <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
-                      Selected
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Ready-Made Avatars Section */}
         <div className="space-y-6">
           <h2 className="text-xl font-semibold text-gray-900">
-            Choose from Ready-Made Avatars:
+            Select Your AI Companion
           </h2>
           
           <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
@@ -285,26 +319,10 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           </div>
         </div>
 
-        {/* About Ready Player Me */}
-        <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl p-6 max-w-2xl mx-auto">
-          <h3 className="text-lg font-semibold text-purple-800 mb-3">
-            About Ready Player Me
-          </h3>
-          <p className="text-gray-700 text-sm mb-4">
-            Ready Player Me provides cutting-edge 3D avatar technology. Create custom avatars with facial expressions, animations, and personalized features for an immersive chat experience.
-          </p>
-          <Button 
-            onClick={handleCreateAvatar}
-            className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-full text-sm font-medium transition-colors"
-          >
-            Create Avatar
-          </Button>
-        </div>
-
         {/* Start Chatting Button */}
         <div className="pt-2">
           <Button 
-            onClick={() => router.push('/chat/avatar')}
+            onClick={onNavigateToChat}
             className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50"
             // style={{ minWidth: '20px', paddingLeft: '100px', paddingRight: '100px' }}
           >

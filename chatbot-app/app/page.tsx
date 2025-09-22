@@ -7,7 +7,6 @@ import { Badge } from '../components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Navbar from '../components/Navbar'; 
-import MoodCheckIn from '../components/MoodCheckIn';
 import { createConversation } from '@/lib/conversations'; // adjust path if needed
 import { getSessionUserId } from '@/lib/auth';
 
@@ -33,6 +32,8 @@ interface MoodData {
 interface StoredMoodData extends MoodData {
   timestamp: Date;
 }
+
+const MOOD_SESSION_KEY = 'moodCheckedIn:v1';
 
 interface User {
   username: string;
@@ -67,17 +68,23 @@ export default function HomePage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [currentMood, setCurrentMood] = useState<StoredMoodData | null>(null);
-  const [showMoodCheckIn, setShowMoodCheckIn] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
   const handleNavigateToProfile = () => {
     router.push('/profile');
   };
 
-  const handleNavigateToChat = () => {
-    // Always show mood check-in when starting a new chat session
-    setShowMoodCheckIn(true);
+  const handleNavigateToChat = async (mode: 'avatar' | 'standard') => {
+    // Set session storage so the chat page knows the check-in was intentionally skipped.
+    const skippedState = { skipped: true, timestamp: new Date() };
+    sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
+
+    // Navigate to chat without mood data
+    if (mode === 'avatar') {
+      const convoId = await maybeCreateConversation();
+      router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
+    } else {
+      router.push('/chat/simple');
+    }
   };
 
   const handleChatModeChange = (mode: 'avatar' | 'standard') => {
@@ -116,51 +123,13 @@ export default function HomePage() {
     }
   };
 
-  const handleMoodSubmit = async (moodData: MoodData) => {
-    
-    const moodWithTimestamp: StoredMoodData = {
-      ...moodData,
-      timestamp: new Date()
-      
-      
-    };
-    
-    setCurrentMood(moodWithTimestamp);
-    localStorage.setItem('avatarCompanion_mood', JSON.stringify(moodWithTimestamp));
-    setShowMoodCheckIn(false);
-    
-    // Navigate to chat
-    if (chatMode === 'avatar') {
-      const convoId = await maybeCreateConversation();
-      // when creating the conversation:
-      router.push(`/chat/avatar?convo=${convoId}`);
-
-    } else {
-      router.push('/chat/simple');
-    }
-  };
     async function maybeCreateConversation() {
   const uid = await getSessionUserId();          // null if anonymous
   if (!uid) return null;                         // skip DB write when not logged in
   const convoId = await createConversation('My chat');
   console.log('[chat] created conversation:', convoId);
   return convoId;
-}
-
-  
-
-  const handleMoodSkip = async () => {
-    setShowMoodCheckIn(false);
-    
-    
-    // Navigate to chat without mood data
-    if (chatMode === 'avatar') {
-      const convoId = await maybeCreateConversation();
-      router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
-    } else {
-      router.push('/chat/simple');
     }
-  };
 
   // Load saved mood data and user data on mount
   useEffect(() => {
@@ -212,7 +181,7 @@ export default function HomePage() {
   
 
     // Load saved mood data
-    const savedMood = localStorage.getItem('avatarCompanion_mood');
+    const savedMood = sessionStorage.getItem(MOOD_SESSION_KEY);
     if (savedMood) {
       try {
         const moodData = JSON.parse(savedMood);
@@ -220,11 +189,11 @@ export default function HomePage() {
         if (new Date().getTime() - new Date(moodData.timestamp).getTime() < 4 * 60 * 60 * 1000) {
           setCurrentMood(moodData);
         } else {
-          localStorage.removeItem('avatarCompanion_mood');
+          sessionStorage.removeItem(MOOD_SESSION_KEY);
         }
       } catch (error) {
         console.error('Error loading mood data:', error);
-        localStorage.removeItem('avatarCompanion_mood');
+        sessionStorage.removeItem(MOOD_SESSION_KEY);
       }
     }
     
@@ -245,20 +214,6 @@ export default function HomePage() {
     };
   }, []);
 
-const onStartChat = async () => {
-  setBusy(true); setErr(null);
-  let convoId: string | null = null;
-  try {
-    convoId = await maybeCreateConversation();             // <— keep/create here too
-  } catch (e: any) {
-    setErr(e?.message ?? 'Failed to create conversation');
-    console.error(e);
-  } finally {
-    router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
-    setBusy(false);
-  }
-};
-
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
@@ -268,14 +223,6 @@ const onStartChat = async () => {
         isLoggedIn={isLoggedIn}
         currentPage="home"
       />
-
-      {/* Mood Check-In Modal */}
-      {showMoodCheckIn && (
-        <MoodCheckIn
-          onComplete={handleMoodSubmit}
-          onSkip={handleMoodSkip}
-        />
-      )}
       
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         
@@ -367,7 +314,10 @@ const onStartChat = async () => {
           {/* Primary CTA */}
           <div className="mb-12">
             <Button
-              onClick={handleNavigateToChat}
+              onClick={() => {
+                handleChatModeChange('standard');
+                handleNavigateToChat('standard');
+              }}
               size="lg"
               className="h-16 px-12 text-xl bg-teal-500 hover:bg-teal-600 text-white border-0 rounded-full shadow-lg hover:shadow-xl transition-all duration-300"
             >
@@ -377,12 +327,7 @@ const onStartChat = async () => {
             <div className="mt-6 space-y-2">
               <p className="text-sm text-gray-600">
                 No registration required • Completely private • Start immediately
-              </p>
-              {!currentMood && (
-                <p className="text-sm text-teal-600 font-medium">
-                  We'll ask how you're feeling first to provide better support
-                </p>
-              )}
+              </p>              
             </div>
           </div>
         </div>
@@ -463,23 +408,15 @@ const onStartChat = async () => {
 
                   <div className="space-y-2">
                     <Button
-  onClick={(e) => { e.stopPropagation(); setChatMode("avatar"); onStartChat(); }}
-  disabled={busy}
-  className="w-full bg-teal-500 hover:bg-teal-600 text-white"
->
-  <MessageCircle className="h-4 w-4 mr-2" />
-  {busy ? "Starting…" : "Start Avatar Chat"}
-</Button>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs border-orange-200 text-orange-600 hover:bg-orange-50"
-                      onClick={() => {
-                        handleNavigation('avatarbuilder');
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleChatModeChange("avatar"); 
+                        handleNavigation("avatarbuilder"); 
                       }}
+                      className="w-full bg-teal-500 hover:bg-teal-600 text-white"
                     >
-                      Customize Avatar First
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Start Avatar Chat
                     </Button>
                     
                     {!isLoggedIn && (
@@ -555,7 +492,7 @@ const onStartChat = async () => {
                     onClick={(e) => {
                       e.stopPropagation();
                       handleChatModeChange('standard');
-                      handleNavigateToChat();
+                      handleNavigateToChat('standard');
                     }}
                     className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white"
                   >

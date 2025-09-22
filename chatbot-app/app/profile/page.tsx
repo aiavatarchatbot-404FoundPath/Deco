@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import ConversationList from '@/components/conversation';
 import Navbar from "@/components/Navbar";
@@ -134,9 +134,23 @@ const MOCK_SAVED: SavedItem[] = [
   },
 ];
 
+// This component should be defined outside of the ProfilePageSupabase component
+// to prevent it from being recreated on every render.
+function ProfileConversationsTab() {
+  const router = useRouter();
+  return (
+    <ConversationList
+      onSelect={(id) => router.push(`/chat/avatar?convo=${id}`)}
+      showSearch
+      mineOnly={true}
+    />
+  );
+}
 
 export default function ProfilePageSupabase() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromChatConvoId = searchParams.get('convo');
 
   // STATE of profile from DB....
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -152,18 +166,6 @@ export default function ProfilePageSupabase() {
 
   // derived
   const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
-
-// ProfileConversationsTab component moved outside useEffect
-function ProfileConversationsTab() {
-  const router = useRouter();
-  return (
-    <ConversationList
-      onSelect={(id) => router.push(`/chat/avatar?convo=${id}`)}
-      showSearch
-      mineOnly={true}
-    />
-  );
-}
 
 useEffect(() => {
   let cancelled = false;
@@ -302,6 +304,9 @@ useEffect(() => {
 
   // nav handlers
   const handleBackToHome = () => router.push("/");
+  const handleBackToChat = () => {
+    if (fromChatConvoId) router.push(`/chat/avatar?convo=${fromChatConvoId}`);
+  };
   const handleNavigateToChat = () => router.push("/chat/avatar");
   const handleNavigation = (href: string) => router.push(href);
 
@@ -338,10 +343,17 @@ useEffect(() => {
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
         {/* Back Button */}
-        <Button variant="ghost" onClick={handleBackToHome} className="mb-6 trauma-safe gentle-focus">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Home
-        </Button>
+        {fromChatConvoId ? (
+          <Button variant="ghost" onClick={handleBackToChat} className="mb-6 trauma-safe gentle-focus">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Chat
+          </Button>
+        ) : (
+          <Button variant="ghost" onClick={handleBackToHome} className="mb-6 trauma-safe gentle-focus">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Home
+          </Button>
+        )}
 
         {/* Profile Header */}
         <div className="bg-card rounded-lg border border-border p-6 mb-6">
