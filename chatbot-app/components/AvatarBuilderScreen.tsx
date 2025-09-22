@@ -10,7 +10,7 @@ interface AvatarBuilderScreenProps {
   onNavigateToChat: () => void;
   user?: any;
   onSaveAvatar: (avatar: any) => void;
-  onSelectAvatar: (avatar: any) => void;
+  onSelectCompanion: (companion: "ADAM" | "EVE") => void;
 }
 
 // Convert a Ready Player Me URL (.glb) into a displayable PNG
@@ -36,44 +36,20 @@ const readyPlayerMeAvatars = {
   eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
 };
 
-export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectAvatar }: AvatarBuilderScreenProps) {
+export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectCompanion }: AvatarBuilderScreenProps) {
   const [selectedAvatar, setSelectedAvatar] = useState<string>('ready-adam');
   const router = useRouter();
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Debug: Log user data 
-  console.log('AvatarBuilderScreen user data:', user);
-  console.log('User rpm_user_url:', user?.rpm_user_url);
-
   const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
-    let avatarData;
     if (avatarId === 'eve') {
-      avatarData = {
-        id: 'eve',
-        name: 'Eve',
-        type: 'readyplayerme',
-        url: readyPlayerMeAvatars.eve
-      };
+      onSelectCompanion('EVE');
     } else if (avatarId === 'ready-adam') {
-      avatarData = {
-        id: 'ready-adam',
-        name: 'Adam',
-        type: 'readyplayerme',
-        url: readyPlayerMeAvatars.adam
-      };
-    } else {
-      avatarData = {
-        id: avatarId,
-        name: avatarId,
-        type: 'default',
-        url: null
-      };
+      onSelectCompanion('ADAM');
     }
-    
-    onSelectAvatar(avatarData);
-  }, [onSelectAvatar]);
+  }, [onSelectCompanion]);
 
   // Set a default companion on initial render
   useEffect(() => {

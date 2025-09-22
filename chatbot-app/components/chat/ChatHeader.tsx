@@ -13,6 +13,8 @@ interface ChatHeaderProps {
     timestamp: Date;
   } | null;
   chatMode: "avatar" | "standard";
+  companionName: string;
+  companionAvatarUrl?: string | null;
 }
 
 // Subtle pastel styles for moods
@@ -27,24 +29,41 @@ const feelings = [
   { emoji: "😐", label: "Neutral", color: "bg-gray-100 text-gray-700 border-gray-300" },
 ];
 
-export default function ChatHeader({ currentMood, chatMode }: ChatHeaderProps) {
+function toThumbnail(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.endsWith(".png")) return url;
+  if (url.endsWith(".glb")) return url.replace(".glb", ".png");
+
+  // extract avatar id and use the official PNG endpoint
+  try {
+    const last = url.split("/").pop() || "";
+    const id = last.replace(".glb", "");
+    if (id && id.length > 10) {
+      return `https://api.readyplayer.me/v1/avatars/${id}.png`;
+    }
+  } catch {}
+  return null;
+}
+
+export default function ChatHeader({ currentMood, chatMode, companionName, companionAvatarUrl }: ChatHeaderProps) {
   const moodConfig = feelings.find(
     (f) => f.label.toLowerCase() === currentMood?.feeling.toLowerCase()
   );
+  const companionThumbnail = toThumbnail(companionAvatarUrl);
 
   return (
     <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
       {/* Left side: AI Companion info */}
       <div className="flex items-center space-x-3">
         <Avatar className="h-10 w-10">
-          <AvatarImage src="/adam-avatar.png" alt="Adam" />
+          <AvatarImage src={companionThumbnail ?? "/adam-avatar.png"} alt={companionName} />
           <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white">
-            A
+            {companionName.charAt(0)}
           </AvatarFallback>
         </Avatar>
 
         <div>
-          <h2 className="font-semibold text-gray-900">Adam - Your AI Companion</h2>
+          <h2 className="font-semibold text-gray-900">{companionName} - Your AI Companion</h2>
           <div className="flex items-center space-x-2 text-sm text-gray-500">
             <span>{chatMode === "avatar" ? "Avatar Chat Mode" : "Standard Chat Mode"}</span>
             <span>•</span>
