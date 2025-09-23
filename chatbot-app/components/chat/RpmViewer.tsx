@@ -5,28 +5,70 @@ import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
 import RpmModel from './RpmModel';
 
-type Props =
-  | { src?: string | null; userUrl?: never; aiUrl?: never; assistantTalking?: boolean }
-  | { src?: never; userUrl?: string | null; aiUrl?: string | null; assistantTalking?: boolean };
+type Props = {
+  src?: string | null;
+  userUrl?: string | null;
+  aiUrl?: string | null;
+  assistantTalking?: boolean;
+  singleYaw?: number;
+  singleLookAt?: [number, number, number];
+};
+
+const DEFAULT_LOOK_TARGET = new THREE.Vector3(0, 1.2, 2);
 
 export default function RpmViewer(props: Props) {
-  const userUrl = (props as any).userUrl ?? null;
-  const aiUrl = (props as any).aiUrl ?? null;
-  const duo = userUrl != null || aiUrl != null;
+  const userUrl = props.userUrl ?? null;
+  const aiUrl = props.aiUrl ?? null;
+  const singleSrc = props.src ?? null;
 
-  // Positions + yaw
-  const leftPos: [number, number, number] = [-1.1, 0, 0];
-  const rightPos: [number, number, number] = [1.1, 0, 0];
-  const leftYaw = -Math.PI / 2 + 0.08;
-  const rightYaw = Math.PI / 2 - 0.08;
+  const hasUser = !!userUrl;
+  const hasCompanion = !!aiUrl;
+  const duo = hasUser && hasCompanion;
+  const separationX = 2.6;
+  const depthOffset = 0.7;
 
-  // Look targets
-  const rightTarget = useMemo(() => new THREE.Vector3(...rightPos), []);
-  const leftTarget = useMemo(() => new THREE.Vector3(...leftPos), []);
+  const userPosition: [number, number, number] = hasUser
+    ? duo
+      ? [-separationX, 0, depthOffset]
+      : [0, 0, 0]
+    : [0, 0, 0];
 
-  const camera = duo
-    ? { position: [0, 1.35, 3.2] as [number, number, number], fov: 30 }
-    : { position: [0, 1.35, 2.6] as [number, number, number], fov: 30 };
+  const companionPosition: [number, number, number] = hasCompanion
+    ? duo
+      ? [separationX, 0, -depthOffset]
+      : [0, 0, 0]
+    : [0, 0, 0];
+
+  const userLookTarget = useMemo(() => {
+    if (duo && hasCompanion) {
+      return new THREE.Vector3(companionPosition[0], 1.4, companionPosition[2]);
+    }
+    return DEFAULT_LOOK_TARGET;
+  }, [duo, hasCompanion, companionPosition[0], companionPosition[1], companionPosition[2]]);
+
+  const companionLookTarget = useMemo(() => {
+    if (duo && hasUser) {
+      return new THREE.Vector3(userPosition[0], 1.4, userPosition[2]);
+    }
+    return DEFAULT_LOOK_TARGET;
+  }, [duo, hasUser, userPosition[0], userPosition[1], userPosition[2]]);
+
+  const singleYaw = props.singleYaw ?? 0;
+  const singleLookTarget = useMemo(() => {
+    if (props.singleLookAt) {
+      const [x, y, z] = props.singleLookAt;
+      return new THREE.Vector3(x, y, z);
+    }
+    return DEFAULT_LOOK_TARGET;
+  }, [props.singleLookAt?.[0], props.singleLookAt?.[1], props.singleLookAt?.[2]]);
+
+  const camera = useMemo(
+    () =>
+      duo
+        ? { position: [0, 1.35, 4.2] as [number, number, number], fov: 30 }
+        : { position: [0, 1.35, 2.6] as [number, number, number], fov: 30 },
+    [duo]
+  );
 
   return (
     <Canvas camera={camera} shadows>
@@ -41,9 +83,9 @@ export default function RpmViewer(props: Props) {
               <RpmModel
                 key={`user-${userUrl}`}
                 src={userUrl}
-                position={leftPos}
-                yaw={leftYaw}
-                lookAt={rightTarget}
+                position={userPosition}
+                yaw={-Math.PI / 2 + 0.1}
+                lookAt={userLookTarget}
                 talk={false}
                 scale={1}
               />
@@ -54,9 +96,9 @@ export default function RpmViewer(props: Props) {
               <RpmModel
                 key={`ai-${aiUrl}`}
                 src={aiUrl}
-                position={rightPos}
-                yaw={rightYaw}
-                lookAt={leftTarget}
+                position={companionPosition}
+                yaw={Math.PI / 2 - 0.1}
+                lookAt={companionLookTarget}
                 talk={!!(props as any).assistantTalking}
                 scale={1}
               />
@@ -65,28 +107,24 @@ export default function RpmViewer(props: Props) {
         ) : (
           // Single
           <RpmModel
-            src={(props as any).src}
+            src={singleSrc ?? userUrl ?? aiUrl}
             position={[0, 0, 0]}
-            yaw={0}
-            talk={false}
+            yaw={singleYaw}
+            talk={!!props.assistantTalking}
+            lookAt={singleLookTarget}
           />
         )}
 
-        {/* Floor */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.9, 0]} receiveShadow>
-          <planeGeometry args={[10, 10]} />
-          <meshStandardMaterial color="#333" roughness={0.1} metalness={0.2} />
-        </mesh>
 
-        <Environment preset="sunset" background />
+        <Environment preset="park" background />
       </Suspense>
 
       <OrbitControls
         makeDefault
         enablePan={false}
         target={[0, 1.1, 0]}
-        minDistance={1.8}
-        maxDistance={3.5}
+        minDistance={duo ? 2.8 : 2}
+        maxDistance={duo ? 5.2 : 4.2}
         minPolarAngle={Math.PI / 3}
         maxPolarAngle={Math.PI / 1.9}
       />
