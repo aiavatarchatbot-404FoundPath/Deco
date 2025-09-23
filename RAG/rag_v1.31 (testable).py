@@ -108,37 +108,38 @@ def ask(query, session_memory):
     # Retrieve RAG context
     context = "\n".join(retrieve(query))
 
-    # Build conversation history
-    history_text = ""  
-    history = session_memory.get("history", [])
-    for turn in history:
-        user_turn = turn.get("You", "")
-        bot_turn = turn.get("Bot", "")
-        history_text += f"You: {user_turn}\nBot: {bot_turn}\n"
-    
+    # Build structured history
+    history_messages = []
+    for turn in session_memory.get("history", []):
+        if "You" in turn:
+            history_messages.append({"role": "user", "content": turn["You"]})
+        if "Bot" in turn:
+            history_messages.append({"role": "assistant", "content": turn["Bot"]})
+
+    messages = [
+        {"role": "system", "content": (
+            "Prioritise the provided context when answering. "
+            "Be concise and empathetic. "
+            "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger). "
+            "Return ONLY valid JSON with keys: 'answer', 'emotion', 'tier', 'suggestions'. "
+            "Provide suggestions only when the user asks for them."
+        )},
+        {"role": "system", "content": f"Context:\n{context}"},
+    ] + history_messages + [
+        {"role": "user", "content": query}
+    ]
+
     response = client.chat.completions.create(
         model="gpt-5-nano",
-        # This part is how to change the tone and control the responses of the model
-        messages=[
-            {"role":"system","content": (
-                     "You are a helpful, supportive chatbot for young people in Queensland's youth justice system." 
-                     "Prioritise the provided context when answering." 
-                     "Be concise and empathetic."
-                     "If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case." 
-                     "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger)." 
-                     "Return JSON with keys: 'answer', 'emotion', 'tier', 'suggestions'."
-                     "Do not provide suggestions in the answer."
-                     )
-            },
-            {"role":"user","content": f"Previous Conversation:\n{history_text}\n\nContext:\n{context}\n\nQuestion: {query}"}
-        ]
-        
+        messages=messages
     )
+
+    content = response.choices[0].message.content
     try:
-        return json.loads(response.choices[0].message.content)
+        return json.loads(content)
     except json.JSONDecodeError:
         return {
-            "answer": response.choices[0].message.content,
+            "answer": content,
             "emotion": "Neutral",
             "tier": "None",
             "suggestions": []
@@ -206,8 +207,9 @@ ADVICE_PATTERNS = [
 # Precompile regex patterns for efficiency
 COMPILED_ADVICE_PATTERNS = [re.compile(p, re.IGNORECASE) for p in ADVICE_PATTERNS]
 
+# Checks if the user wants any advice in regards to their situation
 def wants_advice(user_input: str) -> bool:
-    for pattern in COMPILED_DANGER_PATTERNS:
+    for pattern in COMPILED_ADVICE_PATTERNS:
         if pattern.search(user_input):
             return True
     return False
@@ -248,12 +250,11 @@ def rag_ai_pipeline(session_memory):
         print(f"🤖 {answer}")
 
         # Step 5. Providing suggestions to the user
-        if wants_advice(query): 
-            print("🤖 Here are some suggestions that might help:")
-            for s in analysis['suggestions']:
-                print(f"- {s}")
+        if wants_advice(query):
+            for s in suggestions:
+                print(f"--> {s}")
                   
-        # Step 5. Update session memory after providing a solution and suggestions to the user
+        # Step 6. Update session memory after providing a solution and suggestions to the user
         session_memory["history"].append(
             {"You": query,
              "Bot": answer
