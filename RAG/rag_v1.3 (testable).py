@@ -248,9 +248,7 @@ def rag_ai_pipeline(session_memory):
         print(f"🤖 {answer}")
 
         # Step 5. Providing suggestions to the user
-        if not wants_advice(query):
-            analysis["suggestions"] = []
-        else:
+        if wants_advice(query): 
             print("🤖 Here are some suggestions that might help:")
             for s in analysis['suggestions']:
                 print(f"- {s}")
