@@ -3,7 +3,7 @@ import React, { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
-import RpmModel from './RpmModel';
+import RpmModel, { type RpmAnimationConfig } from './RpmModel';
 
 type Props = {
   src?: string | null;
@@ -12,6 +12,10 @@ type Props = {
   assistantTalking?: boolean;
   singleYaw?: number;
   singleLookAt?: [number, number, number];
+  talkOverride?: boolean;
+  animation?: RpmAnimationConfig;
+  userAnimation?: RpmAnimationConfig;
+  aiAnimation?: RpmAnimationConfig;
 };
 
 const DEFAULT_LOOK_TARGET = new THREE.Vector3(0, 1.2, 2);
@@ -20,6 +24,9 @@ export default function RpmViewer(props: Props) {
   const userUrl = props.userUrl ?? null;
   const aiUrl = props.aiUrl ?? null;
   const singleSrc = props.src ?? null;
+  const baseAnimation = props.animation;
+  const userAnimation = props.userAnimation ?? baseAnimation;
+  const companionAnimation = props.aiAnimation ?? baseAnimation;
 
   const hasUser = !!userUrl;
   const hasCompanion = !!aiUrl;
@@ -62,6 +69,8 @@ export default function RpmViewer(props: Props) {
     return DEFAULT_LOOK_TARGET;
   }, [props.singleLookAt?.[0], props.singleLookAt?.[1], props.singleLookAt?.[2]]);
 
+  const talkState = props.talkOverride ?? props.assistantTalking ?? false;
+
   const camera = useMemo(
     () =>
       duo
@@ -86,8 +95,9 @@ export default function RpmViewer(props: Props) {
                 position={userPosition}
                 yaw={-Math.PI / 2 + 0.1}
                 lookAt={userLookTarget}
-                talk={false}
+                talk={talkState}
                 scale={1}
+                animation={userAnimation}
               />
             )}
 
@@ -99,8 +109,9 @@ export default function RpmViewer(props: Props) {
                 position={companionPosition}
                 yaw={Math.PI / 2 - 0.1}
                 lookAt={companionLookTarget}
-                talk={!!(props as any).assistantTalking}
+                talk={talkState}
                 scale={1}
+                animation={companionAnimation}
               />
             )}
           </>
@@ -110,8 +121,9 @@ export default function RpmViewer(props: Props) {
             src={singleSrc ?? userUrl ?? aiUrl}
             position={[0, 0, 0]}
             yaw={singleYaw}
-            talk={!!props.assistantTalking}
+            talk={talkState}
             lookAt={singleLookTarget}
+            animation={baseAnimation}
           />
         )}
 
