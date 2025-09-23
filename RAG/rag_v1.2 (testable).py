@@ -4,6 +4,7 @@ import numpy as np
 from pypdf import PdfReader
 from openai import OpenAI
 import json
+import re
 
 # OPTIONAL (only if using CSV word chunks)
 try:
@@ -103,8 +104,18 @@ def retrieve(query, k=3):
 # -------------------------
 # Chatbot
 # -------------------------
-def ask(query):
+def ask(query, session_memory):
+    # Retrieve RAG context
     context = "\n".join(retrieve(query))
+
+    # Build conversation history
+    history_text = ""  
+    history = session_memory.get("history", [])
+    for turn in history:
+        user_turn = turn.get("You", "")
+        bot_turn = turn.get("Bot", "")
+        history_text += f"You: {user_turn}\nBot: {bot_turn}\n"
+    
     response = client.chat.completions.create(
         model="gpt-5-nano",
         # This part is how to change the tone and control the responses of the model
@@ -112,13 +123,14 @@ def ask(query):
             {"role":"system","content": (
                      "You are a helpful, supportive chatbot for young people in Queensland's youth justice system." 
                      "Prioritise the provided context when answering." 
+                     "Be concise and empathetic."
                      "If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case." 
                      "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger)." 
-                     "Be concise and empathetic."  
-                     "Provide a structured JSON output with keys: 'answer', 'emotion', 'tier', 'suggestions'. "
-                     "Suggestions should be appropriate next steps based on the user's emotion and tier.")
+                     "Return JSON with keys: 'answer', 'emotion', 'tier', 'suggestions'."
+                     "Do not provide suggestions in the answer."
+                     )
             },
-            {"role":"user","content": f"Context:\n{context}\n\nQuestion: {query}"}
+            {"role":"user","content": f"Previous Conversation:\n{history_text}\n\nContext:\n{context}\n\nQuestion: {query}"}
         ]
         
     )
@@ -136,18 +148,39 @@ def continue_conversation():
     return input("Do you want to continue? Type 'Yes' or 'No': ")
 
 def escalate_to_safety_protocol():
-    return ("⚠️ I’m really concerned about your safety. "
+    return ("🤖 I’m really concerned about your safety. "
         "If you are in immediate danger, please call 000 (Australia) or your local emergency services. "
         "You are not alone — you can also reach out to Lifeline on 13 11 14 for 24/7 support.")
 
 def session_closure():
     return ("Thank you for sharing with me today. You are not alone, and support is available whenever you need it." 
-            "Take care of yourself and goodbye. 👋")
+            " Take care of yourself and goodbye. 👋")
+
+DANGER_PATTERNS = [
+    r"\bsuicid(e|al)\b",                    # suicide, suicidal
+    r"\bdie\b",                             # die
+    r"\bdying\b",                           # dying
+    r"\bkill(ing)? myself\b",               # kill myself, killing myself
+    r"\bend(ing)? my life\b",               # end my life, ending my life
+    r"\bdeath\b",                           # death
+    r"\bmurder myself\b",                   # murder myself
+    r"\bwant to die\b",                     # want to die
+    r"\bcan't go on\b",                     # can't go on
+    r"\bi feel hopeless\b",                  # i feel hopeless
+    r"\bi want to disappear\b",             # i want to disappear
+    r"\bno reason to live\b",               # no reason to live
+    r"\bi wish i was dead\b",               # i wish i was dead
+    r"\bi am worthless\b",                  # i am worthless
+    r"\bi am a burden\b",                   # i am a burden
+]
+
+# Precompile regex patterns
+COMPILED_DANGER_PATTERNS = [re.compile(p, re.IGNORECASE) for p in DANGER_PATTERNS]
 
 def check_filters(user_input):
-    danger_words = ["suicide", "die", "kill myself", "end my life", "death", "murder myself"]
-    if any(word in user_input.lower() for word in danger_words):
-        return "Imminent Danger"
+    for pattern in COMPILED_DANGER_PATTERNS:
+        if pattern.search(user_input):
+            return "Imminent Danger"
     return None
 
 def clear_session_memory(session_memory):
@@ -155,6 +188,29 @@ def clear_session_memory(session_memory):
     session_memory["last_emotion"] = None
     session_memory["last_tier"] = None
     session_memory["last_suggestions"] = []
+
+# List of keywords/phrases indicating the user wants advice
+ADVICE_PATTERNS = [
+    r"\badvice\b",
+    r"\bsuggest(ion|ions)?\b",        # suggest, suggestion, suggestions
+    r"\brecommend(ation|ations)?\b",  # recommend, recommendations
+    r"\btips?\b",                      # tip or tips
+    r"what should i do",
+    r"how do i",
+    r"how should i",
+    r"\bideas?\b",                     # idea or ideas
+    r"\boptions?\b",                   # option or options
+    r"\bhelp (me)\b"
+]
+
+# Precompile regex patterns for efficiency
+COMPILED_ADVICE_PATTERNS = [re.compile(p, re.IGNORECASE) for p in ADVICE_PATTERNS]
+
+def wants_advice(user_input: str) -> bool:
+    for pattern in COMPILED_DANGER_PATTERNS:
+        if pattern.search(user_input):
+            return True
+    return False
     
 def rag_ai_pipeline(session_memory):
     print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
@@ -167,7 +223,7 @@ def rag_ai_pipeline(session_memory):
             break
             
         # Step 1/2. Detect emotion + risk level
-        analysis = ask(query)
+        analysis = ask(query, session_memory)
         
         emotion = analysis.get("emotion")
         tier = analysis.get("tier")
@@ -191,13 +247,15 @@ def rag_ai_pipeline(session_memory):
         # Step 4. Print answer to user's problem
         print(f"🤖 {answer}")
 
-        # Step 5. Provide suggestions to the user from the suggestion list
-        if suggestions:
-            print(f"🤖 Here are some suggestions that will help: ")
-            for s in suggestions:
+        # Step 5. Providing suggestions to the user
+        if not wants_advice(query):
+            analysis["suggestions"] = []
+        else:
+            print("🤖 Here are some suggestions that might help:")
+            for s in analysis['suggestions']:
                 print(f"- {s}")
                   
-        # Step 6. Update session memory after providing a solution and suggestions to the user
+        # Step 5. Update session memory after providing a solution and suggestions to the user
         session_memory["history"].append(
             {"You": query,
              "Bot": answer
@@ -221,14 +279,3 @@ session_memory = {
     }
 rag_ai_pipeline(session_memory)
 
-# print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
-# while True:
-#     user_q = input("You: ")
-#     if user_q.lower() in ["exit", "quit"]:
-#         print("👋 Goodbye!")
-#         break
-#     try:
-#         model_response = rag_ai_pipeline()
-#         print(f"Bot: {answer}\n")
-#     except Exception as e:
-#         print(f"⚠️ Error: {e}\n")
