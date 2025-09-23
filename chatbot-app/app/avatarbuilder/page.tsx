@@ -12,6 +12,7 @@ export default function AvatarBuilderPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedAvatarUrl, setSelectedAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -89,7 +90,7 @@ export default function AvatarBuilderPage() {
 
   const handleSaveAvatar = useCallback((avatar: any) => {
     console.log('Save avatar:', avatar);
-    setUser((prevUser) => {
+    setUser((prevUser: any) => {
       if (prevUser) {
         // For logged-in users, update the existing profile
         return { ...prevUser, rpm_user_url: avatar.url };
@@ -119,7 +120,7 @@ export default function AvatarBuilderPage() {
   }, [selectedAvatarUrl, user, router]);
 
   if (loading) {
-    const loadingMessage = avatarUpdateMessage || "Loading avatar builder...";
+    const loadingMessage = "Loading avatar builder...";
     return <Loading message={loadingMessage} />;
   }
 

@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Navbar from '../components/Navbar'; 
-import { createConversation } from '@/lib/conversations'; // adjust path if needed
+import { createConversation } from '@/lib/conversations'; 
 import { getSessionUserId } from '@/lib/auth';
 import { Loading } from '../components/ui/loading';
 
@@ -167,6 +167,7 @@ export default function HomePage() {
     } else {
       router.push('/chat/simple');
     }
+  };
 
   // Load saved mood data and user data on mount
   useEffect(() => {
@@ -364,26 +365,7 @@ const onStartChat = async () => {
             </Badge>
           </div>
 
-          {/* Primary CTA */}
-          <div className="mb-12">
-            <Button
-              onClick={() => {
-                handleChatModeChange('standard');
-                handleNavigateToChat('standard');
-              }}
-              size="lg"
-              className="h-16 px-12 text-xl bg-teal-500 hover:bg-teal-600 text-white border-0 rounded-full shadow-lg hover:shadow-xl transition-all duration-300"
-            >
-              <Sparkles className="h-7 w-7 mr-3" />
-              Start Chat Anonymously
-            </Button>
-            <div className="mt-6 space-y-2">
-              <p className="text-sm text-gray-600">
-                No registration required • Completely private • Start immediately
-              </p>              
-            </div>
-          </div>
-        </div>
+          
 
         {/* Chat Mode Selection */}
         <div className="max-w-4xl mx-auto mb-16">
@@ -479,10 +461,9 @@ const onStartChat = async () => {
                       onClick={() => {
                         handleNavigation('avatarbuilder');
                       }}
-                      className="w-full bg-teal-500 hover:bg-teal-600 text-white"
                     >
-                      <MessageCircle className="h-4 w-4 mr-2" />
-                      Start Avatar Chat
+                      <Settings className="h-4 w-4 mr-2" />
+                      Customize Avatar
                     </Button>
                     
                     {!isLoggedIn && (
@@ -558,7 +539,7 @@ const onStartChat = async () => {
                     onClick={(e) => {
                       e.stopPropagation();
                       handleChatModeChange('standard');
-                      handleNavigateToChat('standard');
+                      handleNavigateToChat();
                     }}
                     className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white"
                   >
