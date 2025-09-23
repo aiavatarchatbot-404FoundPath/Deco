@@ -11,4 +11,5 @@ export default function Page() {
       <ClientAvatarChat />
     </Suspense>
   );
+
 }

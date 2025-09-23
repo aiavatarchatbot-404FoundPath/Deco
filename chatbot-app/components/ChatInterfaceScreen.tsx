@@ -56,26 +56,26 @@ type ChatInterfaceScreenProps = {
   isTyping?: boolean;
 };
 
-function moodGreeting(mood?: ChatInterfaceScreenProps["currentMood"]) {
+function moodGreeting(companionName: string, mood?: ChatInterfaceScreenProps["currentMood"]) {
   if (!mood || !mood.feeling) {
-    return `Hi there! I'm Adam, your Avatar Companion. I'm here to listen and support you in a safe, confidential space. How are you feeling today?`;
+    return `Hi there! I'm ${companionName}, your Avatar Companion. I'm here to listen and support you in a safe, confidential space. How are you feeling today?`;
   }
   const feeling = mood.feeling.toLowerCase();
   const intensity = mood.intensity;
   if (["happy", "calm"].includes(feeling)) {
-    return `Hi! I'm Adam. I can see you're feeling ${feeling} — that's wonderful. What's been going well today?`;
+    return `Hi! I'm ${companionName}. I can see you're feeling ${feeling} — that's wonderful. What's been going well today?`;
   }
   if (["sad", "anxious"].includes(feeling)) {
     const supportLevel = intensity > 3 ? "really" : "a bit";
-    return `Hello, I'm Adam. I understand you're feeling ${supportLevel} ${feeling}. Thank you for sharing — I'm here to listen and support you.`;
+    return `Hello, I'm ${companionName}. I understand you're feeling ${supportLevel} ${feeling}. Thank you for sharing — I'm here to listen and support you.`;
   }
   if (feeling === "frustrated") {
-    return `Hi there, I'm Adam. Feeling frustrated is understandable. I'm here without judgment if you'd like to talk it through.`;
+    return `Hi there, I'm ${companionName}. Feeling frustrated is understandable. I'm here without judgment if you'd like to talk it through.`;
   }
   if (feeling === "tired") {
-    return `Hello, I'm Adam. It sounds like you're feeling tired. I'm here for you — share as much or as little as you like.`;
+    return `Hello, I'm ${companionName}. It sounds like you're feeling tired. I'm here for you — share as much or as little as you like.`;
   }
-  return `Hi! I'm Adam. Thanks for letting me know you're feeling ${feeling}. What would be most helpful for you today?`;
+  return `Hi! I'm ${companionName}. Thanks for letting me know you're feeling ${feeling}. What would be most helpful for you today?`;
 }
 
 export function ChatInterfaceScreen({
@@ -111,7 +111,7 @@ export function ChatInterfaceScreen({
         {
           id: "greeting",
           sender: "ai",
-          content: moodGreeting(currentMood || undefined),
+          content: moodGreeting(companionAvatar.name, currentMood || undefined),
           timestamp: new Date(),
           type: currentMood ? "mood-aware" : "normal",
         },
@@ -119,7 +119,7 @@ export function ChatInterfaceScreen({
       ];
     }
     return [...uiFromDb, ...uiOnlySystem];
-  }, [uiFromDb, uiOnlySystem, currentMood]);
+  }, [uiFromDb, uiOnlySystem, currentMood, companionAvatar.name]);
 
   // Sidebar “inject” message (UI-only)
   const injectSystemMessage = (content: string) => {
@@ -137,7 +137,7 @@ export function ChatInterfaceScreen({
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      <Navbar onNavigate={onNavigate} isLoggedIn={!!user} />
+      <Navbar onNavigate={onNavigate} isLoggedIn={!!user && user.id !== 'anon'} />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
         <Sidebar onNavigate={onNavigate} onInjectMessage={injectSystemMessage} />
@@ -150,7 +150,7 @@ export function ChatInterfaceScreen({
                 url: user?.avatar?.url ?? undefined // ensure url is string | undefined
               }}
               aiAvatar={{
-                name: companionAvatar?.name,
+                name: companionAvatar?.name ?? 'Adam',
                 url: companionAvatar?.url ?? undefined // ensure url is string | undefined
               }}
             />
@@ -158,7 +158,12 @@ export function ChatInterfaceScreen({
         )}
 
         <div className="flex-1 flex flex-col bg-white min-h-0">
-          <ChatHeader currentMood={currentMood} chatMode={chatMode} />
+          <ChatHeader
+            currentMood={currentMood}
+            chatMode={chatMode}
+            companionName={companionAvatar.name}
+            companionAvatarUrl={companionAvatar.url}
+          />
 
           <MessageList messages={allMessages} isTyping={isTyping} chatMode={chatMode} />
 
@@ -168,10 +173,10 @@ export function ChatInterfaceScreen({
             onSendMessage={(text) => {
               const t = text.trim();
               if (!t) return;
-              (onSend ?? (() => {}))(t);           // parent saves to DB; realtime will render it here
+              (onSend ?? (() => {}))(t);
               setInputValue("");
             }}
-            isAnonymous={true}
+            isAnonymous={user.id === 'anon'}
             onToggleAnonymous={() => {}}
             disabled={false}
           />

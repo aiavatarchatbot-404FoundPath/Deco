@@ -16,3 +16,18 @@ export async function createConversation(title?: string) {
   if (error) throw new Error(error.message);
   return data.id as string;
 }
+
+export async function endConversation(conversationId: string) {
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({
+      status: "saved",
+      ended_at: new Date().toISOString(),
+    })
+    .eq("id", conversationId)
+    .select("id, status, ended_at"); // force PostgREST to return something
+
+  console.log("[endConversation] result:", { data, error, conversationId });
+
+  if (error) throw new Error(error.message);
+}

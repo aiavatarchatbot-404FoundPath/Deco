@@ -1,57 +1,92 @@
+// app/settings/page.tsx
 "use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Navbar from '../../components/Navbar'; 
-import SettingsScreen from '../../components/SettingsScreen';
-import { Loading } from '../../components/ui/loading';
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import Navbar from "@/components/Navbar";
+import SettingsScreen from "@/components/SettingsScreen";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [isLoggedIn, setIsLoggedIn] = useState(false); // Mocked login state
-  const [isLoading, setIsLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
 
-  const handleNavigation = async (screen: string) => {
-    setIsLoading(true);
-    
-    switch (screen) {
-      case 'settings':
-        // Already on settings page
-        setIsLoading(false);
-        break;
-      case 'profile':
-        // Profile page has its own loading, no need for additional loading here
-        router.push('/profile');
-        setIsLoading(false);
-        break;
-      case 'home':
-      case '/':
-      case 'welcome':
-        router.push('/');
-        // Loading will be cleared when new page loads
-        break;
-      case 'chat':
-        router.push('/chat/avatar');
-        // Loading will be cleared when new page loads
-        break;
-      default:
-        console.log('Navigate to:', screen);
-        setIsLoading(false);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function getStableSession() {
+      for (let i = 0; i < 10; i++) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) return session;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return null;
     }
-  };
+
+    async function load() {
+      const session = await getStableSession();
+      const u = session?.user;
+
+      if (!u) {
+        // match Profile behavior: send to login if not signed in
+        router.replace(`/login?redirect=${encodeURIComponent("/settings")}`);
+        return;
+      }
+
+      if (!cancelled) setChecking(false);
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  if (checking) {
+    return <div className="p-6">Checking session…</div>;
+  }
 
   return (
     <div>
-      <Navbar 
-        onNavigate={handleNavigation}
-        isLoggedIn={isLoggedIn}
+      <Navbar
+        onNavigate={(screen) => {
+          switch (screen) {
+            case 'settings':
+              router.push('/settings');
+              break;
+            case 'profile':
+              router.push('/profile');
+              break;
+
+            // NEW:
+            case 'profile?saved':
+              router.push('/profile?tab=saved');
+              break;
+            case 'profile?settings':
+              router.push('/profile?tab=settings');
+              break;
+
+            case 'avatarbuilder':
+              router.push('/avatarbuilder');
+              break;
+            case 'welcome':
+            case '/':
+            case 'home':
+            default:
+              router.push('/');
+          }
+        }}
+        isLoggedIn={true}
         currentPage="settings"
       />
-
-      <SettingsScreen onNavigate={handleNavigation} />
-      
-      {/* Loading overlay */}
-      {isLoading && <Loading />}
+      <SettingsScreen
+        onNavigate={(screen) => {
+            if (screen === "settings") router.push("/settings");
+            else if (screen === "profile") router.push("/profile");
+            else if (screen === "profile?saved") router.push("/profile?tab=saved");       // ← add this
+            else if (screen === "profile?settings") router.push("/profile?tab=settings"); // ← and this
+            else if (screen === "avatarbuilder") router.push("/avatarbuilder");
+            else router.push("/");
+          }}
+      />
     </div>
   );
 }

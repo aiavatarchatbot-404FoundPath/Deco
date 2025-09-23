@@ -284,13 +284,14 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
                     <FileText className="h-4 w-4 mr-2" />
                     Full Privacy Policy
                   </Button>
-                  <Button variant="outline" className="trauma-safe gentle-focus">
+                  <Button variant="outline" className="trauma-safe gentle-focus" onClick={() => onNavigate('profile?saved')}>
                     <Download className="h-4 w-4 mr-2" />
                     Download My Data
                   </Button>
                   <Button
                     variant="outline"
                     className="trauma-safe gentle-focus text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                    onClick={() => onNavigate('profile?settings')}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete All Data

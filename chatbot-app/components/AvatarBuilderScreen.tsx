@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowRight, User } from 'lucide-react';
 import { Button } from './ui/button';
 import { useRouter } from 'next/navigation';
@@ -10,7 +10,7 @@ interface AvatarBuilderScreenProps {
   onNavigateToChat: () => void;
   user?: any;
   onSaveAvatar: (avatar: any) => void;
-  onSelectAvatar: (avatar: any) => void;
+  onSelectCompanion: (companion: "ADAM" | "EVE") => void;
 }
 
 // Convert a Ready Player Me URL (.glb) into a displayable PNG
@@ -36,14 +36,11 @@ const readyPlayerMeAvatars = {
   eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
 };
 
-export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectAvatar }: AvatarBuilderScreenProps) {
-  const [selectedAvatar, setSelectedAvatar] = useState<string>('custom');
-  const [isLoading, setIsLoading] = useState(false);
+export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectCompanion }: AvatarBuilderScreenProps) {
+  const [selectedAvatar, setSelectedAvatar] = useState<string>('ready-adam');
   const router = useRouter();
-
-  // Debug: Log user data 
-  console.log('AvatarBuilderScreen user data:', user);
-  console.log('User rpm_user_url:', user?.rpm_user_url);
+  const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Navigation with loading
   const handleNavigation = async (screen: string) => {
@@ -74,36 +71,25 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
     }
   }, []);
 
-  const handleAvatarSelect = (avatarId: string) => {
+  const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
-    let avatarData;
     if (avatarId === 'eve') {
-      avatarData = {
-        id: 'eve',
-        name: 'Eve',
-        type: 'readyplayerme',
-        url: readyPlayerMeAvatars.eve
-      };
-    } else if (avatarId === 'adam') {
-      avatarData = {
-        id: 'adam',
-        name: 'Adam',
-        type: 'readyplayerme',
-        url: readyPlayerMeAvatars.adam
-      };
-    } else {
-      avatarData = {
-        id: avatarId,
-        name: avatarId,
-        type: 'default',
-        url: null
-      };
+      onSelectCompanion('EVE');
+    } else if (avatarId === 'ready-adam') {
+      onSelectCompanion('ADAM');
     }
-    
-    onSelectAvatar(avatarData);
-  };
+  }, [onSelectCompanion]);
+
+  // Set a default companion on initial render
+  useEffect(() => {
+    if (readyPlayerMeAvatars.adam) {
+      handleAvatarSelect('ready-adam');
+    }
+  }, [handleAvatarSelect]);
 
   const handleCreateAvatar = () => {
+    setIsCreatingAvatar(true);
+    setIsLoading(true);
     // Navigate to Ready Player Me selector
     onNavigate('profile/ReadyPlayerMeSelector');
   };
@@ -191,9 +177,9 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {/* Adam */}
             <div 
-              onClick={() => handleAvatarSelect('adam')}
+              onClick={() => handleAvatarSelect('ready-adam')}
               className={`bg-white rounded-2xl p-6 shadow-lg cursor-pointer transition-all ${
-                selectedAvatar === 'adam'
+                selectedAvatar === 'ready-adam'
                   ? 'ring-4 ring-blue-300 shadow-xl' 
                   : 'hover:shadow-xl'
               }`}
@@ -219,7 +205,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                   <h3 className="text-lg font-medium text-gray-900">Adam</h3>
                   <p className="text-xs text-gray-500">Professional & Supportive</p>
                 </div>
-                {selectedAvatar === 'adam' && (
+                {selectedAvatar === 'ready-adam' && (
                   <div className="mt-2">
                     <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
                       Selected

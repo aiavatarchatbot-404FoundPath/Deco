@@ -98,7 +98,7 @@ export default function Sidebar({ onNavigate, onInjectMessage }: SidebarProps) {
           </Button>
 
           <Button
-            onClick={handleEndChat}
+            onClick={() => onNavigate('endchat')}
             variant="outline"
             className="w-full justify-start border-red-200 text-red-600 hover:bg-red-50"
           >
