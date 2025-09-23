@@ -178,7 +178,7 @@ DANGER_PATTERNS = [
 COMPILED_DANGER_PATTERNS = [re.compile(p, re.IGNORECASE) for p in DANGER_PATTERNS]
 
 def check_filters(user_input):
-    for pattern in COMPILED_DANGER_PATTERNS:
+    for pattern in COMPILED_ADVICE_PATTERNS:
         if pattern.search(user_input):
             return "Imminent Danger"
     return None
