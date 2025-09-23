@@ -3,6 +3,20 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF, useAnimations } from '@react-three/drei';
+import { retargetClip, clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+
+const isBone = (object: THREE.Object3D | null): object is THREE.Bone => !!object && object.type === 'Bone';
+const asSkinned = (object: THREE.Object3D | null): object is THREE.SkinnedMesh => !!object && (object as THREE.SkinnedMesh).isSkinnedMesh;
+const findFirstSkinned = (root: THREE.Object3D | null): THREE.SkinnedMesh | null => {
+  if (!root) return null;
+  let result: THREE.SkinnedMesh | null = null;
+  root.traverse((obj) => {
+    if (!result && asSkinned(obj)) {
+      result = obj;
+    }
+  });
+  return result;
+};
 
 type Props = {
   src?: string | null;
@@ -16,7 +30,19 @@ type Props = {
   talk?: boolean;
   /** overall scale */
   scale?: number;
+  /** idle animation configuration */
+  animation?: {
+    profile?: 'masculine' | 'feminine';
+    /** filename living under /public/rpm-animations/<profile>/<category>/ */
+    file?: string;
+    /** full URL if the animation lives elsewhere */
+    url?: string;
+    /** specific clip name to play inside the GLB */
+    actionName?: string;
+  };
 };
+
+export type RpmAnimationConfig = NonNullable<Props['animation']>;
 
 export default function RpmModel({
   src,
@@ -25,6 +51,7 @@ export default function RpmModel({
   lookAt = null,
   talk = false,
   scale = 1.0,
+  animation,
 }: Props) {
   const group = useRef<THREE.Group>(null);
 
@@ -35,6 +62,16 @@ export default function RpmModel({
 
   const { scene, animations } = useGLTF(url || '', true);
   const cloned = useMemo(() => scene.clone(), [scene]);
+
+  const animationProfile = animation?.profile ?? 'feminine';
+  const animationFile = animation?.file ??
+    (animationProfile === 'masculine'
+      ? 'M_Standing_Idle_Variations_001.glb'
+      : 'F_Standing_Idle_Variations_001.glb');
+  const animationUrl = animation?.url ?? `/rpm-animations/${animationProfile}/idle/${animationFile}`;
+
+  const idleAnimation = useGLTF(animationUrl);
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
 
   // Enable shadows
   useEffect(() => {
@@ -49,14 +86,29 @@ export default function RpmModel({
 
   // Find head bone
   const headRef = useRef<THREE.Bone | null>(null);
+  const chestRef = useRef<THREE.Bone | null>(null);
+  const chestBaseX = useRef<number>(0);
   useEffect(() => {
-    let found: THREE.Bone | null = null;
-    cloned.traverse((o: any) => {
-      if (!found && o.type === 'Bone' && /HeadTop_End|Head/i.test(o.name)) {
-        found = o as THREE.Bone;
+    headRef.current = null;
+    chestRef.current = null;
+
+    let head: THREE.Bone | null = null;
+    cloned.traverse((o: THREE.Object3D) => {
+      if (!head && isBone(o) && /HeadTop_End|Head/i.test(o.name)) {
+        head = o;
+      }
+      if (!chestRef.current && isBone(o) && /(Spine2|Spine1|Chest|UpperChest)/i.test(o.name)) {
+        chestRef.current = o;
+        chestBaseX.current = o.rotation.x;
       }
     });
-    headRef.current = found;
+
+    headRef.current = head;
+
+    return () => {
+      headRef.current = null;
+      chestRef.current = null;
+    };
   }, [cloned]);
 
   // Start any animation
@@ -65,22 +117,90 @@ export default function RpmModel({
     if (name) actions[name]?.reset().fadeIn(0.25).play();
   }, [actions]);
 
+  const retargetedClip = useMemo(() => {
+    if (!idleAnimation.scene || !idleAnimation.animations || idleAnimation.animations.length === 0) {
+      return null;
+    }
+
+    const desiredClip = animation?.actionName
+      ? idleAnimation.animations.find((clip) => clip.name === animation.actionName)
+      : idleAnimation.animations[0];
+
+    if (!desiredClip) {
+      return null;
+    }
+
+    const targetSkinned = findFirstSkinned(cloned);
+    const sourceSkinned = findFirstSkinned(idleAnimation.scene);
+
+    if (!targetSkinned || !sourceSkinned) {
+      return null;
+    }
+
+    if (!targetSkinned.skeleton || !sourceSkinned.skeleton) {
+      return null;
+    }
+
+    const targetClone = cloneSkeleton(targetSkinned) as THREE.SkinnedMesh;
+    const sourceClone = cloneSkeleton(sourceSkinned) as THREE.SkinnedMesh;
+
+    try {
+      return retargetClip(targetClone, sourceClone, desiredClip, {
+        hip: 'Hips',
+        useFirstFramePosition: true,
+      });
+    } catch (err) {
+      console.warn('Failed to retarget clip', err);
+      return null;
+    }
+  }, [animation?.actionName, cloned, idleAnimation.animations, idleAnimation.scene]);
+
+  useEffect(() => {
+    if (!retargetedClip) {
+      return;
+    }
+
+    const mixer = new THREE.AnimationMixer(cloned);
+    mixerRef.current = mixer;
+
+    const action = mixer.clipAction(retargetedClip);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.reset().fadeIn(0.3).play();
+    return () => {
+      action.stop();
+      mixer.stopAllAction();
+      mixerRef.current = null;
+    };
+  }, [cloned, retargetedClip]);
+
   // Idle sway, look-at, talk micro-motion
   const tmpTarget = useMemo(() => new THREE.Vector3(), []);
+  const basePosition = useMemo(
+    () => ({ x: position[0], y: position[1] ?? 0, z: position[2] ?? 0 }),
+    [position]
+  );
   useFrame((state, dt) => {
     const g = group.current;
     if (!g) return;
+
+    const mixer = mixerRef.current;
+    if (mixer) {
+      mixer.update(dt);
+    }
 
     const t = state.clock.elapsedTime;
 
     // Smooth yaw rotation
     g.rotation.y = THREE.MathUtils.damp(g.rotation.y, yaw, 6, dt);
 
-    // Position with idle bob (use incoming Y too)
+    // Idle sway + bob so characters feel alive
+    const idleBob = 0.02 * Math.sin(t * 1.2);
+    const idleSwayX = 0.06 * Math.sin(t * 0.65);
+    const idleSwayZ = 0.04 * Math.sin(t * 0.5 + 1.2);
     g.position.set(
-      position[0],
-      (position[1] ?? 0) + 0.02 * Math.sin(t * 1.2),
-      position[2]
+      basePosition.x + idleSwayX,
+      basePosition.y + idleBob,
+      basePosition.z + idleSwayZ
     );
 
     // Head look-at
@@ -108,9 +228,19 @@ export default function RpmModel({
       );
     }
 
+    // Gentle breathing via spine/chest
+    const chest = chestRef.current;
+    if (chest) {
+      const baseX = chestBaseX.current;
+      const breath = 0.045 * Math.sin(t * 0.9);
+      chest.rotation.x = THREE.MathUtils.damp(chest.rotation.x, baseX + breath, 6, dt);
+    }
+
     // Talking micro-motion
     if (talk && head) {
       head.rotation.z = 0.03 * Math.sin(t * 6);
+    } else if (head) {
+      head.rotation.z = THREE.MathUtils.damp(head.rotation.z, 0, 10, dt);
     }
   });
 
@@ -125,3 +255,5 @@ export default function RpmModel({
 }
 
 useGLTF.preload('/noop.glb');
+useGLTF.preload('/rpm-animations/feminine/idle/F_Standing_Idle_Variations_001.glb');
+useGLTF.preload('/rpm-animations/masculine/idle/M_Standing_Idle_Variations_001.glb');

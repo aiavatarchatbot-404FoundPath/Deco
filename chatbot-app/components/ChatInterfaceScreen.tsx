@@ -3,6 +3,7 @@
 
 import React, { useMemo, useState } from "react";
 import AvatarDisplay from "./chat/AvatarDisplay";
+import type { RpmAnimationConfig } from "./chat/RpmModel";
 import ChatHeader from "./chat/ChatHeader";
 import MessageList from "./chat/MessageList";
 import MessageInput from "./chat/MessageInput";
@@ -37,6 +38,7 @@ type Avatar = {
   name: string;
   type: 'custom' | 'default';
   url?: string | null;
+  animation?: RpmAnimationConfig;
 };
 
 type ChatInterfaceScreenProps = {
@@ -81,8 +83,13 @@ function moodGreeting(companionName: string, mood?: ChatInterfaceScreenProps["cu
 export function ChatInterfaceScreen({
   onNavigate,
   chatMode,
-  user = { id: 'anon', username: 'You', avatar: { name: 'User', type: 'default', url: null } },
-  companionAvatar = { name: 'Adam', type: 'default', url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb" },
+  user = { id: 'anon', username: 'You', avatar: { name: 'User', type: 'default', url: null, animation: { profile: 'masculine' } } },
+  companionAvatar = {
+    name: 'Adam',
+    type: 'default',
+    url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
+    animation: { profile: 'feminine' }
+  },
   currentMood,
   onSend,
   messages = [],
@@ -147,11 +154,13 @@ export function ChatInterfaceScreen({
             <AvatarDisplay
               userAvatar={{
                 name: user?.avatar?.name ?? 'User',
-                url: user?.avatar?.url ?? undefined // ensure url is string | undefined
+                url: user?.avatar?.url ?? undefined, // ensure url is string | undefined
+                animation: user?.avatar?.animation
               }}
               aiAvatar={{
                 name: companionAvatar?.name ?? 'Adam',
-                url: companionAvatar?.url ?? undefined // ensure url is string | undefined
+                url: companionAvatar?.url ?? undefined, // ensure url is string | undefined
+                animation: companionAvatar?.animation
               }}
             />
           </div>

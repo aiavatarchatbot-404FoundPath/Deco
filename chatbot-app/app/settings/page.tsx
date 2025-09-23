@@ -1,11 +1,12 @@
 // app/settings/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import Navbar from "@/components/Navbar";
-import SettingsScreen from "@/components/SettingsScreen";
+export const dynamic = 'force-dynamic';
+
+import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Navbar from '../../components/Navbar'; 
+import SettingsScreen from '../../components/SettingsScreen';
 
 export default function SettingsPage() {
   const router = useRouter();
