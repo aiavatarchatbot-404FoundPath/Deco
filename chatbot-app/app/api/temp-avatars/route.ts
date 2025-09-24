@@ -12,6 +12,7 @@ export async function POST(req: Request) {
         { error: 'conversationId, sessionId, rpmUrl required' },
         { status: 400 }
       );
+      
     }
 
     const { data, error } = await supabaseAdmin

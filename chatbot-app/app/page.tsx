@@ -81,7 +81,7 @@ export default function HomePage() {
     // Navigate to chat without mood data
     if (mode === 'avatar') {
       const convoId = await maybeCreateConversation();
-      router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
+      router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
     } else {
       router.push('/chat/simple');
     }

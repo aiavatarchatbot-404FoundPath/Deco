@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { ChatInterfaceScreen } from '../../../components/ChatInterfaceScreen';
 import MoodCheckIn from '../../../components/MoodCheckIn';
 import { sendUserMessage } from '@/lib/messages';
+import { useValidatedRpmGlb } from '@/lib/rpm';
 
 type MessageRow = {
   id: string;
@@ -214,15 +215,20 @@ export default function ClientAvatarChat() {
   }, [conversationId, sessionIdFromParams, userUrlFromParams, profile?.rpm_user_url]);
 
   // ---------------- AI stub (replace with your model) ----------------
-  async function getAdamReply(_: string): Promise<string> {
-    const canned = [
-      "I hear you — that sounds like a lot to carry. What would help you feel a little safer right now?",
-      'Thank you for sharing that. What support around you has felt helpful, even a little?',
-      "That seems really tough. I'm here to listen. What would you like me to understand most about this?",
-      "You're not alone. Would it help to break this down into smaller steps together?",
-      "You're doing the right thing by talking about it. What might make the next hour a bit easier?",
-    ];
-    return canned[Math.floor(Math.random() * canned.length)];
+  async function getAdamReply(userText: string): Promise<string> {
+    const res = await fetch('/api/chat', {
+      method: 'POST', // <-- must be POST
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversationId, userMessage: userText }),
+    });
+
+    // Log while debugging
+    const raw = await res.text();
+    console.log('CHAT RAW RESPONSE:', raw);
+    if (!res.ok) return "Sorry, I couldn't process that just now.";
+
+    const data = JSON.parse(raw);
+    return data.answer ?? "Sorry, I couldn't find enough info to answer.";
   }
 
   // ---------------- Send flow ----------------
@@ -278,56 +284,66 @@ export default function ClientAvatarChat() {
         status: 'sending',
       };
       setMessages((prev) => [...prev, optimisticBotMessage]);
+      // after you add the optimistic bot message
+const savedBot = await fetch('/api/assistant-message', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversationId, content: assistantText }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    });
 
-      const savedBot = await fetch('/api/assistant-message', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ conversationId, content: assistantText }),
-      }).then((res) => res.json());
+    setMessages((prev) => {
+      const withoutTemp = prev.filter((m) => m.id !== tempBotId);
+      if (savedBot?.id && !withoutTemp.some((m) => m.id === savedBot.id)) {
+        withoutTemp.push({ ...savedBot, status: 'sent' });
+      }
+      return withoutTemp;
+    });
+    
 
-      setMessages((prev) => {
-        const withoutTemp = prev.filter((m) => m.id !== tempBotId);
-        if (savedBot?.id && !withoutTemp.some((m) => m.id === savedBot.id)) {
-          withoutTemp.push({ ...savedBot, status: 'sent' });
-        }
-        return withoutTemp;
-      });
-    } catch (e) {
-      console.error('send failed:', e);
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m))
-      );
-      setIsTyping(false);
-    }
-  };
+  } catch (e) {
+    console.error('send failed:', e);
+    setIsTyping(false);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m
+      )
+    );
+  }
+};
 
   // ---------------- Avatars (normalize to .glb) ----------------
+// --- Avatars (validated to a real .glb) ---
 type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
 
-const toAvatar = (name: string, url: string | null): AvatarShape => ({
-  name,
-  type: url ? 'custom' : 'default',
-  url,
-});
+const rawUser = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
+const userGlb = useValidatedRpmGlb(rawUser);
 
-const userAvatar = useMemo(() => {
-  const raw = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
-  const url = ensureGlb(raw);
-  return toAvatar(profile?.username || 'You', url);
-}, [profile?.username, profile?.rpm_user_url, userUrlFromParams, tempUserUrl]);
+const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
+const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
 
-const companionAvatar = useMemo(() => {
-  if (companionUrlFromParams) {
-    return toAvatar(companionNameFromParams || 'Companion', ensureGlb(companionUrlFromParams));
-  }
-  if (profile?.rpm_companion_url) {
-    return toAvatar('Custom Companion', ensureGlb(profile.rpm_companion_url));
-  }
-  const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
-  const pick = COMPANIONS[key] ?? COMPANIONS.ADAM;
-  return toAvatar(pick.name, pick.url);
-}, [profile?.rpm_companion_url, companionUrlFromParams, companionNameFromParams]);
+const rawComp =
+  companionUrlFromParams ||
+  profile?.rpm_companion_url ||
+  fallbackComp.url;
 
+const compGlb = useValidatedRpmGlb(rawComp);
+
+const userAvatar: AvatarShape = {
+  name: profile?.username || 'You',
+  type: rawUser ? 'custom' : 'default',
+  url: userGlb,                // ← validated or null
+};
+
+const companionAvatar: AvatarShape = {
+  name: companionNameFromParams || (profile?.rpm_companion_url ? 'Custom Companion' : fallbackComp.name),
+  type: (companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
+  url: compGlb,                // ← validated or null
+};
+
+  
   // ---------------- Render ----------------
   const chatInterfaceMood = useMemo(() => {
   if (mood && 'feeling' in mood) return mood;

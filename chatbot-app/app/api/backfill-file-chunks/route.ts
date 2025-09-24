@@ -17,7 +17,7 @@ const BATCH = 200;
 
 async function embedBatch(texts: string[]) {
   const r = await openai.embeddings.create({ model: MODEL, input: texts });
-  return r.data.map(d => d.embedding as number[]);
+  return r.data.map((d: { embedding: number[] }) => d.embedding as number[]);
 }
 
 export async function POST() {
