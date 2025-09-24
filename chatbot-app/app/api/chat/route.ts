@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     const context = hits.map(h => h.content).join("\n---\n").slice(0, 12000);
 
     // 2) STRICT mode while testing so you can verify it’s doc-grounded
-    const STRICT = true; // flip to false later
+    const STRICT = false; // flip to false later
     const sys = STRICT
       ? "Answer ONLY from the provided context. If not found in context, reply: \"I don't know based on the documents.\""
       : "Prioritise the provided context; be concise and supportive.";
@@ -72,9 +72,11 @@ export async function POST(req: Request) {
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: sys },
       { role: "system", content: [
-          "You are a helpful, supportive chatbot for young people in Queensland's youth justice system.",
-          "Detect the user's emotion (Positive, Neutral, Negative) and the intensity (Low, Moderate, High, Imminent Danger).",
-          "Respond with JSON: {answer, emotion, tier, suggestions}."
+                     "You are a helpful, supportive chatbot for young people in Queensland's youth justice system." ,
+                     "Prioritise the provided context when answering especially related to queensland." ,
+                     "If the context is incomplete, you may also use your general knowledge, at max 3 sentences in this case." ,
+                     "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger)." ,
+                     "Be concise and empathetic."  
         ].join(" ") },
       { role: "user", content: `Context:\n${context}\n\nQuestion: ${userMessage}` },
     ];
