@@ -105,6 +105,8 @@ def retrieve(query, k=3):
 # Chatbot
 # -------------------------
 def ask(query, session_memory):
+    query = query.strip()
+    
     # Retrieve RAG context
     context = "\n".join(retrieve(query))
 
@@ -120,9 +122,11 @@ def ask(query, session_memory):
         {"role": "system", "content": (
             "Prioritise the provided context when answering. "
             "Be concise and empathetic. "
+            "Do not repeat responses. "
             "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger). "
-            "Return ONLY valid JSON with keys: 'answer', 'emotion', 'tier', 'suggestions'. "
-            "Provide suggestions only when the user asks for them."
+            "Store the values in JSON format with keys: 'answer', 'emotion', 'tier', 'suggestions'. "
+            "'answer' must always contain the full response (e.g. the full study guide). "
+            "'suggestions' should be given in bullet points if the user asks for them. "
         )},
         {"role": "system", "content": f"Context:\n{context}"},
     ] + history_messages + [
@@ -140,8 +144,8 @@ def ask(query, session_memory):
     except json.JSONDecodeError:
         return {
             "answer": content,
-            "emotion": "Neutral",
-            "tier": "None",
+            "emotion": None,
+            "tier": None,
             "suggestions": []
         }
 
@@ -149,12 +153,12 @@ def continue_conversation():
     return input("Do you want to continue? Type 'Yes' or 'No': ")
 
 def escalate_to_safety_protocol():
-    return ("🤖 I’m really concerned about your safety. "
+    return ("🤖: I’m really concerned about your safety. "
         "If you are in immediate danger, please call 000 (Australia) or your local emergency services. "
         "You are not alone — you can also reach out to Lifeline on 13 11 14 for 24/7 support.")
 
 def session_closure():
-    return ("Thank you for sharing with me today. You are not alone, and support is available whenever you need it." 
+    return ("🤖: Thank you for sharing with me today. You are not alone, and support is available whenever you need it." 
             " Take care of yourself and goodbye. 👋")
 
 DANGER_PATTERNS = [
@@ -179,7 +183,7 @@ DANGER_PATTERNS = [
 COMPILED_DANGER_PATTERNS = [re.compile(p, re.IGNORECASE) for p in DANGER_PATTERNS]
 
 def check_filters(user_input):
-    for pattern in COMPILED_ADVICE_PATTERNS:
+    for pattern in COMPILED_DANGER_PATTERNS:
         if pattern.search(user_input):
             return "Imminent Danger"
     return None
@@ -190,52 +194,31 @@ def clear_session_memory(session_memory):
     session_memory["last_tier"] = None
     session_memory["last_suggestions"] = []
 
-# List of keywords/phrases indicating the user wants advice
-ADVICE_PATTERNS = [
-    r"\badvice\b",
-    r"\bsuggest(ion|ions)?\b",        # suggest, suggestion, suggestions
-    r"\brecommend(ation|ations)?\b",  # recommend, recommendations
-    r"\btips?\b",                      # tip or tips
-    r"what should i do",
-    r"how do i",
-    r"how should i",
-    r"\bideas?\b",                     # idea or ideas
-    r"\boptions?\b",                   # option or options
-    r"\bhelp (me)\b"
-]
-
-# Precompile regex patterns for efficiency
-COMPILED_ADVICE_PATTERNS = [re.compile(p, re.IGNORECASE) for p in ADVICE_PATTERNS]
-
-# Checks if the user wants any advice in regards to their situation
-def wants_advice(user_input: str) -> bool:
-    for pattern in COMPILED_ADVICE_PATTERNS:
-        if pattern.search(user_input):
-            return True
-    return False
-    
 def rag_ai_pipeline(session_memory):
-    print("\n 🤖 “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
+    print("\n🤖: “Hey, I’m Adam. I can share information about youth justice, your rights, and where to find support. What would you like to talk about?” (Type 'exit' to quit)\n")
     
     while True:
-        query = input("You: ")
+        query = input("\nYou: ").strip()
         if query.lower() == "exit":
-            print("👋 Goodbye!")
+            print("🤖: Goodbye! 👋")
             clear_session_memory(session_memory)
             break
-            
-        # Step 1/2. Detect emotion + risk level
+      
+        # Step 1. Detect emotion + risk level
         analysis = ask(query, session_memory)
-        
+
         emotion = analysis.get("emotion")
         tier = analysis.get("tier")
         answer = analysis.get("answer")
         suggestions = analysis.get("suggestions") or []
 
-        # Check filters for any danger words
+        # Step 2. Log the user's query into the session memory
+        session_memory.setdefault("history", []).append({"You": query})
+
+        # Step 3. Check filters for any danger words
         tier = check_filters(query) or tier
         
-        # Step 3. Safety escalation
+        # Step 4. Safety escalation
         if tier == "Imminent Danger":
             safety_msg = escalate_to_safety_protocol()
             print(safety_msg)
@@ -246,27 +229,17 @@ def rag_ai_pipeline(session_memory):
                 print(closure_msg)
                 break
 
-        # Step 4. Print answer to user's problem
-        print(f"🤖 {answer}")
-
-        # Step 5. Providing suggestions to the user
-        if wants_advice(query):
-            for s in suggestions:
-                print(f"--> {s}")
+        # Step 5. Print answer to user's problem
+        print(f"🤖: {answer}")
                   
-        # Step 6. Update session memory after providing a solution and suggestions to the user
-        session_memory["history"].append(
-            {"You": query,
-             "Bot": answer
-            }
-        )
+        # Step 6. Update session memory after providing a solution to the user
+        session_memory["history"].append({"Bot": answer})
         session_memory["last_emotion"] = emotion
         session_memory["last_tier"] = tier
         session_memory["last_suggestions"] = suggestions
 
     # Step 7. Return session memory once conversation is finished
     return session_memory
-
 # -------------------------
 # Run Chat Loop
 # -------------------------
