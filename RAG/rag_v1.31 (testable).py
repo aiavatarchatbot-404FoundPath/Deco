@@ -114,7 +114,7 @@ def ask(query, session_memory):
         if "You" in turn:
             history_messages.append({"role": "user", "content": turn["You"]})
         if "Bot" in turn:
-            history_messages.append({"role": "assistant", "content": turn["Bot"]})
+            history_messages.append({"role": "system", "content": turn["Bot"]})
 
     messages = [
         {"role": "system", "content": (
