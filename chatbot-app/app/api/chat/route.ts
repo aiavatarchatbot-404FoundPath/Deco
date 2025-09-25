@@ -21,16 +21,43 @@ const SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.2);
 // pick the RPC you actually created ("match_file_chunks" vs "match_chunks")
 const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 
-const DANGER_WORDS = ["suicide","die","kill myself","end my life","death","murder myself"];
+// List of danger patterns (case-insensitive)
+const DANGER_PATTERNS: string[] = [
+    "\\bsuicid(e|al)\\b",           // suicide, suicidal
+    "\\bdie\\b",                     // die
+    "\\bdying\\b",                   // dying
+    "\\bkill(ing)? myself\\b",       // kill myself, killing myself
+    "\\bend(ing)? my life\\b",       // end my life, ending my life
+    "\\bdeath\\b",                   // death
+    "\\bmurder myself\\b",           // murder myself
+    "\\bwant to die\\b",             // want to die
+    "\\bcan't go on\\b",             // can't go on
+    "\\bi feel hopeless\\b",          // i feel hopeless
+    "\\bi want to disappear\\b",     // i want to disappear
+    "\\bno reason to live\\b",       // no reason to live
+    "\\bi wish i was dead\\b",       // i wish i was dead
+    "\\bi am worthless\\b",          // i am worthless
+    "\\bi am a burden\\b",           // i am a burden
+];
+
+// Precompile regex patterns (case-insensitive)
+const COMPILED_DANGER_PATTERNS: RegExp[] = DANGER_PATTERNS.map(
+    pattern => new RegExp(pattern, "i")
+);
 
 async function embedOne(text: string): Promise<number[]> {
   const e = await openai.embeddings.create({ model: EMBED_MODEL, input: text });
   return e.data[0].embedding as number[];
 }
 
-function dangerTier(userText: string): "Imminent Danger" | null {
-  const q = userText.toLowerCase();
-  return DANGER_WORDS.some((w) => q.includes(w)) ? "Imminent Danger" : null;
+// Function to check input
+function checkFilters(userInput: string): string | null {
+    for (const pattern of COMPILED_DANGER_PATTERNS) {
+        if (pattern.test(userInput)) {
+            return "Imminent Danger";
+        }
+    }
+    return null;
 }
 
 // Health check
