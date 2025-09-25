@@ -127,6 +127,7 @@ def ask(query, session_memory):
             "Store the values in JSON format with keys: 'answer', 'emotion', 'tier', 'suggestions'. "
             "'answer' must always contain the full response (e.g. the full study guide). "
             "'suggestions' should be given in bullet points if the user asks for them. "
+            "Do not provide legal advice for general situations (e.g. Shopping, movies, travel, etc). "
         )},
         {"role": "system", "content": f"Context:\n{context}"},
     ] + history_messages + [
