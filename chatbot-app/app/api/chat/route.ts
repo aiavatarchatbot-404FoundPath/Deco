@@ -45,6 +45,9 @@ const COMPILED_DANGER_PATTERNS: RegExp[] = DANGER_PATTERNS.map(
     pattern => new RegExp(pattern, "i")
 );
 
+// --- In-memory session memory ---
+const SESSION_MEMORY: Record<string, any> = {};
+
 async function embedOne(text: string): Promise<number[]> {
   const e = await openai.embeddings.create({ model: EMBED_MODEL, input: text });
   return e.data[0].embedding as number[];
@@ -60,9 +63,52 @@ function checkFilters(userInput: string): string | null {
     return null;
 }
 
+// --- Safety messages ---
+function escalateToSafetyProtocol() {
+  return "🤖: I’m really concerned about your safety. " +
+         "If you are in immediate danger, please call 000 (Australia) or local emergency services. " +
+         "You are not alone — you can also reach out to Lifeline on 13 11 14 for 24/7 support.";
+}
+
+function sessionClosure() {
+  return "🤖: Thank you for sharing with me today. You are not alone, and support is available whenever you need it. Take care!";
+}
+
+// --- Initialize or get session memory ---
+function getSessionMemory(conversationId: string) {
+  if (!SESSION_MEMORY[conversationId]) {
+    SESSION_MEMORY[conversationId] = {
+      history: [],
+      last_emotion: null,
+      last_tier: null,
+      last_suggestions: []
+    };
+  }
+  return SESSION_MEMORY[conversationId];
+}
+
 // Health check
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat" });
+}
+
+// --- Build context from Supabase RAG ---
+async function retrieveContext(userMessage: string) {
+  const qEmb = await embedOne(userMessage);
+  const { data, error } = await supabase.rpc(RPC_NAME, {
+    query_embedding: qEmb,
+    match_count: TOP_K,
+    similarity_threshold: SIM_THRESHOLD
+  });
+  if (error) throw error;
+  const hits = data ?? [];
+  const context = hits.map((h: any) => h.content).join("\n---\n").slice(0, 12000);
+  return { context, hits };
+}
+
+// Clears session memory at the end of a conversation
+function clearSessionMemory(conversationId: string) {
+  delete SESSION_MEMORY[conversationId];
 }
 
 export async function POST(req: Request) {
@@ -71,35 +117,43 @@ export async function POST(req: Request) {
     if (!userMessage) {
       return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
     }
+    if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
 
-    // 1) retrieve from pgvector
-    let hits: any[] = [];
-    try {
-      const qEmb = await embedOne(userMessage);
-      const { data, error } = await supabase.rpc(RPC_NAME, {
-        query_embedding: qEmb,
-        match_count: TOP_K,
-        similarity_threshold: SIM_THRESHOLD,
+    // 1) Check if the user wishes to quit the conversation
+    if (userMessage.trim().toLowerCase() === "exit") {
+      clearSessionMemory(conversationId); // reset session memory
+      return NextResponse.json({
+        conversationId,
+        answer: "🤖: Goodbye! Your session has been cleared. Take care! 👋",
+        emotion: "Neutral",
+        tier: "None",
+        suggestions: [],
+        citations: [],
       });
-      if (error) throw error;
-      hits = data ?? [];
-    } catch (rpcErr) {
-      console.error(`${RPC_NAME} RPC failed:`, rpcErr);
     }
 
-    // Build context from hits
-    const context = hits.map(h => h.content).join("\n---\n").slice(0, 12000);
+    // Get session memory 
+    const sessionMemory = getSessionMemory(conversationId);
 
-    // 2) STRICT mode while testing so you can verify it’s doc-grounded
+    // 2) retrieve context
+    const { context, hits } = await retrieveContext(userMessage);
+
+    // 3) prepare messages including conversation history
+    const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+    for (const turn of sessionMemory.history) {
+      if (turn.You) historyMessages.push({ role: "user", content: turn.You });
+      if (turn.Bot) historyMessages.push({ role: "assistant", content: turn.Bot });
+    }
+
+    // 4) STRICT mode while testing so you can verify it’s doc-grounded
     const STRICT = false; // flip to false later
     const sys = STRICT
       ? "Answer ONLY from the provided context. If not found in context, reply: \"I don't know based on the documents.\""
       : "Prioritise the provided context; be concise and supportive.";
 
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: sys },
-      { role: "system", content: [
-                     "Prioritise the provided context when answering. "
+    // 5) Prepare messages including conversation history
+    const instructions = [
+                      "Prioritise the provided context when answering. "
                       "Be concise and empathetic. "
                       "Do not repeat responses. "
                       "Detect the user's emotion (Positive, Neutral, Negative) and the intensity of any negative emotions (Low, Moderate, High, Imminent Danger). "
@@ -107,20 +161,25 @@ export async function POST(req: Request) {
                       "'answer' must always contain the full response (e.g. the full study guide). "
                       "'suggestions' should be given in bullet points if the user asks for them. "
                       "Do not provide legal advice for general situations (e.g. Shopping, movies, travel, etc). " 
-        ].join(" ") },
-      { role: "user", content: `Context:\n${context}\n\nQuestion: ${userMessage}` },
+        ].join(" ");
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: sys },
+      { role: "system", content: instructions }, 
+      { role: "system", content: `Context:\n${context}` },
+      ...historyMessages,
+      { role: "user", content: userMessage }
     ];
 
-    // 3) call chat model
+    // 6) call chat model
     const resp = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
       temperature: 0.2,
     });
-
     const modelText = resp.choices?.[0]?.message?.content || "";
 
-    // 4) parse JSON payload with fallback
+    // 7) parse JSON payload with fallback
     let payload: { answer: string; emotion: string; tier: string; suggestions: string[] };
     try {
       const parsed = JSON.parse(modelText);
@@ -139,8 +198,8 @@ export async function POST(req: Request) {
       };
     }
 
-    // 5) danger-word override
-    const forcedTier = dangerTier(userMessage);
+    // 8) danger-word override
+    const forcedTier = checkFilters(userMessage);
     if (forcedTier) {
       payload.tier = forcedTier;
       if (!payload.suggestions?.length) {
@@ -151,7 +210,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // 6) include citations so you can see exactly what chunks were used
+    // 9) append to session memory
+    sessionMemory.history.push({ You: userMessage, Bot: payload.answer });
+    sessionMemory.last_emotion = payload.emotion;
+    sessionMemory.last_tier = payload.tier;
+    sessionMemory.last_suggestions = payload.suggestions;
+
+    // 10) include citations so you can see exactly what chunks were used
     const citations = hits.map((h, i) => ({
       rank: i + 1,
       file: h.file,
