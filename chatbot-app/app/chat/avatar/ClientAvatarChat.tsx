@@ -39,15 +39,29 @@ type MoodState =
 
 const MOOD_SESSION_KEY = 'moodCheckedIn:v1';
 
-// Ensure we always hand a .glb to the viewer
-const ensureGlb = (u?: string | null) =>
-  !u ? null : u.endsWith('.glb') ? u : `${u}.glb`;
-
 // Hardcoded companion choices (Adam/Eve)
 const COMPANIONS = {
   ADAM: { name: 'Adam', url: 'https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb' },
   EVE:  { name: 'Eve',  url: 'https://models.readyplayer.me/68be6a2ac036016545747aa9.glb' },
 } as const;
+
+/* ---------- Deterministic ordering helpers ---------- */
+function sortMsgs(a: MessageRow, b: MessageRow) {
+  if (a.created_at === b.created_at) {
+    // Supabase ids are strings; compare numerically when possible, else lexically
+    const ai = Number(a.id);
+    const bi = Number(b.id);
+    if (!Number.isNaN(ai) && !Number.isNaN(bi)) return ai - bi;
+    return a.id.localeCompare(b.id);
+  }
+  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+}
+
+function upsertAndSort(prev: MessageRow[], next: MessageRow) {
+  const exists = prev.some((m) => m.id === next.id);
+  const arr = exists ? prev.map((m) => (m.id === next.id ? next : m)) : [...prev, next];
+  return arr.slice().sort(sortMsgs);
+}
 
 export default function ClientAvatarChat() {
   const router = useRouter();
@@ -69,7 +83,7 @@ export default function ClientAvatarChat() {
   // If we fetch a temp avatar, stash it here (for anonymous users)
   const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
 
-  // ---------------- Nav / Exit ----------------
+  /* ---------- Navigation / Exit ---------- */
   const handleNavigation = (screen: string) => {
     if (screen === 'home') {
       setShowExitMoodCheckIn(true);
@@ -122,7 +136,7 @@ export default function ClientAvatarChat() {
     completeExit();
   };
 
-  // ---------------- Profile ----------------
+  /* ---------- Profile ---------- */
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -140,7 +154,7 @@ export default function ClientAvatarChat() {
     })();
   }, []);
 
-  // ---------------- Mood (entry from session storage) ----------------
+  /* ---------- Mood (entry from session storage) ---------- */
   useEffect(() => {
     const stored = sessionStorage.getItem(MOOD_SESSION_KEY);
     if (!stored) return;
@@ -153,10 +167,9 @@ export default function ClientAvatarChat() {
     }
   }, []);
 
-  // ---------------- Messages (initial + realtime) ----------------
+  /* ---------- Messages (initial load + realtime) ---------- */
   useEffect(() => {
     if (!conversationId) return;
-
     let mounted = true;
 
     (async () => {
@@ -164,12 +177,18 @@ export default function ClientAvatarChat() {
         .from('messages')
         .select('id, conversation_id, sender_id, role, content, created_at')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
-        .limit(50);
+        .order('created_at', { ascending: true }) // chronological
+        .order('id',         { ascending: true }) // TIE-BREAK when created_at is equal
+        .limit(200);
       if (!mounted) return;
-      if (!error) setMessages(data ?? []);
+      if (error) {
+        console.error('Initial messages fetch failed:', error);
+        return;
+      }
+      setMessages((data ?? []).slice().sort(sortMsgs));
     })();
 
+    // Realtime inserts — upsert + sort so order is always correct
     const ch = supabase
       .channel(`msgs:${conversationId}`)
       .on(
@@ -177,7 +196,7 @@ export default function ClientAvatarChat() {
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
         (payload) => {
           const m = payload.new as MessageRow;
-          setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+          setMessages((prev) => upsertAndSort(prev, m));
         }
       )
       .subscribe();
@@ -188,7 +207,7 @@ export default function ClientAvatarChat() {
     };
   }, [conversationId]);
 
-  // ---------------- Temp avatar fallback (anonymous) ----------------
+  /* ---------- Anonymous/Temp avatar fallback ---------- */
   useEffect(() => {
     if (!conversationId || !sessionIdFromParams) return;
 
@@ -203,7 +222,6 @@ export default function ClientAvatarChat() {
         const json = await res.json(); // { rpm_url, thumbnail } | null
         if (json?.rpm_url) {
           setTempUserUrl(json.rpm_url as string);
-          // populate a lightweight profile so downstream UI has a name/id
           setProfile((p) =>
             p ?? { id: 'anon', username: 'You', rpm_user_url: json.rpm_url, rpm_companion_url: null }
           );
@@ -214,15 +232,15 @@ export default function ClientAvatarChat() {
     })();
   }, [conversationId, sessionIdFromParams, userUrlFromParams, profile?.rpm_user_url]);
 
-  // ---------------- AI stub (replace with your model) ----------------
+  /* ---------- Model call stub ---------- */
   async function getAdamReply(userText: string): Promise<string> {
     const res = await fetch('/api/chat', {
-      method: 'POST', // <-- must be POST
+      method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ conversationId, userMessage: userText }),
+      // POSTs aren't cached, so no-store is not required here
     });
 
-    // Log while debugging
     const raw = await res.text();
     console.log('CHAT RAW RESPONSE:', raw);
     if (!res.ok) return "Sorry, I couldn't process that just now.";
@@ -231,7 +249,7 @@ export default function ClientAvatarChat() {
     return data.answer ?? "Sorry, I couldn't find enough info to answer.";
   }
 
-  // ---------------- Send flow ----------------
+  /* ---------- Send flow (optimistic + replace + sort) ---------- */
   const handleSend = async (text: string) => {
     if (!text.trim()) return;
 
@@ -247,6 +265,7 @@ export default function ClientAvatarChat() {
     setIsTyping(true);
     const assistantTextPromise = getAdamReply(text);
 
+    // Optimistic user message
     const optimisticUserMessage: MessageRow = {
       id: tempUserId,
       conversation_id: conversationId,
@@ -256,7 +275,7 @@ export default function ClientAvatarChat() {
       created_at: new Date().toISOString(),
       status: 'sending',
     };
-    setMessages((prev) => [...prev, optimisticUserMessage]);
+    setMessages((prev) => upsertAndSort(prev, optimisticUserMessage));
 
     try {
       const [savedUser, assistantText] = await Promise.all([
@@ -266,14 +285,16 @@ export default function ClientAvatarChat() {
 
       setIsTyping(false);
 
+      // Replace optimistic user → saved user
       setMessages((prev) => {
         const withoutTemp = prev.filter((m) => m.id !== tempUserId);
         if (!withoutTemp.some((m) => m.id === savedUser.id)) {
-          withoutTemp.push({ ...savedUser, status: 'sent' });
+          return upsertAndSort(withoutTemp, { ...savedUser, status: 'sent' });
         }
-        return withoutTemp;
+        return withoutTemp.slice().sort(sortMsgs);
       });
 
+      // Optimistic assistant message
       const optimisticBotMessage: MessageRow = {
         id: tempBotId,
         conversation_id: conversationId,
@@ -283,72 +304,76 @@ export default function ClientAvatarChat() {
         created_at: new Date().toISOString(),
         status: 'sending',
       };
-      setMessages((prev) => [...prev, optimisticBotMessage]);
-      // after you add the optimistic bot message
-const savedBot = await fetch('/api/assistant-message', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ conversationId, content: assistantText }),
-    }).then(async (res) => {
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    });
+      setMessages((prev) => upsertAndSort(prev, optimisticBotMessage));
 
-    setMessages((prev) => {
-      const withoutTemp = prev.filter((m) => m.id !== tempBotId);
-      if (savedBot?.id && !withoutTemp.some((m) => m.id === savedBot.id)) {
-        withoutTemp.push({ ...savedBot, status: 'sent' });
-      }
-      return withoutTemp;
-    });
-    
+      // Persist assistant message to DB, then replace optimistic
+      const savedBot = await fetch('/api/assistant-message', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversationId, content: assistantText }),
+      }).then(async (res) => {
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      });
 
-  } catch (e) {
-    console.error('send failed:', e);
-    setIsTyping(false);
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m
-      )
-    );
-  }
-};
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((m) => m.id !== tempBotId);
+        if (savedBot?.id && !withoutTemp.some((m) => m.id === savedBot.id)) {
+          return upsertAndSort(withoutTemp, { ...savedBot, status: 'sent' });
+        }
+        return withoutTemp.slice().sort(sortMsgs);
+      });
 
-  // ---------------- Avatars (normalize to .glb) ----------------
-// --- Avatars (validated to a real .glb) ---
-type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
+    } catch (e) {
+      console.error('send failed:', e);
+      setIsTyping(false);
+      setMessages((prev) =>
+        prev
+          .map((m) =>
+            m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m
+          )
+          
+      );
+    }
+  };
 
-const rawUser = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
-const userGlb = useValidatedRpmGlb(rawUser);
+  /* ---------- Avatars (normalize & validate .glb) ---------- */
+  type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
 
-const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
-const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
+  const rawUser = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
+  const userGlb = useValidatedRpmGlb(rawUser);
 
-const rawComp =
-  companionUrlFromParams ||
-  profile?.rpm_companion_url ||
-  fallbackComp.url;
+  const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
+  const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
 
-const compGlb = useValidatedRpmGlb(rawComp);
+  const rawComp =
+    companionUrlFromParams ||
+    profile?.rpm_companion_url ||
+    fallbackComp.url;
 
-const userAvatar: AvatarShape = {
-  name: profile?.username || 'You',
-  type: rawUser ? 'custom' : 'default',
-  url: userGlb,                // ← validated or null
-};
+  const compGlb = useValidatedRpmGlb(rawComp);
 
-const companionAvatar: AvatarShape = {
-  name: companionNameFromParams || (profile?.rpm_companion_url ? 'Custom Companion' : fallbackComp.name),
-  type: (companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
-  url: compGlb,                // ← validated or null
-};
+  const userAvatar: AvatarShape = {
+    name: profile?.username || 'You',
+    type: rawUser ? 'custom' : 'default',
+    url: userGlb,
+  };
 
-  
-  // ---------------- Render ----------------
+  const companionAvatar: AvatarShape = {
+    name: companionNameFromParams || (profile?.rpm_companion_url ? 'Custom Companion' : fallbackComp.name),
+    type: (companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
+    url: compGlb,
+  };
+
+  /* ---------- Render ---------- */
   const chatInterfaceMood = useMemo(() => {
-  if (mood && 'feeling' in mood) return mood;
-  return null;
-}, [mood]);
+    if (mood && 'feeling' in mood) return mood;
+    return null;
+  }, [mood]);
+
+  // Optional extra safety: always pass sorted messages to the UI
+  const sortedMessages = useMemo(() => messages.slice().sort(sortMsgs), [messages]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       {showExitMoodCheckIn && (
@@ -370,7 +395,7 @@ const companionAvatar: AvatarShape = {
         companionAvatar={companionAvatar}
         currentMood={chatInterfaceMood}
         onSend={handleSend}
-        messages={messages}
+        messages={sortedMessages}
         isTyping={isTyping}
       />
     </div>
