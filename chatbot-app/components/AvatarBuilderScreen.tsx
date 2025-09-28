@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { useRouter } from 'next/navigation';
 import { Loading } from './ui/loading';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
 
 interface AvatarBuilderScreenProps {
   onNavigate: (screen: string) => void;
@@ -42,35 +43,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Navigation with loading
-  const handleNavigation = async (screen: string) => {
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300));
-    onNavigate(screen);
-  };
-
-  // Chat navigation with loading  
-  const handleStartChat = async () => {
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300));
-    router.push('/chat/avatar');
-  };
-
-  // Check for avatar save success message after page load
-  useEffect(() => {
-    const savedSuccess = localStorage.getItem('avatarSaveSuccess');
-    if (savedSuccess) {
-      try {
-        const { message, description } = JSON.parse(savedSuccess);
-        toast.success(message, { description });
-        localStorage.removeItem('avatarSaveSuccess');
-      } catch (error) {
-        console.error('Error parsing saved success message:', error);
-        localStorage.removeItem('avatarSaveSuccess');
-      }
-    }
-  }, []);
-
   const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
     if (avatarId === 'eve') {
@@ -90,9 +62,86 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
   const handleCreateAvatar = () => {
     setIsCreatingAvatar(true);
     setIsLoading(true);
-    // Navigate to Ready Player Me selector
-    onNavigate('profile/ReadyPlayerMeSelector');
   };
+
+  const saveAvatarToDB = useCallback(async (url: string) => {
+    const { data: auth } = await supabase.auth.getUser();
+    const u = auth?.user;
+    if (!u) {
+      // For anonymous users, we don't save to DB, but we still want to use the avatar for the session.
+      onSaveAvatar({ url });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .upsert({ id: u.id, rpm_user_url: url }, { onConflict: "id" });
+
+    if (error) {
+      console.error("upsert error:", error);
+      toast.error("Couldn't save avatar. Try again.");
+      return;
+    }
+    
+    onSaveAvatar({ url });
+  }, [onSaveAvatar]);
+
+  const handleReadyPlayerMeMessage = useCallback((event: MessageEvent) => {
+    let avatarUrl: string | null = null;
+    if (!event?.data) return;
+
+    if (event.data.eventName && (event.data.eventName.includes("error") || event.data.type === "error")) {
+      return;
+    }
+
+    if (event.data.eventName === "v1.avatar.exported" && event.data.url) {
+      avatarUrl = event.data.url;
+    } else if (event.data.url && typeof event.data.url === "string") {
+      avatarUrl = event.data.url;
+    } else if (event.data.avatar?.url) {
+      avatarUrl = event.data.avatar.url;
+    } else if (typeof event.data === "string" && event.data.includes("readyplayer.me")) {
+      avatarUrl = event.data;
+    }
+
+    if (!avatarUrl) return;
+
+    void saveAvatarToDB(avatarUrl);
+
+    setIsCreatingAvatar(false);
+    setIsLoading(false);
+
+    toast.success("🎉 Avatar saved!", {
+      description: "It will now appear as your custom avatar.",
+    });
+  }, [saveAvatarToDB]);
+
+  useEffect(() => {
+    window.addEventListener("message", handleReadyPlayerMeMessage);
+    return () => window.removeEventListener("message", handleReadyPlayerMeMessage);
+  }, [handleReadyPlayerMeMessage]);
+
+  if (isCreatingAvatar) {
+    return (
+      <div className="fixed inset-0 z-50 bg-white">
+        {isLoading && (
+          <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
+            <div className="text-center">
+              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-primary" />
+              <p>Loading ReadyPlayer.me…</p>
+            </div>
+          </div>
+        )}
+        <iframe
+          src="https://readyplayer.me/avatar?frameApi"
+          className="w-full h-full border-0"
+          allow="camera *; microphone *"
+          onLoad={() => setIsLoading(false)}
+          title="ReadyPlayer.me Avatar Creator"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4">
@@ -275,9 +324,10 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
 
         {/* Start Chatting Button */}
         <div className="pt-2">
-          <Button 
-            onClick={handleStartChat}
+           <Button 
+            onClick={onNavigateToChat}
             className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50"
+            // style={{ minWidth: '20px', paddingLeft: '100px', paddingRight: '100px' }}
           >
             Start Chatting
             <ArrowRight className="ml-0.5 h-6 w-5" />

@@ -115,8 +115,8 @@ export default function AvatarBuilderPage() {
     if (user?.rpm_user_url) {
       params.set('userUrl', user.rpm_user_url);
     }
-    const queryString = params.toString();
-    router.push(`/chat/avatar${queryString ? `?${queryString}` : ''}`);
+    const qs = params.toString();
+    router.push(`/chat/avatar${qs ? `?${qs}` : ""}`);
   }, [selectedAvatarUrl, user, router]);
 
   if (loading) {

@@ -74,6 +74,24 @@ export default function HomePage() {
   const [err, setErr] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const handleNavigateToChat = async (mode: 'avatar' | 'standard') => {
+    // Set session storage so the chat page knows the check-in was intentionally skipped.
+    const skippedState = { skipped: true, timestamp: new Date() };
+    sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
+
+    // Navigate to chat without mood data
+    if (mode === 'avatar') {
+      const convoId = await maybeCreateConversation();
+      router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
+    } else {
+      router.push('/chat/simple');
+    }
+  };
+
+  const handleChatModeChange = (mode: 'avatar' | 'standard') => {
+    setChatMode(mode);
+  };
+
   // Navigation handler with loading
   const handleNavigation = async (screen: string) => {
     setIsLoading(true);
@@ -108,77 +126,13 @@ export default function HomePage() {
     }
   };
 
-  const handleNavigateToProfile = () => {
-    router.push('/profile');
-  };
-
-  const handleNavigateToChat = async (mode: 'avatar' | 'standard') => {
-    // Set session storage so the chat page knows the check-in was intentionally skipped.
-    const skippedState = { skipped: true, timestamp: new Date() };
-    sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
-
-    // Navigate to chat without mood data
-    if (mode === 'avatar') {
-      const convoId = await maybeCreateConversation();
-      router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
-    } else {
-      router.push('/chat/simple');
-    }
-  };
-
-  const handleChatModeChange = (mode: 'avatar' | 'standard') => {
-    setChatMode(mode);
-  };
-
-  const handleMoodSubmit = async (moodData: MoodData) => {
-    // Show loading when user submits mood data
-    setIsLoading(true);
-    
-    const moodWithTimestamp: StoredMoodData = {
-      ...moodData,
-      timestamp: new Date()
-      
-      
-    };
-    
-    setCurrentMood(moodWithTimestamp);
-    localStorage.setItem('avatarCompanion_mood', JSON.stringify(moodWithTimestamp));
-    setShowMoodCheckIn(false);
-    
-    // Navigate to chat
-    if (chatMode === 'avatar') {
-      const convoId = await maybeCreateConversation();
-      // when creating the conversation:
-      router.push(`/chat/avatar?convo=${convoId}`);
-
-    } else {
-      router.push('/chat/simple');
-    }
-  };
-    async function maybeCreateConversation() {
+  async function maybeCreateConversation() {
   const uid = await getSessionUserId();          // null if anonymous
   if (!uid) return null;                         // skip DB write when not logged in
   const convoId = await createConversation('My chat');
   console.log('[chat] created conversation:', convoId);
   return convoId;
-}
-
-  
-
-  const handleMoodSkip = async () => {
-    // Show loading when user skips mood check
-    setIsLoading(true);
-    setShowMoodCheckIn(false);
-    
-    
-    // Navigate to chat without mood data
-    if (chatMode === 'avatar') {
-      const convoId = await maybeCreateConversation();
-      router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
-    } else {
-      router.push('/chat/simple');
     }
-  };
 
   // Load saved mood data and user data on mount
   useEffect(() => {
@@ -263,22 +217,6 @@ export default function HomePage() {
     };
   }, []);
 
-const onStartChat = async () => {
-  setBusy(true); 
-  setIsLoading(true);
-  setErr(null);
-  let convoId: string | null = null;
-  try {
-    convoId = await maybeCreateConversation();             // <— keep/create here too
-  } catch (e: any) {
-    setErr(e?.message ?? 'Failed to create conversation');
-    console.error(e);
-  } finally {
-    router.push(`/chat/avatar${convoId ? `?convo=${convoId}` : ''}`);
-    setBusy(false);
-  }
-};
-
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
@@ -362,6 +300,7 @@ const onStartChat = async () => {
               navigate challenges. Safe, welcoming, and just for you!
             </p>
           </div>
+        
 
           {/* Trust Indicators */}
           <div className="flex flex-wrap justify-center gap-4 mb-10">
@@ -376,14 +315,31 @@ const onStartChat = async () => {
             </Badge>
           </div>
 
-          
-
+          {/* Privacy Reminder */}
+        <div className="max-w-2xl mx-auto mb-16">
+          <Card className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
+            <CardContent className="p-6 text-center">
+              <div className="flex items-center justify-center space-x-2 mb-3">
+                <Shield className="h-5 w-5 text-purple-600" />
+                <h3 className="font-medium text-purple-800">
+                  You're Always Anonymous by Default
+                </h3>
+              </div>
+              <p className="text-sm text-purple-700 leading-relaxed">
+                Your privacy is our top priority. Every conversation is completely anonymous and secure. 
+                <br />You control what you share, always.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+        </div>
+           
         {/* Chat Mode Selection */}
         <div className="max-w-4xl mx-auto mb-16">
           <h2 className="text-2xl font-semibold text-center mb-8 text-gray-900">
             Choose Your Chat Experience
           </h2>
-          
+
           <div className="grid md:grid-cols-2 gap-8">
             {/* Avatar Chat Mode Card */}
             <Card 
@@ -447,35 +403,24 @@ const onStartChat = async () => {
                         </span>
                       </div>
                       <p className="text-xs text-blue-700">
-                        Start immediately with a default avatar, or customize later
+                        Start with a default avatar or customize later
                       </p>
                     </div>
                   )}
 
                   <div className="space-y-2">
                     <Button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleChatModeChange('avatar');
-                      handleNavigateToChat();
-                    }}
-                    className="w-full bg-teal-500 hover:bg-teal-600 text-white"
-                  >
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Start Avatar Chat
-                  </Button>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs border-orange-200 text-orange-600 hover:bg-orange-50"
-                      onClick={() => {
-                        handleNavigation('avatarbuilder');
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleChatModeChange("avatar"); 
+                        handleNavigation("avatarbuilder"); 
                       }}
+                      className="w-full bg-teal-500 hover:bg-teal-600 text-white"
                     >
-                      <Settings className="h-4 w-4 mr-2" />
-                      Customize Avatar
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Start Avatar Chat
                     </Button>
+                  
                     
                     {!isLoggedIn && (
                       <Button
@@ -546,11 +491,11 @@ const onStartChat = async () => {
                     </p>
                   </div>
 
-                  <Button
+                   <Button
                     onClick={(e) => {
                       e.stopPropagation();
                       handleChatModeChange('standard');
-                      handleNavigateToChat();
+                      handleNavigateToChat('standard');
                     }}
                     className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white"
                   >
@@ -561,24 +506,6 @@ const onStartChat = async () => {
               </CardContent>
             </Card>
           </div>
-        </div>
-
-        {/* Privacy Reminder */}
-        <div className="max-w-2xl mx-auto mb-16">
-          <Card className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
-            <CardContent className="p-6 text-center">
-              <div className="flex items-center justify-center space-x-2 mb-3">
-                <Shield className="h-5 w-5 text-purple-600" />
-                <h3 className="font-medium text-purple-800">
-                  You're Always Anonymous by Default
-                </h3>
-              </div>
-              <p className="text-sm text-purple-700 leading-relaxed">
-                Your privacy is our top priority. Every conversation is completely anonymous and secure. 
-                You control what you share, always.
-              </p>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Features Section */}
@@ -626,37 +553,21 @@ const onStartChat = async () => {
           </div>
         </div>
 
-
         {/* Bottom Actions */}
         <div className="text-center">
           <p className="text-gray-600 mb-6">
-            Want to review preferences or learn more?
+            Want to review preferences?
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Button
               variant="outline"
-              className="border-gray-200 text-gray-600 hover:bg-gray-50"
+              className="bg-white text-gray-800 border-green-200 hover:bg-green-100"
               onClick={() => handleNavigation('settings')}
             >
               <Settings className="h-4 w-4 mr-2" />
               Preferences
             </Button>
-            <Button
-              onClick={handleNavigateToProfile}
-              variant="default"
-              className="trauma-safe gentle-focus"
-            >
-              👤 View Profile
-            </Button>
-            
-            {!isLoggedIn && (
-              <Button
-                variant="default"
-                className="bg-gray-800 text-white hover:bg-gray-900"
-              >
-                Create Account (Optional)
-              </Button>
-            )}
+
           </div>
         </div>
       </div>
