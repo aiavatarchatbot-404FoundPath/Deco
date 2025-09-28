@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowRight, User } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { ArrowRight, User, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { useRouter } from 'next/navigation';
-import { Loading } from './ui/loading';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -161,12 +160,8 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
         <div className="flex justify-center max-w-2xl mx-auto">
           {/* Custom User Avatar - for creation, not selection */}
           <div 
-            onClick={() => user?.rpm_user_url ? handleAvatarSelect('custom') : handleCreateAvatar()}
-            className={`bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all ${
-              selectedAvatar === 'custom' 
-                ? 'ring-4 ring-blue-300 shadow-xl' 
-                : 'hover:shadow-xl'
-            }`}
+            onClick={handleCreateAvatar}
+            className="bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all hover:shadow-xl"
           >
             <div className="space-y-4">
               {/* Avatar Image - Show user's custom avatar if available */}
@@ -198,13 +193,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                 <p className="text-xs text-gray-500 mt-1">
                   {user?.rpm_user_url ? 'Ready Player Me Avatar' : 'Click to create with Ready Player Me'}
                 </p>
-                {selectedAvatar === 'custom' && (
-                  <div className="mt-2">
-                    <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
-                      Selected
-                    </span>
-                  </div>
-                )}
                 {!user?.rpm_user_url && (
                   <div className="mt-3">
                     <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
@@ -215,6 +203,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
               </div>
             </div>
           </div>
+
         </div>
 
         {/* Ready-Made Avatars Section */}
@@ -223,18 +212,18 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
             Select Your AI Companion
           </h2>
           
-          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
             {/* Adam */}
             <div 
               onClick={() => handleAvatarSelect('ready-adam')}
               className={`bg-white rounded-2xl p-6 shadow-lg cursor-pointer transition-all ${
-                selectedAvatar === 'ready-adam'
+                selectedAvatar === 'ready-adam' 
                   ? 'ring-4 ring-blue-300 shadow-xl' 
                   : 'hover:shadow-xl'
               }`}
             >
               <div className="space-y-3">
-                <div className="w-24 h-24 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full overflow-hidden flex items-center justify-center">
+                <div className="w-32 h-32 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full overflow-hidden flex items-center justify-center">
                   <img 
                     src={toThumbnail(readyPlayerMeAvatars.adam) || ""}
                     alt="Adam Avatar"
@@ -252,7 +241,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Adam</h3>
-                  <p className="text-xs text-gray-500">Professional & Supportive</p>
+                  <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                 </div>
                 {selectedAvatar === 'ready-adam' && (
                   <div className="mt-2">
@@ -274,7 +263,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
               }`}
             >
               <div className="space-y-3">
-                <div className="w-24 h-24 mx-auto bg-gradient-to-br from-pink-300 to-purple-400 rounded-full overflow-hidden flex items-center justify-center">
+                <div className="w-32 h-32 mx-auto bg-gradient-to-br from-pink-300 to-purple-400 rounded-full overflow-hidden flex items-center justify-center">
                   <img 
                     src={toThumbnail(readyPlayerMeAvatars.eve) || ""}
                     alt="Eve Avatar"
@@ -292,7 +281,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Eve</h3>
-                  <p className="text-xs text-gray-500">Caring & Empathetic</p>
+                  <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                 </div>
                 {selectedAvatar === 'eve' && (
                   <div className="mt-2">
@@ -306,25 +295,9 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           </div>
         </div>
 
-        {/* About Ready Player Me */}
-        <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl p-6 max-w-2xl mx-auto">
-          <h3 className="text-lg font-semibold text-purple-800 mb-3">
-            About Ready Player Me
-          </h3>
-          <p className="text-gray-700 text-sm mb-4">
-            Ready Player Me provides cutting-edge 3D avatar technology. Create custom avatars with facial expressions, animations, and personalized features for an immersive chat experience.
-          </p>
-          <Button 
-            onClick={handleCreateAvatar}
-            className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-full text-sm font-medium transition-colors"
-          >
-            Create Avatar
-          </Button>
-        </div>
-
         {/* Start Chatting Button */}
         <div className="pt-2">
-           <Button 
+          <Button 
             onClick={onNavigateToChat}
             className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50"
             // style={{ minWidth: '20px', paddingLeft: '100px', paddingRight: '100px' }}
@@ -334,8 +307,6 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           </Button>
         </div>
       </div>
-
-      {isLoading && <Loading />}
     </div>
   );
 }
