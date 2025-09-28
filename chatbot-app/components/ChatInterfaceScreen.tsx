@@ -36,9 +36,17 @@ type User = {
 
 type Avatar = {
   name: string;
-  type: 'custom' | 'default';
+  type: "custom" | "default";
   url?: string | null;
   animation?: RpmAnimationConfig;
+};
+
+type Mood = {
+  feeling: string;
+  intensity: number;
+  reason?: string;
+  support?: string;
+  timestamp: Date;
 };
 
 type ChatInterfaceScreenProps = {
@@ -46,24 +54,34 @@ type ChatInterfaceScreenProps = {
   chatMode: "avatar" | "standard";
   user?: User;
   companionAvatar?: Avatar;
-  currentMood?: {
-    feeling: string;
-    intensity: number;
-    reason?: string;
-    support?: string;
-    timestamp: Date;
-  } | null;
+  currentMood?: Mood | null;
   onSend?: (text: string) => void;
-  messages?: DbMessage[];     // from DB (page)
+  messages?: DbMessage[];
   isTyping?: boolean;
 };
 
-function moodGreeting(companionName: string, mood?: ChatInterfaceScreenProps["currentMood"]) {
+/** ---- Helpers ---- */
+function normalizeMood(mood?: Mood | null): Mood {
+  // Guarantees children always get a safe object with string feeling
   if (!mood || !mood.feeling) {
-    return `Hi there! I'm ${companionName}, your Avatar Companion. I'm here to listen and support you in a safe, confidential space. How are you feeling today?`;
+    return {
+      feeling: "neutral",
+      intensity: 0,
+      timestamp: new Date(),
+    };
   }
-  const feeling = mood.feeling.toLowerCase();
-  const intensity = mood.intensity;
+  return {
+    ...mood,
+    feeling: String(mood.feeling || "neutral"),
+    intensity: Number.isFinite(mood.intensity) ? mood.intensity : 0,
+  };
+}
+
+function moodGreeting(companionName: string, mood?: Mood | null) {
+  const safe = normalizeMood(mood);
+  const feeling = safe.feeling.toLowerCase();
+  const intensity = safe.intensity;
+
   if (["happy", "calm"].includes(feeling)) {
     return `Hi! I'm ${companionName}. I can see you're feeling ${feeling} — that's wonderful. What's been going well today?`;
   }
@@ -77,18 +95,27 @@ function moodGreeting(companionName: string, mood?: ChatInterfaceScreenProps["cu
   if (feeling === "tired") {
     return `Hello, I'm ${companionName}. It sounds like you're feeling tired. I'm here for you — share as much or as little as you like.`;
   }
+  // Neutral / unknown
+  if (!mood || !mood?.feeling || feeling === "neutral") {
+    return `Hi there! I'm ${companionName}, your Avatar Companion. I'm here to listen and support you in a safe, confidential space. How are you feeling today?`;
+  }
   return `Hi! I'm ${companionName}. Thanks for letting me know you're feeling ${feeling}. What would be most helpful for you today?`;
 }
 
+/** ---- Component ---- */
 export function ChatInterfaceScreen({
   onNavigate,
   chatMode,
-  user = { id: 'anon', username: 'You', avatar: { name: 'User', type: 'default', url: null, animation: { profile: 'masculine' } } },
+  user = {
+    id: "anon",
+    username: "You",
+    avatar: { name: "User", type: "default", url: null, animation: { profile: "masculine" } },
+  },
   companionAvatar = {
-    name: 'Adam',
-    type: 'default',
+    name: "Adam",
+    type: "default",
     url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
-    animation: { profile: 'feminine' }
+    animation: { profile: "feminine" },
   },
   currentMood,
   onSend,
@@ -96,9 +123,11 @@ export function ChatInterfaceScreen({
   isTyping = false,
 }: ChatInterfaceScreenProps) {
   const [inputValue, setInputValue] = useState("");
-  const [uiOnlySystem, setUiOnlySystem] = useState<UIMsg[]>([]); // sidebar-injected notes (not persisted)
+  const [uiOnlySystem, setUiOnlySystem] = useState<UIMsg[]>([]);
 
-  // Transform DB rows -> UI rows expected by MessageList
+  // Provide a safe mood object for all children (prevents .toLowerCase() crashes)
+  const displayMood = useMemo(() => normalizeMood(currentMood), [currentMood]);
+
   const uiFromDb: UIMsg[] = useMemo(
     () =>
       messages.map((m) => ({
@@ -111,14 +140,13 @@ export function ChatInterfaceScreen({
     [messages]
   );
 
-  // If no DB messages yet, show a one-time greeting
   const allMessages: UIMsg[] = useMemo(() => {
     if (uiFromDb.length === 0) {
       return [
         {
           id: "greeting",
           sender: "ai",
-          content: moodGreeting(companionAvatar.name, currentMood || undefined),
+          content: moodGreeting(companionAvatar.name, currentMood ?? null),
           timestamp: new Date(),
           type: currentMood ? "mood-aware" : "normal",
         },
@@ -128,7 +156,11 @@ export function ChatInterfaceScreen({
     return [...uiFromDb, ...uiOnlySystem];
   }, [uiFromDb, uiOnlySystem, currentMood, companionAvatar.name]);
 
-  // Sidebar “inject” message (UI-only)
+  // Flags for 3D models
+  const hasUserModel = !!user?.avatar?.url;
+  const hasCompanionModel = !!companionAvatar?.url;
+  const hasAnyModel = hasUserModel || hasCompanionModel;
+
   const injectSystemMessage = (content: string) => {
     setUiOnlySystem((prev) => [
       ...prev,
@@ -144,34 +176,40 @@ export function ChatInterfaceScreen({
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      <Navbar onNavigate={onNavigate} isLoggedIn={!!user && user.id !== 'anon'} />
+      <Navbar onNavigate={onNavigate} isLoggedIn={!!user && user.id !== "anon"} />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
         <Sidebar onNavigate={onNavigate} onInjectMessage={injectSystemMessage} />
 
         {chatMode === "avatar" && (
           <div className="flex items-center justify-center w-[40%] border-r border-gray-200 bg-gradient-to-br from-purple-50 to-pink-50">
-            <AvatarDisplay
-              userAvatar={{
-                name: user?.avatar?.name ?? 'User',
-                url: user?.avatar?.url ?? undefined, // ensure url is string | undefined
-                animation: user?.avatar?.animation
-              }}
-              aiAvatar={{
-                name: companionAvatar?.name ?? 'Adam',
-                url: companionAvatar?.url ?? undefined, // ensure url is string | undefined
-                animation: companionAvatar?.animation
-              }}
-            />
+            {hasAnyModel ? (
+              <AvatarDisplay
+                userAvatar={{
+                  name: user?.avatar?.name ?? "User",
+                  url: user?.avatar?.url ?? undefined,
+                  animation: user?.avatar?.animation,
+                }}
+                aiAvatar={{
+                  name: companionAvatar?.name ?? "Adam",
+                  url: companionAvatar?.url ?? undefined,
+                  animation: companionAvatar?.animation,
+                }}
+              />
+            ) : (
+              <div className="p-3 text-sm text-muted-foreground">
+                Avatar not found. Please select a new one in your Profile → 3D Avatars.
+              </div>
+            )}
           </div>
         )}
 
         <div className="flex-1 flex flex-col bg-white min-h-0">
           <ChatHeader
-            currentMood={currentMood}
+            currentMood={displayMood}               
             chatMode={chatMode}
             companionName={companionAvatar.name}
-            companionAvatarUrl={companionAvatar.url}
+            companionAvatarUrl={companionAvatar.url ?? undefined}
           />
 
           <MessageList messages={allMessages} isTyping={isTyping} chatMode={chatMode} />
@@ -185,7 +223,7 @@ export function ChatInterfaceScreen({
               (onSend ?? (() => {}))(t);
               setInputValue("");
             }}
-            isAnonymous={user.id === 'anon'}
+            isAnonymous={user?.id === "anon"}
             onToggleAnonymous={() => {}}
             disabled={false}
           />

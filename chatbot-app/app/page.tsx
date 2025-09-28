@@ -110,9 +110,20 @@ export default function HomePage() {
 
   const handleNavigateToProfile = () => {
     router.push('/profile');
-  };  const handleNavigateToChat = () => {
-    // Show mood check-in when starting a new chat session (no loading yet)
-    setShowMoodCheckIn(true);
+  };
+
+  const handleNavigateToChat = async (mode: 'avatar' | 'standard') => {
+    // Set session storage so the chat page knows the check-in was intentionally skipped.
+    const skippedState = { skipped: true, timestamp: new Date() };
+    sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
+
+    // Navigate to chat without mood data
+    if (mode === 'avatar') {
+      const convoId = await maybeCreateConversation();
+      router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
+    } else {
+      router.push('/chat/simple');
+    }
   };
 
   const handleChatModeChange = (mode: 'avatar' | 'standard') => {

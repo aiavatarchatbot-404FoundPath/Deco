@@ -358,7 +358,7 @@ useEffect(() => {
   // nav handlers
   const handleBackToHome = () => router.push("/");
   const handleNavigateToChat = () => router.push("/chat/avatar");
-  const handleNavigation = (href: string) => router.push(href);
+  const handleNavigation = (href: string) => router.push(href as any);
 
   const handleExportData = () => alert("Export started (placeholder).");
   const handleDeleteAccount = async () => {
