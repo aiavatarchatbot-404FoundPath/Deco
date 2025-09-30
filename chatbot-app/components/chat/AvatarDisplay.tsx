@@ -36,50 +36,50 @@ export default function AvatarDisplay({
   }, [aiAvatar?.animation]);
 
   const Placeholder = ({ icon: Icon }: { icon: React.ComponentType<{ className?: string }> }) => (
-    <div className="w-full h-full flex items-center justify-center text-gray-300">
+    <div className="absolute inset-0 flex items-center justify-center text-gray-300">
       <Icon className="w-20 h-20" />
     </div>
   );
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-4">
-      <div className="w-full h-[85%] max-h-[450px] rounded-3xl overflow-hidden shadow-inner bg-white/15 border border-white/25 backdrop-blur-sm grid grid-cols-2 divide-x divide-white/20">
-        <div className="relative min-w-0 h-full bg-white/6">
+    <div className="w-full h-full flex flex-col gap-3 p-4">
+      <div className="grid grid-cols-2 gap-3 w-full h-full max-h-[480px] min-h-[360px]">
+        <div className="relative min-h-[320px] overflow-hidden">
           {hasUser ? (
-            <RpmViewer
-              src={userAvatar?.url ?? null}
-              singleYaw={Math.PI / 9}
-              singleLookAt={[1.8, 1.35, 0]}
-              talkOverride={assistantTalking}
-              animation={userAnimation}
-            />
+            <div className="absolute inset-0">
+              <RpmViewer
+                src={userAvatar?.url ?? null}
+                singleYaw={-Math.PI / 2}
+                singleLookAt={[2.2, 1.3, 0]}
+                talkOverride={assistantTalking}
+                animation={userAnimation}
+              />
+            </div>
           ) : (
             <Placeholder icon={User} />
           )}
         </div>
 
-        <div className="relative min-w-0 h-full bg-white/6">
+        <div className="relative min-h-[320px] overflow-hidden">
           {hasCompanion ? (
-            <RpmViewer
-              src={aiAvatar?.url ?? null}
-              assistantTalking={assistantTalking}
-              singleYaw={-Math.PI / 9}
-              singleLookAt={[-1.8, 1.35, 0]}
-              animation={companionAnimation}
-            />
+            <div className="absolute inset-0">
+              <RpmViewer
+                src={aiAvatar?.url ?? null}
+                singleYaw={Math.PI / 2}
+                singleLookAt={[-2.2, 1.3, 0]}
+                talkOverride={assistantTalking}
+                animation={companionAnimation}
+              />
+            </div>
           ) : (
             <Placeholder icon={Bot} />
           )}
         </div>
       </div>
 
-      <div className="w-full flex justify-between mt-3 text-sm font-medium text-gray-700">
-        <p className="w-1/2 text-center">
-          {userAvatar?.name ?? 'You'}
-        </p>
-        <p className="w-1/2 text-center">
-          {aiAvatar?.name ?? 'Adam'}
-        </p>
+      <div className="grid grid-cols-2 text-sm font-medium text-gray-700">
+        <p className="text-center">{userAvatar?.name ?? 'You'}</p>
+        <p className="text-center">{aiAvatar?.name ?? 'Adam'}</p>
       </div>
     </div>
   );

@@ -41,5 +41,8 @@ yarn-error.log*
 next-env.d.ts
 .DS_Store
 
-# Local animation lib (keep outside this repo)
+# keep source library out if you want, but serve a copy
 animation-library/
+
+# DO commit the runtime copies under public
+!public/animations/

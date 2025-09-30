@@ -56,7 +56,9 @@ export default function ChatHeader({ currentMood, chatMode, companionName, compa
       {/* Left side: AI Companion info */}
       <div className="flex items-center space-x-3">
         <Avatar className="h-10 w-10">
-          <AvatarImage src={companionThumbnail ?? "/adam-avatar.png"} alt={companionName} />
+          {companionThumbnail && (
+            <AvatarImage src={companionThumbnail} alt={companionName} />
+          )}
           <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white">
             {companionName.charAt(0)}
           </AvatarFallback>

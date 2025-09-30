@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { ArrowRight, User, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -10,7 +9,8 @@ interface AvatarBuilderScreenProps {
   onNavigateToChat: () => void;
   user?: any;
   onSaveAvatar: (avatar: any) => void;
-  onSelectCompanion: (companion: "ADAM" | "EVE") => void;
+  onSelectCompanion: (companion: 'ADAM' | 'EVE') => void;
+  isLoggedIn?: boolean;
 }
 
 // Convert a Ready Player Me URL (.glb) into a displayable PNG
@@ -36,11 +36,31 @@ const readyPlayerMeAvatars = {
   eve: "https://models.readyplayer.me/68be6a2ac036016545747aa9.glb"
 };
 
-export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user, onSaveAvatar, onSelectCompanion }: AvatarBuilderScreenProps) {
+function extractAvatarId(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const clean = url.split('?')[0];
+    const segments = clean.split('/').filter(Boolean);
+    const last = segments.pop();
+    if (!last) return null;
+    return last.replace('.glb', '');
+  } catch {
+    return null;
+  }
+}
+
+export default function AvatarBuilderScreen({
+  onNavigate,
+  onNavigateToChat,
+  user,
+  onSaveAvatar,
+  onSelectCompanion,
+  isLoggedIn = false,
+}: AvatarBuilderScreenProps) {
   const [selectedAvatar, setSelectedAvatar] = useState<string>('ready-adam');
-  const router = useRouter();
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [creatorSrc, setCreatorSrc] = useState<string>('https://readyplayer.me/avatar?frameApi');
 
   const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
@@ -51,6 +71,17 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
     }
   }, [onSelectCompanion]);
 
+  const openCreator = useCallback(() => {
+    const existingId = extractAvatarId(user?.rpm_user_url);
+    if (existingId) {
+      setCreatorSrc(`https://readyplayer.me/avatar?frameApi&avatarId=${encodeURIComponent(existingId)}`);
+    } else {
+      setCreatorSrc('https://readyplayer.me/avatar?frameApi');
+    }
+    setIsCreatingAvatar(true);
+    setIsLoading(true);
+  }, [user?.rpm_user_url]);
+
   // Set a default companion on initial render
   useEffect(() => {
     if (readyPlayerMeAvatars.adam) {
@@ -58,9 +89,15 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
     }
   }, [handleAvatarSelect]);
 
+  useEffect(() => {
+    const existingId = extractAvatarId(user?.rpm_user_url);
+    if (existingId) {
+      setCreatorSrc(`https://readyplayer.me/avatar?frameApi&avatarId=${encodeURIComponent(existingId)}`);
+    }
+  }, [user?.rpm_user_url]);
+
   const handleCreateAvatar = () => {
-    setIsCreatingAvatar(true);
-    setIsLoading(true);
+    openCreator();
   };
 
   const saveAvatarToDB = useCallback(async (url: string) => {
@@ -107,6 +144,11 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
 
     void saveAvatarToDB(avatarUrl);
 
+    const updatedId = extractAvatarId(avatarUrl);
+    if (updatedId) {
+      setCreatorSrc(`https://readyplayer.me/avatar?frameApi&avatarId=${encodeURIComponent(updatedId)}`);
+    }
+
     setIsCreatingAvatar(false);
     setIsLoading(false);
 
@@ -132,7 +174,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
           </div>
         )}
         <iframe
-          src="https://readyplayer.me/avatar?frameApi"
+          src={creatorSrc}
           className="w-full h-full border-0"
           allow="camera *; microphone *"
           onLoad={() => setIsLoading(false)}
@@ -159,7 +201,7 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
         {/* Avatar Selection Grid */}
         <div className="flex justify-center max-w-2xl mx-auto">
           {/* Custom User Avatar - for creation, not selection */}
-          <div 
+          <div
             onClick={handleCreateAvatar}
             className="bg-white rounded-2xl p-8 shadow-lg cursor-pointer transition-all hover:shadow-xl"
           >
@@ -198,6 +240,29 @@ export default function AvatarBuilderScreen({ onNavigate, onNavigateToChat, user
                     <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
                       ✨ Create Your Own
                     </span>
+                  </div>
+                )}
+                {isLoggedIn && user?.rpm_user_url && (
+                  <div className="mt-5 flex flex-col gap-2">
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigateToChat();
+                      }}
+                      className="w-full bg-emerald-200 text-emerald-700 hover:bg-emerald-300"
+                    >
+                      Keep This Avatar & Chat
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateAvatar();
+                      }}
+                      className="w-full border-purple-200 text-purple-600 hover:bg-purple-50"
+                    >
+                      Change Avatar
+                    </Button>
                   </div>
                 )}
               </div>

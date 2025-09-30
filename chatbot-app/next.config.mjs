@@ -10,7 +10,6 @@ const nextConfig = {
     ],
   },
   experimental: {
-    // add/keep only what you actually use
     typedRoutes: true,
   },
 };
