@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { ChatInterfaceScreen } from '../../../components/ChatInterfaceScreen';
 import MoodCheckIn from '../../../components/MoodCheckIn';
 import AnonymousExitWarning from '../../../components/chat/AnonymousExitWarning';
-import { sendUserMessage } from '@/lib/messages';
+//import { sendUserMessage } from '@/lib/messages';
 import { useValidatedRpmGlb } from '@/lib/rpm';
 
 type MessageRow = {
@@ -48,15 +48,24 @@ const COMPANIONS = {
 
 /* ---------- Deterministic ordering helpers ---------- */
 function sortMsgs(a: MessageRow, b: MessageRow) {
-  if (a.created_at === b.created_at) {
-    // Supabase ids are strings; compare numerically when possible, else lexically
-    const ai = Number(a.id);
-    const bi = Number(b.id);
-    if (!Number.isNaN(ai) && !Number.isNaN(bi)) return ai - bi;
-    return a.id.localeCompare(b.id);
-  }
-  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  const ta = new Date(a.created_at).getTime();
+  const tb = new Date(b.created_at).getTime();
+  if (ta !== tb) return ta - tb;
+
+  // same timestamp → user above assistant, system last
+  const rank = (r: MessageRow['role']) => (r === 'user' ? 0 : r === 'assistant' ? 1 : 2);
+  const rdiff = rank(a.role) - rank(b.role);
+  if (rdiff !== 0) return rdiff;
+
+  // sending before sent to keep optimistic bubble stable
+  const sa = a.status === 'sending' ? 0 : 1;
+  const sb = b.status === 'sending' ? 0 : 1;
+  if (sa !== sb) return sa - sb;
+
+  // final tie-breaker: id lexicographic
+  return (a.id || '').localeCompare(b.id || '');
 }
+
 
 function upsertAndSort(prev: MessageRow[], next: MessageRow) {
   const exists = prev.some((m) => m.id === next.id);
@@ -91,7 +100,11 @@ export default function ClientAvatarChat() {
   const handleNavigation = (screen: string) => {
     if (screen === 'home' || screen === 'endchat') {
       if (!isAuthenticated) {
-        setShowAnonymousExitWarning(true);
+        setShowAnonymousExitWarning
+        
+        
+        
+        (true);
         return;
       }
       setShowExitMoodCheckIn(true);
@@ -145,7 +158,11 @@ export default function ClientAvatarChat() {
   };
 
   const handleAnonymousExitContinue = () => {
-    setShowAnonymousExitWarning(false);
+    setShowAnonymousExitWarning
+    
+    
+    
+    (false);
     setShowExitMoodCheckIn(true);
   };
 
@@ -174,6 +191,23 @@ export default function ClientAvatarChat() {
     };
     sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(payload));
   };
+  
+  useEffect(() => {
+  (async () => {
+    if (!conversationId) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) return;
+
+    try {
+      await fetch("/api/conversations/ensure-ownership", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": user.id },
+        body: JSON.stringify({ conversationId }),
+      });
+    } catch {}
+  })();
+}, [conversationId]);
+
 
   const handleEntryMoodComplete = (moodData: MoodData) => {
     const record: MoodState = { ...moodData, timestamp: new Date() };
@@ -231,6 +265,27 @@ export default function ClientAvatarChat() {
       setShowEntryMoodCheckIn(true);
     }
   }, []);
+  async function callChatRoute(conversationId: string, userText: string, uid?: string | null) {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(uid ? { 'x-user-id': uid } : {}),
+    },
+    body: JSON.stringify({ conversationId, userMessage: userText }),
+  });
+
+  const raw = await res.text();
+  if (!res.ok) {
+    console.error('CHAT error:', raw);
+    throw new Error(raw || 'chat error');
+  }
+  return JSON.parse(raw) as {
+    answer: string;
+    rows: { user?: MessageRow; assistant?: MessageRow };
+  };
+}
+
 
   /* ---------- Messages (initial load + realtime) ---------- */
   useEffect(() => {
@@ -316,91 +371,77 @@ export default function ClientAvatarChat() {
 
   /* ---------- Send flow (optimistic + replace + sort) ---------- */
   const handleSend = async (text: string) => {
-    if (!text.trim()) return;
+  if (!text.trim()) return;
 
-    if (text.trim().toLowerCase() === 'exit chat') {
-      setShowExitMoodCheckIn(true);
-      return;
-    }
-    if (!conversationId) return;
+  if (text.trim().toLowerCase() === 'exit chat') {
+    setShowExitMoodCheckIn(true);
+    return;
+  }
+  if (!conversationId) return;
 
-    const tempUserId = `temp-user-${Date.now()}`;
-    const tempBotId = `temp-bot-${Date.now()}`;
+  // get the current uid (works for anon or logged-in)
+  const { data: { user } } = await supabase.auth.getUser();
+  const uid = user?.id || null;
 
-    setIsTyping(true);
-    const assistantTextPromise = getAdamReply(text);
-
-    // Optimistic user message
-    const optimisticUserMessage: MessageRow = {
-      id: tempUserId,
-      conversation_id: conversationId,
-      sender_id: 'me',
-      role: 'user',
-      content: text,
-      created_at: new Date().toISOString(),
-      status: 'sending',
-    };
-    setMessages((prev) => upsertAndSort(prev, optimisticUserMessage));
-
-    try {
-      const [savedUser, assistantText] = await Promise.all([
-        sendUserMessage(conversationId, text),
-        assistantTextPromise,
-      ]);
-
-      setIsTyping(false);
-
-      // Replace optimistic user → saved user
-      setMessages((prev) => {
-        const withoutTemp = prev.filter((m) => m.id !== tempUserId);
-        if (!withoutTemp.some((m) => m.id === savedUser.id)) {
-          return upsertAndSort(withoutTemp, { ...savedUser, status: 'sent' });
-        }
-        return withoutTemp.slice().sort(sortMsgs);
-      });
-
-      // Optimistic assistant message
-      const optimisticBotMessage: MessageRow = {
-        id: tempBotId,
-        conversation_id: conversationId,
-        sender_id: 'bot',
-        role: 'assistant',
-        content: assistantText,
-        created_at: new Date().toISOString(),
-        status: 'sending',
-      };
-      setMessages((prev) => upsertAndSort(prev, optimisticBotMessage));
-
-      // Persist assistant message to DB, then replace optimistic
-      const savedBot = await fetch('/api/assistant-message', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ conversationId, content: assistantText }),
-      }).then(async (res) => {
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      });
-
-      setMessages((prev) => {
-        const withoutTemp = prev.filter((m) => m.id !== tempBotId);
-        if (savedBot?.id && !withoutTemp.some((m) => m.id === savedBot.id)) {
-          return upsertAndSort(withoutTemp, { ...savedBot, status: 'sent' });
-        }
-        return withoutTemp.slice().sort(sortMsgs);
-      });
-
-    } catch (e) {
-      console.error('send failed:', e);
-      setIsTyping(false);
-      setMessages((prev) =>
-        prev
-          .map((m) =>
-            m.id === tempUserId || m.id === tempBotId ? { ...m, status: 'failed' } : m
-          )
-          
-      );
-    }
+  // optimistic user bubble
+  const tempId = `temp-${Date.now()}`;
+  const optimisticUserMessage: MessageRow = {
+    id: tempId,
+    conversation_id: conversationId,
+    sender_id: uid || 'me',
+    role: 'user',
+    content: text,
+    created_at: new Date().toISOString(),
+    status: 'sending',
   };
+  setMessages((prev) => upsertAndSort(prev, optimisticUserMessage));
+  setIsTyping(true);
+
+  try {
+    // single server call — writes BOTH rows and returns them
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(uid ? { 'x-user-id': uid } : {}),
+      },
+      body: JSON.stringify({ conversationId, userMessage: text }),
+    });
+
+    const raw = await res.text();
+    if (!res.ok) throw new Error(raw || 'chat error');
+    const data = JSON.parse(raw) as {
+      answer: string;
+      rows: { user?: MessageRow; assistant?: MessageRow };
+    };
+
+    setIsTyping(false);
+
+    // replace optimistic + upsert assistant row
+    setMessages((prev) => {
+      let out = prev.filter((m) => m.id !== tempId);
+
+      const savedUser = data.rows.user;
+      if (savedUser && !out.some((m) => m.id === savedUser.id)) {
+        out = upsertAndSort(out, { ...savedUser, status: 'sent' });
+      }
+
+      const savedBot = data.rows.assistant;
+      if (savedBot && !out.some((m) => m.id === savedBot.id)) {
+        out = upsertAndSort(out, { ...savedBot, status: 'sent' });
+      }
+
+      return out;
+    });
+  } catch (e) {
+    console.error('send failed:', e);
+    setIsTyping(false);
+    setMessages((prev) =>
+      prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m))
+    );
+  }
+};
+
 
   /* ---------- Avatars (normalize & validate .glb) ---------- */
   type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };

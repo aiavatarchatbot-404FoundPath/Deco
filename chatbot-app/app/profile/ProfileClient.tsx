@@ -219,6 +219,70 @@ function ProfileConversationsTab() {
     />
   );
 }
+// ---- Load Saved (status = 'ended') ----
+useEffect(() => {
+  if (!profile?.id) return;
+  if (activeTab !== "saved") return;
+
+  let cancelled = false;
+
+  (async () => {
+    try {
+      setLoadingSaved(true);
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("id, title, updated_at")
+        .eq("created_by", profile.id)
+        .eq("status", "ended")              // 👈 CHANGED: show ended in Saved tab
+        .order("updated_at", { ascending: false });
+
+      if (error) throw error;
+      if (!cancelled) setSavedConvos(data ?? []);
+    } catch (e) {
+      console.error("load saved convos failed:", e);
+      if (!cancelled) setSavedConvos([]);
+    } finally {
+      if (!cancelled) setLoadingSaved(false);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, [profile?.id, activeTab]);
+type OngoingConvo = { id: string; title: string | null; updated_at: string };
+
+const [ongoingConvos, setOngoingConvos] = useState<OngoingConvo[]>([]);
+const [loadingOngoing, setLoadingOngoing] = useState(false);
+
+// ---- Load Conversations (status = 'ongoing') ----
+useEffect(() => {
+  if (!profile?.id) return;
+  if (activeTab !== "conversations") return;
+
+  let cancelled = false;
+
+  (async () => {
+    try {
+      setLoadingOngoing(true);
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("id, title, updated_at")
+        .eq("created_by", profile.id)
+        .eq("status", "ongoing")            // 👈 only ongoing in Conversations tab
+        .order("updated_at", { ascending: false });
+
+      if (error) throw error;
+      if (!cancelled) setOngoingConvos(data ?? []);
+    } catch (e) {
+      console.error("load ongoing convos failed:", e);
+      if (!cancelled) setOngoingConvos([]);
+    } finally {
+      if (!cancelled) setLoadingOngoing(false);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, [profile?.id, activeTab]);
+
 
 useEffect(() => {
   let cancelled = false;
