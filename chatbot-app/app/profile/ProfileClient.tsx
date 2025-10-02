@@ -371,6 +371,26 @@ useEffect(() => {
     }
   };
 
+  const handleDeleteSaved = async (convoId: string) => {
+  try {
+    // optimistic: hide it from the list immediately
+    setSavedConvos((prev) => prev.filter((c) => c.id !== convoId));
+
+    // soft delete in DB: status → "deleted" + deleted_at timestamp
+    const { error } = await supabase
+      .from("conversations")
+      .update({ status: "deleted", deleted_at: new Date().toISOString() })
+      .eq("id", convoId);
+
+    if (error) {
+      console.error("Failed to soft-delete conversation:", error);
+      // (optional) show a toast + re-fetch list
+    }
+  } catch (e) {
+    console.error("Delete (soft) error:", e);
+  }
+};
+
   // Build DB-backed avatar objects for the selector (for its UI)
   const currentUserAvatarFromDB: ReadyPlayerMeAvatar | undefined = useMemo(() => {
     const url = profile?.rpm_user_url ?? null;
@@ -415,6 +435,35 @@ useEffect(() => {
     await supabase.auth.signOut();
     router.push("/login");
   };
+
+  const handleDeleteHistory = async () => {
+  const confirmed = window.confirm(
+    "Are you absolutely sure?\n\nThis will mark ALL your conversations as Deleted."
+  );
+  if (!confirmed) return;
+
+  try {
+    if (!profile?.id) return;
+
+    // Flip every convo for this user to deleted (but don’t double-update already-deleted)
+    const { error } = await supabase
+      .from("conversations")
+      .update({ status: "deleted", deleted_at: new Date().toISOString() })
+      .eq("created_by", profile.id)
+      .neq("status", "deleted");
+
+    if (error) {
+      console.error("Failed to soft-delete all conversations:", error);
+      return;
+    }
+
+    // Clear client-side lists
+    setSavedConvos([]);
+    setOngoingConvos([]);
+  } catch (e) {
+    console.error("Delete history (soft) error:", e);
+  }
+};
 
   if (loadingProfile) return <p className="p-6">Loading profile…</p>;
   if (!profile) {
@@ -567,13 +616,23 @@ useEffect(() => {
                                   </Badge>
                                 </div>
                               </div>
-                              <Button
-                                size="sm"
-                                onClick={() => router.push(`/chat/avatar?convo=${c.id}`)}
-                                className="trauma-safe gentle-focus"
-                              >
-                                View
-                              </Button>
+                              <div className="flex flex-col items-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => router.push(`/chat/avatar?convo=${c.id}`)}
+                                    className="trauma-safe gentle-focus"
+                                  >
+                                    View
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleDeleteSaved(c.id)}
+                                    className="border-red-300 text-red-600 hover:bg-red-50"
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
                             </div>
                           </CardContent>
                         </Card>
@@ -630,12 +689,9 @@ useEffect(() => {
                       <CardDescription>Manage your personal data and account</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <Button onClick={handleExportData} className="w-full sm:w-auto trauma-safe gentle-focus"
-                        variant="destructive">
-
-                        <Download className="w-4 h-4 mr-2" />
-
-                        Delete History
+                      <Button onClick={handleDeleteHistory} className="w-full sm:w-auto trauma-safe gentle-focus" variant="destructive">
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete History
                       </Button>
 
                       <div>

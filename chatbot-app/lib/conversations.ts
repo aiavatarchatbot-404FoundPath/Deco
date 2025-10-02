@@ -31,3 +31,18 @@ export async function endConversation(conversationId: string) {
 
   if (error) throw new Error(error.message);
 }
+
+export async function deleteConversation(conversationId: string) {
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({
+      status: "deleted",
+      deleted_at: new Date().toISOString(),
+    })
+    .eq("id", conversationId)
+    .select("id, status, deleted_at"); // ensure a return for logging
+
+  console.log("[deleteConversation] result:", { data, error, conversationId });
+
+  if (error) throw new Error(error.message);
+}
