@@ -1,16 +1,14 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
 import { User, Bot } from 'lucide-react';
-import { type RpmAnimationConfig } from './RpmModel';
 
 const RpmViewer = dynamic(() => import('./RpmViewer'), { ssr: false });
 
 type Avatar = {
   name?: string;
   url?: string | null;
-  animation?: RpmAnimationConfig;
 };
 
 export default function AvatarDisplay({
@@ -24,16 +22,6 @@ export default function AvatarDisplay({
 }) {
   const hasUser = !!userAvatar?.url;
   const hasCompanion = !!aiAvatar?.url;
-
-  const userAnimation = useMemo<RpmAnimationConfig>(() => {
-    if (userAvatar?.animation) return userAvatar.animation;
-    return { profile: 'masculine' };
-  }, [userAvatar?.animation]);
-
-  const companionAnimation = useMemo<RpmAnimationConfig>(() => {
-    if (aiAvatar?.animation) return aiAvatar.animation;
-    return { profile: 'feminine' };
-  }, [aiAvatar?.animation]);
 
   const Placeholder = ({ icon: Icon }: { icon: React.ComponentType<{ className?: string }> }) => (
     <div className="absolute inset-0 flex items-center justify-center text-gray-300">
@@ -52,7 +40,6 @@ export default function AvatarDisplay({
                 singleYaw={-Math.PI / 2}
                 singleLookAt={[2.2, 1.3, 0]}
                 talkOverride={assistantTalking}
-                animation={userAnimation}
               />
             </div>
           ) : (
@@ -68,7 +55,6 @@ export default function AvatarDisplay({
                 singleYaw={Math.PI / 2}
                 singleLookAt={[-2.2, 1.3, 0]}
                 talkOverride={assistantTalking}
-                animation={companionAnimation}
               />
             </div>
           ) : (

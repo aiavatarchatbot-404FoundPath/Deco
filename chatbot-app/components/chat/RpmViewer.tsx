@@ -4,7 +4,7 @@ import React, { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
-import RpmModel, { type RpmAnimationConfig } from './RpmModel';
+import RpmModel from './RpmModel';
 
 type Props = {
   src?: string | null;
@@ -14,9 +14,6 @@ type Props = {
   singleYaw?: number;
   singleLookAt?: [number, number, number] | null;
   talkOverride?: boolean;
-  animation?: RpmAnimationConfig;
-  userAnimation?: RpmAnimationConfig;
-  aiAnimation?: RpmAnimationConfig;
 };
 
 const DEFAULT_LOOK_TARGET = new THREE.Vector3(0, 1.2, 2);
@@ -25,10 +22,6 @@ export default function RpmViewer(props: Props) {
   const userUrl = props.userUrl ?? null;
   const aiUrl = props.aiUrl ?? null;
   const singleSrc = props.src ?? null;
-
-  const baseAnimation = props.animation;
-  const userAnimation = props.userAnimation ?? baseAnimation;
-  const companionAnimation = props.aiAnimation ?? baseAnimation;
 
   const hasUser = !!userUrl;
   const hasCompanion = !!aiUrl;
@@ -108,7 +101,6 @@ export default function RpmViewer(props: Props) {
                 lookAt={userLookTarget}
                 talk={talkState}
                 scale={duoScale}
-                animation={userAnimation}
               />
             )}
 
@@ -122,7 +114,6 @@ export default function RpmViewer(props: Props) {
                 lookAt={companionLookTarget}
                 talk={talkState}
                 scale={duoScale}
-                animation={companionAnimation}
               />
             )}
           </>
@@ -138,7 +129,6 @@ export default function RpmViewer(props: Props) {
                 lookAt={centerLookTargetLeft}  // bias head toward center
                 talk={talkState}
                 scale={singleScale}
-                animation={userAnimation}
               />
             )}
             {hasCompanion && (
@@ -150,7 +140,6 @@ export default function RpmViewer(props: Props) {
                 lookAt={centerLookTargetRight}
                 talk={talkState}
                 scale={singleScale}
-                animation={companionAnimation}
               />
             )}
           </>
@@ -162,7 +151,6 @@ export default function RpmViewer(props: Props) {
             yaw={singleYaw}
             talk={talkState}
             lookAt={singleLookTarget}
-            animation={baseAnimation}
             scale={singleScale}
           />
         )}

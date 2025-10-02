@@ -4,7 +4,6 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AvatarDisplay from "./chat/AvatarDisplay";
-import type { RpmAnimationConfig } from "./chat/RpmModel";
 import ChatHeader from "./chat/ChatHeader";
 import MessageList from "./chat/MessageList";
 import MessageInput from "./chat/MessageInput";
@@ -43,17 +42,6 @@ type Avatar = {
   name: string;
   type: "custom" | "default";
   url?: string | null;
-  animation?: RpmAnimationConfig;
-};
-
-const DEFAULT_USER_ANIMATION: RpmAnimationConfig = {
-  profile: "masculine",
-  url: "/animations/masculine/expression/M_Talking_Variations_005.glb",
-};
-
-const DEFAULT_COMPANION_ANIMATION: RpmAnimationConfig = {
-  profile: "feminine",
-  url: "/animations/feminine/expression/F_Talking_Variations_001.glb",
 };
 
 type Mood = {
@@ -128,14 +116,12 @@ export function ChatInterfaceScreen({
       name: "User",
       type: "default",
       url: null,
-      animation: DEFAULT_USER_ANIMATION,
     },
   },
   companionAvatar = {
     name: "Adam",
     type: "default",
     url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
-    animation: DEFAULT_COMPANION_ANIMATION,
   },
   currentMood,
   onSend,
@@ -274,12 +260,10 @@ export function ChatInterfaceScreen({
                 userAvatar={{
                   name: user?.avatar?.name ?? "User",
                   url: user?.avatar?.url ?? undefined,
-                  animation: user?.avatar?.animation ?? DEFAULT_USER_ANIMATION,
                 }}
                 aiAvatar={{
                   name: companionAvatar?.name ?? "Adam",
                   url: companionAvatar?.url ?? undefined,
-                  animation: companionAvatar?.animation ?? DEFAULT_COMPANION_ANIMATION,
                 }}
                 assistantTalking={isTyping}
               />
