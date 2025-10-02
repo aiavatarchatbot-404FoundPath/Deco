@@ -11,6 +11,8 @@ interface AvatarBuilderScreenProps {
   onSaveAvatar: (avatar: any) => void;
   onSelectCompanion: (companion: 'ADAM' | 'EVE') => void;
   isLoggedIn?: boolean;
+  navigationLoading?: boolean;
+  saveLoading?: boolean;
 }
 
 // Convert a Ready Player Me URL (.glb) into a displayable PNG
@@ -56,6 +58,8 @@ export default function AvatarBuilderScreen({
   onSaveAvatar,
   onSelectCompanion,
   isLoggedIn = false,
+  navigationLoading = false,
+  saveLoading = false,
 }: AvatarBuilderScreenProps) {
   const [selectedAvatar, setSelectedAvatar] = useState<string>('ready-adam');
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
@@ -64,9 +68,9 @@ export default function AvatarBuilderScreen({
 
   const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
-    if (avatarId === 'eve') {
+    if (avatarId === 'eve' || avatarId === 'ready-eve') {
       onSelectCompanion('EVE');
-    } else if (avatarId === 'ready-adam') {
+    } else if (avatarId === 'ready-adam' || avatarId === 'adam') {
       onSelectCompanion('ADAM');
     }
   }, [onSelectCompanion]);
@@ -243,25 +247,24 @@ export default function AvatarBuilderScreen({
                   </div>
                 )}
                 {isLoggedIn && user?.rpm_user_url && (
-                  <div className="mt-5 flex flex-col gap-2">
-                    <Button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onNavigateToChat();
-                      }}
-                      className="w-full bg-emerald-200 text-emerald-700 hover:bg-emerald-300"
-                    >
-                      Keep This Avatar & Chat
-                    </Button>
+                  <div className="mt-5">
                     <Button
                       variant="outline"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCreateAvatar();
                       }}
-                      className="w-full border-purple-200 text-purple-600 hover:bg-purple-50"
+                      disabled={navigationLoading || saveLoading}
+                      className="w-full border-purple-200 text-purple-600 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Change Avatar
+                      {saveLoading ? (
+                        <>
+                          <RefreshCw className="animate-spin mr-2 h-4 w-4" />
+                          Loading...
+                        </>
+                      ) : (
+                        "Change Avatar"
+                      )}
                     </Button>
                   </div>
                 )}
@@ -273,9 +276,14 @@ export default function AvatarBuilderScreen({
 
         {/* Ready-Made Avatars Section */}
         <div className="space-y-6">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Select Your AI Companion
-          </h2>
+          <div className="text-center">
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              Select Your AI Companion
+            </h2>
+            <p className="text-sm text-gray-600">
+              Choose who you'd like to chat with - your selection will appear in the chat
+            </p>
+          </div>
           
           <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
             {/* Adam */}
@@ -320,9 +328,9 @@ export default function AvatarBuilderScreen({
 
             {/* Eve */}
             <div 
-              onClick={() => handleAvatarSelect('eve')}
+              onClick={() => handleAvatarSelect('ready-eve')}
               className={`bg-white rounded-2xl p-6 shadow-lg cursor-pointer transition-all ${
-                selectedAvatar === 'eve' 
+                selectedAvatar === 'ready-eve' 
                   ? 'ring-4 ring-blue-300 shadow-xl' 
                   : 'hover:shadow-xl'
               }`}
@@ -348,7 +356,7 @@ export default function AvatarBuilderScreen({
                   <h3 className="text-lg font-medium text-gray-900">Eve</h3>
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                 </div>
-                {selectedAvatar === 'eve' && (
+                {selectedAvatar === 'ready-eve' && (
                   <div className="mt-2">
                     <span className="inline-block px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
                       Selected
@@ -364,11 +372,20 @@ export default function AvatarBuilderScreen({
         <div className="pt-2">
           <Button 
             onClick={onNavigateToChat}
-            className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50"
-            // style={{ minWidth: '20px', paddingLeft: '100px', paddingRight: '100px' }}
+            disabled={navigationLoading || saveLoading}
+            className="bg-emerald-200 hover:bg-emerald-300 text-emerald-700 py-4 rounded-full text-lg font-semibold transition-all hover:shadow-lg flex items-center mx-auto h-10 w-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Start Chatting
-            <ArrowRight className="ml-0.5 h-6 w-5" />
+            {navigationLoading ? (
+              <>
+                <RefreshCw className="animate-spin mr-2 h-5 w-5" />
+                Starting Chat...
+              </>
+            ) : (
+              <>
+                Start Chatting
+                <ArrowRight className="ml-0.5 h-6 w-5" />
+              </>
+            )}
           </Button>
         </div>
       </div>

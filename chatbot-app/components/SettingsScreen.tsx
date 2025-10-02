@@ -313,7 +313,7 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
                   Back to Chat
                 </Button>
               ) : (
-                <Button onClick={() => onNavigate('chat')} className="trauma-safe calm-hover">
+                <Button onClick={() => onNavigate('avatarbuilder')} className="trauma-safe calm-hover">
                   Start Chatting
                 </Button>
               )}

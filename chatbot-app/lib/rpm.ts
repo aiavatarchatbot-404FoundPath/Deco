@@ -23,6 +23,11 @@ export async function firstReachable(urls: string[]) {
   }
   return null;
 }
+
+export function toThumbnail(glbUrl?: string | null): string | null {
+  if (!glbUrl) return null;
+  return glbUrl.replace(/\.glb(\?.*)?$/, '.png$1');
+}
 // lib/rpm.ts
 import { useEffect, useState } from "react";
 

@@ -32,6 +32,7 @@ export default function SimpleChatPage() {
   const [pendingNavigate, setPendingNavigate] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAnonymousWarning, setShowAnonymousWarning] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -47,6 +48,8 @@ export default function SimpleChatPage() {
 
   //Navigation handler (same as avatar page)
   const handleNavigation = (screen: string) => {
+    if (isLoading) return; // Prevent double clicks
+    
     if (screen === "home" || screen === "endchat") {
       setPendingNavigate("/");
       if (!isAuthenticated) {
@@ -56,21 +59,30 @@ export default function SimpleChatPage() {
       setShowExitMoodCheck(true);
       return;
     }
-    switch (screen) {
-      case "/":
-        router.push("/");
-        break;
-      case "profile":
-        router.push("/profile");
-        break;
-      case "settings":
-        router.push("/settings");
-        break;
-      case "summary":
-        router.push("/chat/summary");
-        break;
-      default:
-        console.log(`Navigate to: ${screen}`);
+    
+    setIsLoading(true);
+    
+    try {
+      switch (screen) {
+        case "/":
+          router.push("/");
+          break;
+        case "profile":
+          router.push("/profile");
+          break;
+        case "settings":
+          router.push("/settings");
+          break;
+        case "summary":
+          router.push("/chat/summary");
+          break;
+        default:
+          console.log(`Navigate to: ${screen}`);
+          setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      setIsLoading(false);
     }
   };
 
@@ -89,13 +101,13 @@ export default function SimpleChatPage() {
   const handleExitMoodComplete = (moodData: MoodData) => {
     setShowExitMoodCheck(false);
     // TODO: capture comparison analytics if needed
-    router.push(pendingNavigate ?? "/");
+    router.push((pendingNavigate ?? "/") as any);
     setPendingNavigate(null);
   };
 
   const handleExitSkip = () => {
     setShowExitMoodCheck(false);
-    router.push(pendingNavigate ?? "/");
+    router.push((pendingNavigate ?? "/") as any);
     setPendingNavigate(null);
   };
 

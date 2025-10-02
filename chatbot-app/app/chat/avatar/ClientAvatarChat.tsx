@@ -68,6 +68,19 @@ export default function ClientAvatarChat() {
   const router = useRouter();
   const params = useSearchParams();
 
+  // Reset any global loading states when component mounts
+  useEffect(() => {
+    // This helps clear loading states from previous pages
+    const timer = setTimeout(() => {
+      // If there are any global loading states, they should be cleared here
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('resetGlobalLoading'));
+      }
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
   // URL params
   const conversationId = params.get('convo');        // UUID or null
   const sessionIdFromParams = params.get('sid');     // anon session id
@@ -425,7 +438,13 @@ export default function ClientAvatarChat() {
   };
 
   const companionAvatar: AvatarShape = {
-    name: companionNameFromParams || (profile?.rpm_companion_url ? 'Custom Companion' : fallbackComp.name),
+    name: companionNameFromParams || (() => {
+      // Check if stored companion URL matches Adam or Eve
+      if (profile?.rpm_companion_url === COMPANIONS.ADAM.url) return 'Adam';
+      if (profile?.rpm_companion_url === COMPANIONS.EVE.url) return 'Eve';
+      // For any other stored companion or fallback, use the fallback name
+      return fallbackComp.name;
+    })(),
     type: (companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
     url: compGlb,
   };

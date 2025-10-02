@@ -1,49 +1,26 @@
-// app/settings/page.tsx
 "use client";
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect} from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '../../components/Navbar'; 
 import SettingsScreen from '../../components/SettingsScreen';
+import { supabase } from "@/lib/supabaseClient";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [checking, setChecking] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function getStableSession() {
-      for (let i = 0; i < 10; i++) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) return session;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      return null;
-    }
-
-    async function load() {
-      const session = await getStableSession();
-      const u = session?.user;
-
-      if (!u) {
-        // match Profile behavior: send to login if not signed in
-        router.replace(`/login?redirect=${encodeURIComponent("/settings")}`);
-        return;
-      }
-
-      if (!cancelled) setChecking(false);
-    }
-
-    load();
-    return () => { cancelled = true; };
-  }, [router]);
-
-  if (checking) {
-    return <div className="p-6">Checking session…</div>;
-  }
+    // Check login state in background without blocking the UI
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsLoggedIn(!!session?.user);
+    };
+    
+    checkSession();
+  }, []);
 
   return (
     <div>
@@ -68,6 +45,9 @@ export default function SettingsPage() {
             case 'avatarbuilder':
               router.push('/avatarbuilder');
               break;
+            case 'login':
+              router.push('/login');
+              break;
             case 'welcome':
             case '/':
             case 'home':
@@ -75,16 +55,18 @@ export default function SettingsPage() {
               router.push('/');
           }
         }}
-        isLoggedIn={true}
+        isLoggedIn={isLoggedIn}
         currentPage="settings"
+        isLoading={false}
       />
       <SettingsScreen
         onNavigate={(screen) => {
             if (screen === "settings") router.push("/settings");
             else if (screen === "profile") router.push("/profile");
-            else if (screen === "profile?saved") router.push("/profile?tab=saved");       // ← add this
-            else if (screen === "profile?settings") router.push("/profile?tab=settings"); // ← and this
+            else if (screen === "profile?saved") router.push("/profile?tab=saved");       
+            else if (screen === "profile?settings") router.push("/profile?tab=settings"); 
             else if (screen === "avatarbuilder") router.push("/avatarbuilder");
+            else if (screen === "chat") router.push("/chat/avatar");
             else router.push("/");
           }}
       />

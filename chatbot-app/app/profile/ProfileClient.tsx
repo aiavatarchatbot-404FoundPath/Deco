@@ -4,11 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import ConversationList from '@/components/conversation';
 import Navbar from "@/components/Navbar";
-import { ReadyPlayerMeSelector } from "./ReadyPlayerMeSelector";
 import { useSearchParams, useRouter } from "next/navigation";
-
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,11 +25,8 @@ import {
   Check,
   Crown,
 } from "lucide-react";
-// at top of your Profile page file:
-//import { useEffect, useMemo, useState } from 'react';
-//import { supabase } from '@/lib/supabaseClient';
 import { getSessionUserId } from '@/lib/auth';
-//import { useRouter } from 'next/navigation';
+import { ReadyPlayerMeSelector } from './ReadyPlayerMeSelector';
 
 type Tab = "conversations" | "avatars" | "saved" | "settings";
 
@@ -98,10 +92,7 @@ type Profile = {
   full_name?: string | null;
   avatar_url?: string | null;
   session_mode?: string | null;
-
-
   rpm_user_url?: string | null;
-  rpm_companion_url?: string | null;
 };
 
 const MOCK_CONVERSATIONS: Conversation[] = [
@@ -248,7 +239,7 @@ useEffect(() => {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, username, full_name, avatar_url, session_mode, rpm_user_url, rpm_companion_url")
+        .select("id, username, full_name, avatar_url, session_mode, rpm_user_url")
         .eq("id", u.id)
         .maybeSingle();
 
@@ -260,7 +251,6 @@ useEffect(() => {
           id: u.id,
           username: u.email ?? "Anonymous",
           rpm_user_url: null,
-          rpm_companion_url: null,
         });
       } else {
         setProfile(
@@ -268,7 +258,6 @@ useEffect(() => {
             id: u.id,
             username: u.email ?? "Anonymous",
             rpm_user_url: null,
-            rpm_companion_url: null,
           }
         );
       }
@@ -305,15 +294,17 @@ useEffect(() => {
   // When the selector fires, we update DB via selector (it already saves)
   // and also reflect the new URL immediately in our profile state so the header updates.
   const handleReadyPlayerMeAvatarSelect = (avatar: ReadyPlayerMeAvatar, type: "user" | "companion") => {
-    setProfile((prev) =>
-      prev
-        ? {
-            ...prev,
-            rpm_user_url: type === "user" ? avatar.url : prev.rpm_user_url ?? null,
-            rpm_companion_url: type === "companion" ? avatar.url : prev.rpm_companion_url ?? null,
-          }
-        : prev
-    );
+    // Only handle user avatars now, no custom companions
+    if (type === "user") {
+      setProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              rpm_user_url: avatar.url,
+            }
+          : prev
+      );
+    }
   };
 
   // Build DB-backed avatar objects for the selector (for its UI)
@@ -330,18 +321,7 @@ useEffect(() => {
     };
   }, [profile?.rpm_user_url]);
 
-  const currentCompanionAvatarFromDB: ReadyPlayerMeAvatar | undefined = useMemo(() => {
-    const url = profile?.rpm_companion_url ?? null;
-    if (!url) return undefined;
-    return {
-      id: idFromUrl(url),
-      name: "Custom Companion",
-      url,
-      type: "companion",
-      thumbnail: toThumbnail(url) ?? undefined,
-      isCustom: true,
-    };
-  }, [profile?.rpm_companion_url]);
+  // No more custom companions - using built-in Adam/Eve from avatar builder
 
   // conversations filter
   const filteredConversations = useMemo(() => {
@@ -389,7 +369,7 @@ useEffect(() => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar onNavigate={handleNavigation as any} currentPage="profile" />
+      <Navbar onNavigate={handleNavigation as any} currentPage="profile" isLoggedIn={true} isLoading={false} />
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
         {/* Back Button */}
@@ -434,13 +414,7 @@ useEffect(() => {
                   </>
                 )}
               </div>
-              {profile.rpm_companion_url && (
-                <div className="mt-2">
-                  <Badge variant="secondary" className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
-                    💜 Companion: Custom Companion
-                  </Badge>
-                </div>
-              )}
+
             </div>
 
             <Button variant="outline" onClick={handleLogout} className="trauma-safe gentle-focus">
@@ -497,7 +471,7 @@ useEffect(() => {
                 <ReadyPlayerMeSelector
                   onAvatarSelect={handleReadyPlayerMeAvatarSelect}
                   currentUserAvatar={currentUserAvatarFromDB}
-                  currentCompanionAvatar={currentCompanionAvatarFromDB}
+                  currentCompanionAvatar={undefined}
                 />
               </TabsContent>
 

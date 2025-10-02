@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Navbar from "../../components/Navbar";
 import AvatarBuilderScreen from "../../components/AvatarBuilderScreen";
+import { Loading } from "../../components/ui/loading"; // 
 import { getOrCreateSessionId } from "@/lib/session";
-import { Loading } from "../../components/ui/loading";
 
 type AvatarInput = { url: string; thumbnail?: string | null };
 
@@ -16,6 +16,8 @@ export default function AvatarBuilderPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [navigationLoading, setNavigationLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
 
   // user’s own avatar that gets saved (via Supabase or temp)
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -45,6 +47,14 @@ export default function AvatarBuilderPage() {
 
           if (profile) {
             setUser(profile);
+            // Set companion choice based on stored URL
+            if (profile.rpm_companion_url) {
+              if (profile.rpm_companion_url.includes('68be6a2ac036016545747aa9')) {
+                setCompanionChoice('EVE');
+              } else if (profile.rpm_companion_url.includes('68be69db5dc0cec769cfae75')) {
+                setCompanionChoice('ADAM');
+              }
+            }
           } else {
             setUser({
               id: currentUser.id,
@@ -78,23 +88,40 @@ export default function AvatarBuilderPage() {
   }, []);
 
   const handleNavigation = (screen: string) => {
-    switch (screen) {
-      case "settings":
-        router.push("/settings");
-        break;
-      case "profile":
-        router.push("/profile");
-        break;
-      case "home":
-      case "/":
-      case "welcome":
-        router.push("/");
-        break;
-      case "chat":
-        router.push("/chat/avatar");
-        break;
-      default:
-        console.log("Navigate to:", screen);
+    if (navigationLoading) return; // Prevent double clicks
+    
+    setNavigationLoading(true);
+    
+    // Add timeout to reset loading state if navigation fails
+    const timeoutId = setTimeout(() => {
+      setNavigationLoading(false);
+    }, 5000);
+    
+    try {
+      switch (screen) {
+        case "settings":
+          router.push("/settings");
+          break;
+        case "profile":
+          router.push("/profile");
+          break;
+        case "home":
+        case "/":
+        case "welcome":
+          router.push("/");
+          break;
+        case "chat":
+          router.push("/chat/avatar");
+          break;
+        default:
+          console.log("Navigate to:", screen);
+          clearTimeout(timeoutId);
+          setNavigationLoading(false);
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      clearTimeout(timeoutId);
+      setNavigationLoading(false);
     }
   };
 
@@ -103,6 +130,9 @@ export default function AvatarBuilderPage() {
   // - Anonymous → POST to /api/temp-avatars with { conversationId, sessionId, rpmUrl, thumbnail }
   const handleSaveAvatar = useCallback(
     async (avatar: AvatarInput) => {
+      if (saveLoading) return; // Prevent double saves
+      
+      setSaveLoading(true);
       try {
         const sid = getOrCreateSessionId();
 
@@ -143,42 +173,96 @@ export default function AvatarBuilderPage() {
         }
       } catch (e) {
         console.error("Save avatar failed:", e);
+      } finally {
+        setSaveLoading(false);
       }
     },
-    [isLoggedIn, user, conversationId]
+    [isLoggedIn, user, conversationId, saveLoading]
   );
 
   // If your builder lets the user tap "Adam" / "Eve", call this
-  const handleSelectCompanion = useCallback((key: "ADAM" | "EVE") => {
+  const handleSelectCompanion = useCallback(async (key: "ADAM" | "EVE") => {
     setCompanionChoice(key);
-  }, []);
+    
+    // Save companion choice to database if user is logged in
+    if (isLoggedIn && user?.id) {
+      try {
+        const companionUrl = key === 'EVE' 
+          ? 'https://models.readyplayer.me/68be6a2ac036016545747aa9.glb'
+          : 'https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb';
+          
+        const { error } = await supabase
+          .from('profiles')
+          .update({ rpm_companion_url: companionUrl })
+          .eq('id', user.id);
+          
+        if (error) {
+          console.error('Failed to save companion choice:', error);
+        } else {
+          // Update local user state
+          setUser((prev: any) => prev ? { ...prev, rpm_companion_url: companionUrl } : prev);
+        }
+      } catch (err) {
+        console.error('Error saving companion choice:', err);
+      }
+    }
+  }, [isLoggedIn, user?.id]);
 
   // GO TO CHAT:
   // pass userUrl (from profile or temp), the companion *name* (ADAM/EVE), plus convo + sid.
   const handleNavigateToChat = useCallback(() => {
-    const sid = getOrCreateSessionId();
-    const params = new URLSearchParams();
+    if (navigationLoading) return; // Prevent double clicks
+    
+    setNavigationLoading(true);
+    
+    // Add timeout to reset loading state if navigation fails
+    const timeoutId = setTimeout(() => {
+      setNavigationLoading(false);
+    }, 5000);
+    
+    try {
+      const sid = getOrCreateSessionId();
+      const params = new URLSearchParams();
 
-    // User avatar (from profile or the local echo after temp save)
-    if (user?.rpm_user_url) params.set("userUrl", user.rpm_user_url);
+      // User avatar (from profile or the local echo after temp save)
+      if (user?.rpm_user_url) params.set("userUrl", user.rpm_user_url);
 
-    // Tell chat which companion: ADAM or EVE (chat will map to a hardcoded URL)
-    params.set("companionName", companionChoice);
+      // Tell chat which companion: ADAM or EVE (chat will map to a hardcoded URL)
+      params.set("companionName", companionChoice);
 
-    if (conversationId) params.set("convo", conversationId);
-    params.set("sid", sid);
+      if (conversationId) params.set("convo", conversationId);
+      params.set("sid", sid);
 
-    const qs = params.toString();
-    router.push(`/chat/avatar${qs ? `?${qs}` : ""}`);
-  }, [user, companionChoice, conversationId, router]);
+      const qs = params.toString();
+      router.push(`/chat/avatar${qs ? `?${qs}` : ""}` as any);
+    } catch (error) {
+      console.error('Navigation to chat error:', error);
+      setNavigationLoading(false);
+    }
+  }, [user, companionChoice, conversationId, router, navigationLoading]);
 
+  // Reset loading states when component mounts (to handle navigation from other pages)
+  useEffect(() => {
+    // Small delay to allow navigation to complete
+    const timer = setTimeout(() => {
+      setNavigationLoading(false);
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Show loading during initial load
   if (loading) {
-    return <Loading />;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loading message="Loading" />
+      </div>
+    );
   }
 
   return (
     <div>
-      <Navbar onNavigate={handleNavigation} isLoggedIn={isLoggedIn} />
+      <Navbar onNavigate={handleNavigation} isLoggedIn={isLoggedIn} isLoading={navigationLoading} />
 
       <AvatarBuilderScreen
         onNavigate={handleNavigation}
@@ -186,8 +270,15 @@ export default function AvatarBuilderPage() {
         user={user}
         isLoggedIn={isLoggedIn}
         onSaveAvatar={handleSaveAvatar}
-        onSelectCompanion={handleSelectCompanion} // This now correctly matches the updated AvatarBuilderScreenProps
+        onSelectCompanion={handleSelectCompanion}
+        navigationLoading={navigationLoading}
+        saveLoading={saveLoading}
       />
+      
+      {/* Global loading overlay for navigation */}
+      {navigationLoading && (
+        <Loading message="Starting your chat experience..." />
+      )}
     </div>
   );
 }

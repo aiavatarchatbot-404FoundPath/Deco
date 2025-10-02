@@ -10,6 +10,7 @@ import Navbar from '../components/Navbar';
 import { createConversation } from '@/lib/conversations'; 
 import { getSessionUserId } from '@/lib/auth';
 import { Loading } from '../components/ui/loading';
+import { COMPANIONS } from '@/lib/companions';
 
 import { 
   Shield, 
@@ -75,16 +76,25 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleNavigateToChat = async (mode: 'avatar' | 'standard') => {
-    // Set session storage so the chat page knows the check-in was intentionally skipped.
-    const skippedState = { skipped: true, timestamp: new Date() };
-    sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
+    if (isLoading) return; // Prevent double clicks
+    
+    setIsLoading(true);
+    
+    try {
+      // Set session storage so the chat page knows the check-in was intentionally skipped.
+      const skippedState = { skipped: true, timestamp: new Date() };
+      sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
 
-    // Navigate to chat without mood data
-    if (mode === 'avatar') {
-      const convoId = await maybeCreateConversation();
-      router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
-    } else {
-      router.push('/chat/simple');
+      // Navigate to chat without mood data
+      if (mode === 'avatar') {
+        const convoId = await maybeCreateConversation();
+        router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
+      } else {
+        router.push('/chat/simple');
+      }
+    } catch (error) {
+      console.error('Navigation to chat error:', error);
+      setIsLoading(false);
     }
   };
 
@@ -94,35 +104,37 @@ export default function HomePage() {
 
   // Navigation handler with loading
   const handleNavigation = async (screen: string) => {
+    if (isLoading) return; // Prevent double clicks
+    
     setIsLoading(true);
     
-    switch (screen) {
-      case 'welcome':
-      case '/':
-      case 'home':
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        setIsLoading(false);
-        break;
-      case 'settings':
-        router.push('/settings');
-        
-        break;
-      case 'profile':
-        // profile page has own loading
-        router.push('/profile');
-        setIsLoading(false);
-        break;
-      case 'avatarbuilder':
-        router.push('/avatarbuilder');
-        
-        break;
-      case 'login':
-        router.push('/login');
-        
-        break;
-      default:
-        console.log(`Navigate to: ${screen}`);
-        setIsLoading(false);
+    try {
+      switch (screen) {
+        case 'welcome':
+        case '/':
+        case 'home':
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          setIsLoading(false);
+          break;
+        case 'settings':
+          router.push('/settings');
+          break;
+        case 'profile':
+          router.push('/profile');
+          break;
+        case 'avatarbuilder':
+          router.push('/avatarbuilder');
+          break;
+        case 'login':
+          router.push('/login');
+          break;
+        default:
+          console.log(`Navigate to: ${screen}`);
+          setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      setIsLoading(false);
     }
   };
 
@@ -133,6 +145,19 @@ export default function HomePage() {
   console.log('[chat] created conversation:', convoId);
   return convoId;
     }
+
+  // Listen for global loading reset events
+  useEffect(() => {
+    const handleResetLoading = () => {
+      setIsLoading(false);
+    };
+
+    window.addEventListener('resetGlobalLoading', handleResetLoading);
+    
+    return () => {
+      window.removeEventListener('resetGlobalLoading', handleResetLoading);
+    };
+  }, []);
 
   // Load saved mood data and user data on mount
   useEffect(() => {
@@ -188,8 +213,11 @@ export default function HomePage() {
     if (savedMood) {
       try {
         const moodData = JSON.parse(savedMood);
-        // Check if mood data is recent 
-        if (new Date().getTime() - new Date(moodData.timestamp).getTime() < 4 * 60 * 60 * 1000) {
+        // Check if mood data is recent and has required properties
+        if (moodData && 
+            moodData.feeling && 
+            typeof moodData.feeling === 'string' &&
+            new Date().getTime() - new Date(moodData.timestamp).getTime() < 4 * 60 * 60 * 1000) {
           setCurrentMood(moodData);
         } else {
           sessionStorage.removeItem(MOOD_SESSION_KEY);
@@ -225,6 +253,7 @@ export default function HomePage() {
         onNavigate={handleNavigation}
         isLoggedIn={isLoggedIn}
         currentPage="home"
+        isLoading={isLoading}
       />
       
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -260,7 +289,7 @@ export default function HomePage() {
                     <h3 className="font-semibold">Welcome back, {user.username}!</h3>
                     <div className="flex flex-col space-y-1 text-sm text-gray-600 mt-1">
                       <span>Ready to continue your journey?</span>
-                      {currentMood && (
+                      {currentMood && currentMood.feeling && (
                         <Badge className="bg-teal-50 text-teal-700 border-teal-200 w-fit">
                           Currently feeling {currentMood.feeling.toLowerCase()}
                         </Badge>
@@ -284,8 +313,31 @@ export default function HomePage() {
         </div>
 
         {/* Hero Section */}
-        <div className="text-center mb-12">
-          <div className="space-y-6 mb-10">
+        <div className="text-center mb-12 relative">
+          {/* Static Decorative Avatars */}
+          <div className="hidden md:block absolute inset-0 pointer-events-none">
+      
+            <div className="absolute left-16 lg:left-55 -top-4">
+              <img
+                src={toThumbnail(COMPANIONS.ADAM.url) || ""}
+                alt="Adam"
+                className="w-24 h-24 lg:w-28 lg:h-28 object-cover"
+                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+              />
+            </div>
+            
+            
+            <div className="absolute right-16 lg:right-55 -top-4">
+              <img
+                src={toThumbnail(COMPANIONS.EVE.url) || ""}
+                alt="Eve"
+                className="w-24 h-24 lg:w-28 lg:h-28 object-cover"
+                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-6 mb-10 relative z-10">
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 leading-tight">
               Meet your
               <br />
@@ -363,8 +415,7 @@ export default function HomePage() {
                   </h3>
                   
                   <p className="text-gray-600 mb-6 leading-relaxed text-sm">
-                    Create your own avatar and chat with Adam in a visual, face-to-face environment. 
-                    More engaging and personalized!
+                    Create your own avatar and chat with Adam or Eve in a visual, more engaging and personalized!
                   </p>
                   
                   <div className="space-y-3 mb-6 text-sm">
@@ -411,14 +462,26 @@ export default function HomePage() {
                   <div className="space-y-2">
                     <Button
                       onClick={(e) => { 
+                        e.preventDefault();
                         e.stopPropagation(); 
-                        handleChatModeChange("avatar"); 
+                        if (isLoading) return;
+                        setChatMode("avatar");
                         handleNavigation("avatarbuilder"); 
                       }}
-                      className="w-full bg-teal-500 hover:bg-teal-600 text-white"
+                      disabled={isLoading}
+                      className="w-full bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <MessageCircle className="h-4 w-4 mr-2" />
-                      Start Avatar Chat
+                      {isLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <MessageCircle className="h-4 w-4 mr-2" />
+                          Start Avatar Chat
+                        </>
+                      )}
                     </Button>
                   
                     
@@ -497,10 +560,20 @@ export default function HomePage() {
                       handleChatModeChange('standard');
                       handleNavigateToChat('standard');
                     }}
-                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white"
+                    disabled={isLoading}
+                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Start Text Chat
+                    {isLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        Start Text Chat
+                      </>
+                    )}
                   </Button>
                 </div>
               </CardContent>
@@ -561,11 +634,21 @@ export default function HomePage() {
           <div className="flex flex-wrap justify-center gap-4">
             <Button
               variant="outline"
-              className="bg-white text-gray-800 border-green-200 hover:bg-green-100"
+              className="bg-white text-gray-800 border-green-200 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={() => handleNavigation('settings')}
+              disabled={isLoading}
             >
-              <Settings className="h-4 w-4 mr-2" />
-              Preferences
+              {isLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-800 mr-2"></div>
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Preferences
+                </>
+              )}
             </Button>
 
           </div>
