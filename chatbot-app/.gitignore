@@ -46,3 +46,4 @@ animation-library/
 
 # DO commit the runtime copies under public
 !public/animations/
+.DS_Store

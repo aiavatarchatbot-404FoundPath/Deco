@@ -4,7 +4,7 @@ import React, { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
-import RpmModel, { type RpmAnimationConfig } from './RpmModel';
+import RpmModel from './RpmModel';
 
 type Props = {
   src?: string | null;
@@ -14,9 +14,6 @@ type Props = {
   singleYaw?: number;
   singleLookAt?: [number, number, number] | null;
   talkOverride?: boolean;
-  animation?: RpmAnimationConfig;
-  userAnimation?: RpmAnimationConfig;
-  aiAnimation?: RpmAnimationConfig;
 };
 
 const DEFAULT_LOOK_TARGET = new THREE.Vector3(0, 1.2, 2);
@@ -26,10 +23,6 @@ export default function RpmViewer(props: Props) {
   const aiUrl = props.aiUrl ?? null;
   const singleSrc = props.src ?? null;
 
-  const baseAnimation = props.animation;
-  const userAnimation = props.userAnimation ?? baseAnimation;
-  const companionAnimation = props.aiAnimation ?? baseAnimation;
-
   const hasUser = !!userUrl;
   const hasCompanion = !!aiUrl;
 
@@ -37,7 +30,7 @@ export default function RpmViewer(props: Props) {
   const isSeparate = (hasUser && !hasCompanion) || (!hasUser && hasCompanion); // NEW: separate-container mode
   const separationX = 4;
   const duoScale = 0.6;
-  const singleScale = 0.7;
+  const singleScale = 0.68; // larger avatars while fitting frame
 
   const userPosition: [number, number, number] = duo ? [-separationX, 0, 0] : [0, 0, 0];
   const companionPosition: [number, number, number] = duo ? [separationX, 0, 0] : [0, 0, 0];
@@ -60,9 +53,11 @@ export default function RpmViewer(props: Props) {
   const centerLookTargetLeft  = useMemo(() => new THREE.Vector3( 2.0, 1.35, 0), []);
   const centerLookTargetRight = useMemo(() => new THREE.Vector3(-2.0, 1.35, 0), []);
 
-  // NEW: fixed yaws for separate canvases (RPM forward ≈ -Z)
-  const leftFaceRightYaw = -Math.PI / 2; // left avatar faces RIGHT (→)
-  const rightFaceLeftYaw =  Math.PI / 2; // right avatar faces LEFT  (←)
+  // NEW: fixed yaws (RPM forward ≈ -Z)
+  // Face inward but bias toward the camera so they aren't perfectly profile
+  const leftFaceRightYaw = Math.PI / 2;
+  const rightFaceLeftYaw = -Math.PI / 2;
+  const frontBias = 0.6; // stronger front bias in radians (~34°)
 
   const singleYaw = props.singleYaw ?? 0;
   const singleLookTarget = useMemo(() => {
@@ -74,19 +69,21 @@ export default function RpmViewer(props: Props) {
     return DEFAULT_LOOK_TARGET;
   }, [props.singleLookAt]);
 
-  const talkState = props.talkOverride ?? props.assistantTalking ?? false;
+  // Force visible talking motion for now
+  const talkState = true;
 
   // Camera presets
   const camera = useMemo(
     () =>
       duo
         ? ({ position: [0, 1.55, 8.2] as [number, number, number], fov: 36 })
-        : ({ position: [0, 1.35, 3.8] as [number, number, number], fov: 30 }),
+        : ({ position: [0, 1.2, 4.5] as [number, number, number], fov: 28 }),
     [duo]
   );
 
   return (
     <Canvas
+      frameloop="always"
       camera={camera}
       shadows
       gl={{ antialias: true, alpha: true }}
@@ -104,11 +101,10 @@ export default function RpmViewer(props: Props) {
                 key={`user-${userUrl}`}
                 src={userUrl}
                 position={userPosition}
-                yaw={duoUserYaw}
+                yaw={duoUserYaw + frontBias}
                 lookAt={userLookTarget}
                 talk={talkState}
                 scale={duoScale}
-                animation={userAnimation}
               />
             )}
 
@@ -118,11 +114,10 @@ export default function RpmViewer(props: Props) {
                 key={`ai-${aiUrl}`}
                 src={aiUrl}
                 position={companionPosition}
-                yaw={duoCompanionYaw}
+                yaw={duoCompanionYaw - frontBias}
                 lookAt={companionLookTarget}
                 talk={talkState}
                 scale={duoScale}
-                animation={companionAnimation}
               />
             )}
           </>
@@ -134,11 +129,10 @@ export default function RpmViewer(props: Props) {
                 key={`user-separate-${userUrl}`}
                 src={userUrl}
                 position={[0, 0, 0]}
-                yaw={leftFaceRightYaw}         // face toward page center
+                yaw={(leftFaceRightYaw + Math.PI) + frontBias}
                 lookAt={centerLookTargetLeft}  // bias head toward center
                 talk={talkState}
                 scale={singleScale}
-                animation={userAnimation}
               />
             )}
             {hasCompanion && (
@@ -146,11 +140,10 @@ export default function RpmViewer(props: Props) {
                 key={`ai-separate-${aiUrl}`}
                 src={aiUrl}
                 position={[0, 0, 0]}
-                yaw={rightFaceLeftYaw}
+                yaw={(rightFaceLeftYaw + Math.PI) - frontBias}
                 lookAt={centerLookTargetRight}
                 talk={talkState}
                 scale={singleScale}
-                animation={companionAnimation}
               />
             )}
           </>
@@ -162,7 +155,6 @@ export default function RpmViewer(props: Props) {
             yaw={singleYaw}
             talk={talkState}
             lookAt={singleLookTarget}
-            animation={baseAnimation}
             scale={singleScale}
           />
         )}
@@ -175,9 +167,9 @@ export default function RpmViewer(props: Props) {
         enablePan={false}
         enableRotate={false}
         enableZoom={false}
-        target={duo ? [0, 1.2, 0] : [0, 1.05, 0]}
-        minDistance={duo ? 4 : 2.3}
-        maxDistance={duo ? 7 : 4.5}
+        target={duo ? [0, 1.2, 0] : [0, 1.0, 0]}
+        minDistance={duo ? 4 : 2.5}
+        maxDistance={duo ? 7 : 5.5}
         minPolarAngle={Math.PI / 3}
         maxPolarAngle={Math.PI / 1.9}
       />

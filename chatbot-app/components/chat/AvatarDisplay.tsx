@@ -1,16 +1,14 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
 import { User, Bot } from 'lucide-react';
-import { type RpmAnimationConfig } from './RpmModel';
 
 const RpmViewer = dynamic(() => import('./RpmViewer'), { ssr: false });
 
 type Avatar = {
   name?: string;
   url?: string | null;
-  animation?: RpmAnimationConfig;
 };
 
 export default function AvatarDisplay({
@@ -25,16 +23,6 @@ export default function AvatarDisplay({
   const hasUser = !!userAvatar?.url;
   const hasCompanion = !!aiAvatar?.url;
 
-  const userAnimation = useMemo<RpmAnimationConfig>(() => {
-    if (userAvatar?.animation) return userAvatar.animation;
-    return { profile: 'masculine' };
-  }, [userAvatar?.animation]);
-
-  const companionAnimation = useMemo<RpmAnimationConfig>(() => {
-    if (aiAvatar?.animation) return aiAvatar.animation;
-    return { profile: 'feminine' };
-  }, [aiAvatar?.animation]);
-
   const Placeholder = ({ icon: Icon }: { icon: React.ComponentType<{ className?: string }> }) => (
     <div className="absolute inset-0 flex items-center justify-center text-gray-300">
       <Icon className="w-20 h-20" />
@@ -43,8 +31,16 @@ export default function AvatarDisplay({
 
   return (
     <div className="w-full h-full flex flex-col gap-3 p-4">
-      <div className="grid grid-cols-2 gap-3 w-full h-full max-h-[480px] min-h-[360px]">
-        <div className="relative min-h-[320px] overflow-hidden">
+      <div className="relative grid grid-cols-2 gap-3 w-full flex-1 min-h-[420px] rounded-xl overflow-hidden">
+        {/* Panel background */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(1200px 600px at 50% 0%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 60%), linear-gradient(180deg, #fde7f3 0%, #f3ecff 100%)',
+          }}
+        />
+        <div className="relative h-full overflow-hidden">
           {hasUser ? (
             <div className="absolute inset-0">
               <RpmViewer
@@ -52,7 +48,6 @@ export default function AvatarDisplay({
                 singleYaw={-Math.PI / 2}
                 singleLookAt={[2.2, 1.3, 0]}
                 talkOverride={assistantTalking}
-                animation={userAnimation}
               />
             </div>
           ) : (
@@ -60,7 +55,7 @@ export default function AvatarDisplay({
           )}
         </div>
 
-        <div className="relative min-h-[320px] overflow-hidden">
+        <div className="relative h-full overflow-hidden">
           {hasCompanion ? (
             <div className="absolute inset-0">
               <RpmViewer
@@ -68,7 +63,6 @@ export default function AvatarDisplay({
                 singleYaw={Math.PI / 2}
                 singleLookAt={[-2.2, 1.3, 0]}
                 talkOverride={assistantTalking}
-                animation={companionAnimation}
               />
             </div>
           ) : (
