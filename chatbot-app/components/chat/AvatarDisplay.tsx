@@ -31,8 +31,16 @@ export default function AvatarDisplay({
 
   return (
     <div className="w-full h-full flex flex-col gap-3 p-4">
-      <div className="grid grid-cols-2 gap-3 w-full h-full max-h-[480px] min-h-[360px]">
-        <div className="relative min-h-[320px] overflow-hidden">
+      <div className="relative grid grid-cols-2 gap-3 w-full flex-1 min-h-[420px] rounded-xl overflow-hidden">
+        {/* Panel background */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(1200px 600px at 50% 0%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 60%), linear-gradient(180deg, #fde7f3 0%, #f3ecff 100%)',
+          }}
+        />
+        <div className="relative h-full overflow-hidden">
           {hasUser ? (
             <div className="absolute inset-0">
               <RpmViewer
@@ -47,7 +55,7 @@ export default function AvatarDisplay({
           )}
         </div>
 
-        <div className="relative min-h-[320px] overflow-hidden">
+        <div className="relative h-full overflow-hidden">
           {hasCompanion ? (
             <div className="absolute inset-0">
               <RpmViewer
