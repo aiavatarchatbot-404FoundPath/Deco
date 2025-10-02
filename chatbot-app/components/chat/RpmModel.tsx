@@ -66,9 +66,9 @@ export default function RpmModel({
   const animationProfile = animation?.profile ?? 'feminine';
   const animationFile = animation?.file ??
     (animationProfile === 'masculine'
-      ? 'M_Standing_Idle_Variations_001.glb'
-      : 'F_Standing_Idle_Variations_001.glb');
-  const animationUrl = animation?.url ?? `/rpm-animations/${animationProfile}/idle/${animationFile}`;
+      ? 'M_Standing_Idle_Variations_005.glb'
+      : 'F_Standing_Idle_Variations_005.glb');
+  const animationUrl = animation?.url ?? `/animations/${animationProfile}/idle/${animationFile}`;
 
   const idleAnimation = useGLTF(animationUrl);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -88,9 +88,15 @@ export default function RpmModel({
   const headRef = useRef<THREE.Bone | null>(null);
   const chestRef = useRef<THREE.Bone | null>(null);
   const chestBaseX = useRef<number>(0);
+  const leftArmRef = useRef<THREE.Bone | null>(null);
+  const rightArmRef = useRef<THREE.Bone | null>(null);
+  const leftArmBase = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
+  const rightArmBase = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
   useEffect(() => {
     headRef.current = null;
     chestRef.current = null;
+    leftArmRef.current = null;
+    rightArmRef.current = null;
 
     let head: THREE.Bone | null = null;
     cloned.traverse((o: THREE.Object3D) => {
@@ -101,6 +107,14 @@ export default function RpmModel({
         chestRef.current = o;
         chestBaseX.current = o.rotation.x;
       }
+      if (!leftArmRef.current && isBone(o) && /(LeftShoulder|LeftArm|UpperArm_L|Shoulder_L)/i.test(o.name)) {
+        leftArmRef.current = o;
+        leftArmBase.current = { x: o.rotation.x, y: o.rotation.y, z: o.rotation.z };
+      }
+      if (!rightArmRef.current && isBone(o) && /(RightShoulder|RightArm|UpperArm_R|Shoulder_R)/i.test(o.name)) {
+        rightArmRef.current = o;
+        rightArmBase.current = { x: o.rotation.x, y: o.rotation.y, z: o.rotation.z };
+      }
     });
 
     headRef.current = head;
@@ -108,6 +122,8 @@ export default function RpmModel({
     return () => {
       headRef.current = null;
       chestRef.current = null;
+      leftArmRef.current = null;
+      rightArmRef.current = null;
     };
   }, [cloned]);
 
@@ -190,13 +206,16 @@ export default function RpmModel({
 
     const t = state.clock.elapsedTime;
 
+    const usingFallback = !retargetedClip;
+
     // Smooth yaw rotation
     g.rotation.y = THREE.MathUtils.damp(g.rotation.y, yaw, 6, dt);
 
     // Idle sway + bob so characters feel alive
-    const idleBob = 0.02 * Math.sin(t * 1.2);
-    const idleSwayX = 0.06 * Math.sin(t * 0.65);
-    const idleSwayZ = 0.04 * Math.sin(t * 0.5 + 1.2);
+    const swayMultiplier = usingFallback ? 1.6 : 1;
+    const idleBob = 0.02 * Math.sin(t * 1.2) * swayMultiplier;
+    const idleSwayX = 0.06 * Math.sin(t * 0.65) * swayMultiplier;
+    const idleSwayZ = 0.04 * Math.sin(t * 0.5 + 1.2) * swayMultiplier;
     g.position.set(
       basePosition.x + idleSwayX,
       basePosition.y + idleBob,
@@ -232,15 +251,32 @@ export default function RpmModel({
     const chest = chestRef.current;
     if (chest) {
       const baseX = chestBaseX.current;
-      const breath = 0.045 * Math.sin(t * 0.9);
+      const breath = 0.045 * Math.sin(t * 0.9) * (usingFallback ? 1.5 : 1);
       chest.rotation.x = THREE.MathUtils.damp(chest.rotation.x, baseX + breath, 6, dt);
     }
 
+    if (usingFallback) {
+      const left = leftArmRef.current;
+      const right = rightArmRef.current;
+      const armWave = 0.35 * Math.sin(t * 0.9);
+      const armLift = 0.18 * Math.sin(t * 0.55 + 1.4);
+      if (left) {
+        const base = leftArmBase.current;
+        left.rotation.z = THREE.MathUtils.damp(left.rotation.z, base.z + armWave, 6, dt);
+        left.rotation.x = THREE.MathUtils.damp(left.rotation.x, base.x + armLift, 6, dt);
+      }
+      if (right) {
+        const base = rightArmBase.current;
+        right.rotation.z = THREE.MathUtils.damp(right.rotation.z, base.z - armWave, 6, dt);
+        right.rotation.x = THREE.MathUtils.damp(right.rotation.x, base.x + armLift, 6, dt);
+      }
+    }
+
     // Talking micro-motion
-    if (talk && head) {
-      head.rotation.z = 0.03 * Math.sin(t * 6);
-    } else if (head) {
-      head.rotation.z = THREE.MathUtils.damp(head.rotation.z, 0, 10, dt);
+    if (head) {
+      const talkIntensity = talk ? 1 : usingFallback ? 0.45 : 0;
+      const targetTilt = talkIntensity ? 0.03 * Math.sin(t * 6) * talkIntensity : 0;
+      head.rotation.z = THREE.MathUtils.damp(head.rotation.z, targetTilt, 10, dt);
     }
   });
 
@@ -254,6 +290,5 @@ export default function RpmModel({
   );
 }
 
-useGLTF.preload('/noop.glb');
-useGLTF.preload('/rpm-animations/feminine/idle/F_Standing_Idle_Variations_001.glb');
-useGLTF.preload('/rpm-animations/masculine/idle/M_Standing_Idle_Variations_001.glb');
+useGLTF.preload('/animations/feminine/idle/F_Standing_Idle_Variations_009.glb');
+useGLTF.preload('/animations/masculine/idle/M_Standing_Idle_Variations_009.glb');

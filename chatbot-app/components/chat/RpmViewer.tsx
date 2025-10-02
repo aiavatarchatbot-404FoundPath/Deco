@@ -1,4 +1,5 @@
 'use client';
+import './reactInternalsPolyfill';
 import React, { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
@@ -11,7 +12,7 @@ type Props = {
   aiUrl?: string | null;
   assistantTalking?: boolean;
   singleYaw?: number;
-  singleLookAt?: [number, number, number];
+  singleLookAt?: [number, number, number] | null;
   talkOverride?: boolean;
   animation?: RpmAnimationConfig;
   userAnimation?: RpmAnimationConfig;
@@ -24,63 +25,73 @@ export default function RpmViewer(props: Props) {
   const userUrl = props.userUrl ?? null;
   const aiUrl = props.aiUrl ?? null;
   const singleSrc = props.src ?? null;
+
   const baseAnimation = props.animation;
   const userAnimation = props.userAnimation ?? baseAnimation;
   const companionAnimation = props.aiAnimation ?? baseAnimation;
 
   const hasUser = !!userUrl;
   const hasCompanion = !!aiUrl;
+
   const duo = hasUser && hasCompanion;
-  const separationX = 2.6;
-  const depthOffset = 0.7;
+  const isSeparate = (hasUser && !hasCompanion) || (!hasUser && hasCompanion); // NEW: separate-container mode
+  const separationX = 4;
+  const duoScale = 0.6;
+  const singleScale = 0.7;
 
-  const userPosition: [number, number, number] = hasUser
-    ? duo
-      ? [-separationX, 0, depthOffset]
-      : [0, 0, 0]
-    : [0, 0, 0];
+  const userPosition: [number, number, number] = duo ? [-separationX, 0, 0] : [0, 0, 0];
+  const companionPosition: [number, number, number] = duo ? [separationX, 0, 0] : [0, 0, 0];
 
-  const companionPosition: [number, number, number] = hasCompanion
-    ? duo
-      ? [separationX, 0, -depthOffset]
-      : [0, 0, 0]
-    : [0, 0, 0];
+  // In one-canvas duo mode, keep these as you had them
+  const duoUserYaw = -Math.PI / 2;
+  const duoCompanionYaw = Math.PI / 2;
 
   const userLookTarget = useMemo(() => {
-    if (duo && hasCompanion) {
-      return new THREE.Vector3(companionPosition[0], 1.4, companionPosition[2]);
-    }
-    return DEFAULT_LOOK_TARGET;
-  }, [duo, hasCompanion, companionPosition[0], companionPosition[1], companionPosition[2]]);
+    if (!duo || !hasUser) return null;
+    return new THREE.Vector3(0, 1.35, 0);
+  }, [duo, hasUser]);
 
   const companionLookTarget = useMemo(() => {
-    if (duo && hasUser) {
-      return new THREE.Vector3(userPosition[0], 1.4, userPosition[2]);
-    }
-    return DEFAULT_LOOK_TARGET;
-  }, [duo, hasUser, userPosition[0], userPosition[1], userPosition[2]]);
+    if (!duo || !hasCompanion) return null;
+    return new THREE.Vector3(0, 1.35, 0);
+  }, [duo, hasCompanion]);
+
+  // NEW: local “center” targets for separate canvases
+  const centerLookTargetLeft  = useMemo(() => new THREE.Vector3( 2.0, 1.35, 0), []);
+  const centerLookTargetRight = useMemo(() => new THREE.Vector3(-2.0, 1.35, 0), []);
+
+  // NEW: fixed yaws for separate canvases (RPM forward ≈ -Z)
+  const leftFaceRightYaw = -Math.PI / 2; // left avatar faces RIGHT (→)
+  const rightFaceLeftYaw =  Math.PI / 2; // right avatar faces LEFT  (←)
 
   const singleYaw = props.singleYaw ?? 0;
   const singleLookTarget = useMemo(() => {
+    if (props.singleLookAt === null) return null;
     if (props.singleLookAt) {
       const [x, y, z] = props.singleLookAt;
       return new THREE.Vector3(x, y, z);
     }
     return DEFAULT_LOOK_TARGET;
-  }, [props.singleLookAt?.[0], props.singleLookAt?.[1], props.singleLookAt?.[2]]);
+  }, [props.singleLookAt]);
 
   const talkState = props.talkOverride ?? props.assistantTalking ?? false;
 
+  // Camera presets
   const camera = useMemo(
     () =>
       duo
-        ? { position: [0, 1.35, 4.2] as [number, number, number], fov: 30 }
-        : { position: [0, 1.35, 2.6] as [number, number, number], fov: 30 },
+        ? ({ position: [0, 1.55, 8.2] as [number, number, number], fov: 36 })
+        : ({ position: [0, 1.35, 3.8] as [number, number, number], fov: 30 }),
     [duo]
   );
 
   return (
-    <Canvas camera={camera} shadows>
+    <Canvas
+      camera={camera}
+      shadows
+      gl={{ antialias: true, alpha: true }}
+      style={{ background: 'transparent', width: '100%', height: '100%' }}
+    >
       <ambientLight intensity={0.6} />
       <directionalLight position={[3, 5, 2]} intensity={0.85} castShadow />
 
@@ -93,10 +104,10 @@ export default function RpmViewer(props: Props) {
                 key={`user-${userUrl}`}
                 src={userUrl}
                 position={userPosition}
-                yaw={-Math.PI / 2 + 0.1}
+                yaw={duoUserYaw}
                 lookAt={userLookTarget}
                 talk={talkState}
-                scale={1}
+                scale={duoScale}
                 animation={userAnimation}
               />
             )}
@@ -107,36 +118,66 @@ export default function RpmViewer(props: Props) {
                 key={`ai-${aiUrl}`}
                 src={aiUrl}
                 position={companionPosition}
-                yaw={Math.PI / 2 - 0.1}
+                yaw={duoCompanionYaw}
                 lookAt={companionLookTarget}
                 talk={talkState}
-                scale={1}
+                scale={duoScale}
+                animation={companionAnimation}
+              />
+            )}
+          </>
+        ) : isSeparate ? (
+          // NEW: Separate-container mode (exactly one avatar in this canvas)
+          <>
+            {hasUser && (
+              <RpmModel
+                key={`user-separate-${userUrl}`}
+                src={userUrl}
+                position={[0, 0, 0]}
+                yaw={leftFaceRightYaw}         // face toward page center
+                lookAt={centerLookTargetLeft}  // bias head toward center
+                talk={talkState}
+                scale={singleScale}
+                animation={userAnimation}
+              />
+            )}
+            {hasCompanion && (
+              <RpmModel
+                key={`ai-separate-${aiUrl}`}
+                src={aiUrl}
+                position={[0, 0, 0]}
+                yaw={rightFaceLeftYaw}
+                lookAt={centerLookTargetRight}
+                talk={talkState}
+                scale={singleScale}
                 animation={companionAnimation}
               />
             )}
           </>
         ) : (
-          // Single
+          // Single-preview fallback (uses src or one of the urls)
           <RpmModel
             src={singleSrc ?? userUrl ?? aiUrl}
-            position={[0, 0, 0]}
+            position={[0, -0.2, 0]}
             yaw={singleYaw}
             talk={talkState}
             lookAt={singleLookTarget}
             animation={baseAnimation}
+            scale={singleScale}
           />
         )}
 
-
-        <Environment preset="park" background />
+        <Environment preset="park" />
       </Suspense>
 
       <OrbitControls
         makeDefault
         enablePan={false}
-        target={[0, 1.1, 0]}
-        minDistance={duo ? 2.8 : 2}
-        maxDistance={duo ? 5.2 : 4.2}
+        enableRotate={false}
+        enableZoom={false}
+        target={duo ? [0, 1.2, 0] : [0, 1.05, 0]}
+        minDistance={duo ? 4 : 2.3}
+        maxDistance={duo ? 7 : 4.5}
         minPolarAngle={Math.PI / 3}
         maxPolarAngle={Math.PI / 1.9}
       />

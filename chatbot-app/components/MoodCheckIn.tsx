@@ -15,9 +15,17 @@ interface MoodCheckInProps {
   onComplete: (moodData: MoodData) => void;
   onSkip: () => void;
   title?: string;
+  previousMood?: Pick<MoodData, 'feeling' | 'intensity'> | null;
+  confirmLabel?: string;
 }
 
-export default function MoodCheckIn({ onComplete, onSkip, title }: MoodCheckInProps) {
+export default function MoodCheckIn({
+  onComplete,
+  onSkip,
+  title,
+  previousMood = null,
+  confirmLabel = 'Start Chatting ✨',
+}: MoodCheckInProps) {
   const [selectedFeeling, setSelectedFeeling] = useState<string>('');
 
   const feelings = [
@@ -35,7 +43,7 @@ export default function MoodCheckIn({ onComplete, onSkip, title }: MoodCheckInPr
     setSelectedFeeling(feeling);
   };
 
-  const handleStartChat = () => {
+  const handleSubmit = () => {
     // Create mood data with default values for intensity
     const moodData: MoodData = {
       feeling: selectedFeeling,
@@ -56,6 +64,20 @@ export default function MoodCheckIn({ onComplete, onSkip, title }: MoodCheckInPr
 
         <CardContent className="p-6">
           <div className="space-y-6">
+            {previousMood && (
+              <div className="rounded-xl border border-dashed border-teal-300/80 bg-teal-50/60 dark:bg-teal-900/10 p-4 text-sm text-left">
+                <p className="font-semibold text-teal-800 dark:text-teal-200 flex items-center gap-2">
+                  <Badge variant="outline" className="border-teal-300 text-teal-700 dark:text-teal-200">
+                    Before chat
+                  </Badge>
+                  You shared you felt <span className="italic">{previousMood.feeling}</span>
+                </p>
+                <p className="text-muted-foreground mt-2">
+                  Let us know if that has changed after talking.
+                </p>
+              </div>
+            )}
+
             <div className="text-center">
               <h3 className="font-medium mb-2">Choose how you're feeling right now</h3>
               <p className="text-sm text-muted-foreground mb-6">
@@ -95,12 +117,12 @@ export default function MoodCheckIn({ onComplete, onSkip, title }: MoodCheckInPr
             </Button>
 
             <Button
-              onClick={handleStartChat}
+              onClick={handleSubmit}
               disabled={!selectedFeeling}
               className="trauma-safe calm-hover gradient-teal"
             >
               <Sparkles className="h-4 w-4 mr-2" />
-              Start Chatting ✨
+              {confirmLabel}
             </Button>
           </div>
         </CardContent>

@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import AvatarDisplay from "./chat/AvatarDisplay";
 import type { RpmAnimationConfig } from "./chat/RpmModel";
 import ChatHeader from "./chat/ChatHeader";
@@ -9,6 +10,10 @@ import MessageList from "./chat/MessageList";
 import MessageInput from "./chat/MessageInput";
 import Sidebar from "./chat/Sidebar";
 import Navbar from "./Navbar";
+import ShareLoginWarning from "./chat/ShareLoginWarning";
+import CrisisSupportModal from "./chat/CrisisSupportModal";
+import CounselorModal from "./chat/CounselorModal";
+import CounselorResourcesModal from "./chat/CounselorResourcesModal";
 
 export type DbMessage = {
   id: string;
@@ -41,6 +46,16 @@ type Avatar = {
   animation?: RpmAnimationConfig;
 };
 
+const DEFAULT_USER_ANIMATION: RpmAnimationConfig = {
+  profile: "masculine",
+  url: "/animations/masculine/expression/M_Talking_Variations_005.glb",
+};
+
+const DEFAULT_COMPANION_ANIMATION: RpmAnimationConfig = {
+  profile: "feminine",
+  url: "/animations/feminine/expression/F_Talking_Variations_001.glb",
+};
+
 type Mood = {
   feeling: string;
   intensity: number;
@@ -66,7 +81,7 @@ function normalizeMood(mood?: Mood | null): Mood {
   if (!mood || !mood.feeling) {
     return {
       feeling: "neutral",
-      intensity: 0,
+    intensity: 0,
       timestamp: new Date(),
     };
   }
@@ -109,13 +124,18 @@ export function ChatInterfaceScreen({
   user = {
     id: "anon",
     username: "You",
-    avatar: { name: "User", type: "default", url: null, animation: { profile: "masculine" } },
+    avatar: {
+      name: "User",
+      type: "default",
+      url: null,
+      animation: DEFAULT_USER_ANIMATION,
+    },
   },
   companionAvatar = {
     name: "Adam",
     type: "default",
     url: "https://models.readyplayer.me/68be69db5dc0cec769cfae75.glb",
-    animation: { profile: "feminine" },
+    animation: DEFAULT_COMPANION_ANIMATION,
   },
   currentMood,
   onSend,
@@ -124,6 +144,11 @@ export function ChatInterfaceScreen({
 }: ChatInterfaceScreenProps) {
   const [inputValue, setInputValue] = useState("");
   const [uiOnlySystem, setUiOnlySystem] = useState<UIMsg[]>([]);
+  const [showShareWarning, setShowShareWarning] = useState(false);
+  const [showCrisisModal, setShowCrisisModal] = useState(false);
+  const [showCounselorModal, setShowCounselorModal] = useState(false);
+  const [showCounselorResources, setShowCounselorResources] = useState(false);
+  const router = useRouter();
 
   // Provide a safe mood object for all children (prevents .toLowerCase() crashes)
   const displayMood = useMemo(() => normalizeMood(currentMood), [currentMood]);
@@ -160,6 +185,41 @@ export function ChatInterfaceScreen({
   const hasUserModel = !!user?.avatar?.url;
   const hasCompanionModel = !!companionAvatar?.url;
   const hasAnyModel = hasUserModel || hasCompanionModel;
+  const isLoggedInUser = !!user && user.id !== "anon";
+
+  const handleShareRequiresLogin = () => setShowShareWarning(true);
+  const handleDismissShareWarning = () => setShowShareWarning(false);
+  const handleCreateAccountForShare = () => {
+    setShowShareWarning(false);
+    const redirect = typeof window !== "undefined"
+      ? `${window.location.pathname}${window.location.search}`
+      : "/chat/avatar";
+    router.push(`/login?redirect=${encodeURIComponent(redirect)}`);
+  };
+
+  const handleCrisisOpen = () => setShowCrisisModal(true);
+  const handleCrisisClose = () => setShowCrisisModal(false);
+  const handleCounselorOpen = () => setShowCounselorModal(true);
+  const handleCounselorClose = () => setShowCounselorModal(false);
+  const handleCounselorShowResources = () => {
+    setShowCounselorModal(false);
+    setShowCounselorResources(true);
+  };
+  const handleCounselorResourcesClose = () => setShowCounselorResources(false);
+  const handleCounselorResourcesConfirm = () => {
+    setUiOnlySystem((prev) => [
+      ...prev,
+      {
+        id: `resources_${Date.now()}`,
+        sender: "ai",
+        content:
+          "Here are a few counselor resources you can explore: Headspace (1800 650 890), Kids Helpline (1800 55 1800), Beyond Blue (1300 22 4636).",
+        timestamp: new Date(),
+        type: "escalation",
+      },
+    ]);
+    setShowCounselorResources(false);
+  };
 
   const injectSystemMessage = (content: string) => {
     setUiOnlySystem((prev) => [
@@ -176,10 +236,36 @@ export function ChatInterfaceScreen({
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      <Navbar onNavigate={onNavigate} isLoggedIn={!!user && user.id !== "anon"} />
+      {showShareWarning && (
+        <ShareLoginWarning
+          onCreateAccount={handleCreateAccountForShare}
+          onClose={handleDismissShareWarning}
+        />
+      )}
+
+      {showCrisisModal && <CrisisSupportModal onClose={handleCrisisClose} />}
+      {showCounselorModal && (
+        <CounselorModal onClose={handleCounselorClose} onShowResources={handleCounselorShowResources} />
+      )}
+
+      {showCounselorResources && (
+        <CounselorResourcesModal
+          onClose={handleCounselorResourcesClose}
+          onConfirm={handleCounselorResourcesConfirm}
+        />
+      )}
+
+      <Navbar onNavigate={onNavigate} isLoggedIn={isLoggedInUser} />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        <Sidebar onNavigate={onNavigate} onInjectMessage={injectSystemMessage} />
+        <Sidebar
+          onNavigate={onNavigate}
+          onInjectMessage={injectSystemMessage}
+          isLoggedIn={isLoggedInUser}
+          onShareRequiresLogin={handleShareRequiresLogin}
+          onCrisisSupport={handleCrisisOpen}
+          onCounselorRequest={handleCounselorOpen}
+        />
 
         {chatMode === "avatar" && (
           <div className="flex items-center justify-center w-[40%] border-r border-gray-200 bg-gradient-to-br from-purple-50 to-pink-50">
@@ -188,13 +274,14 @@ export function ChatInterfaceScreen({
                 userAvatar={{
                   name: user?.avatar?.name ?? "User",
                   url: user?.avatar?.url ?? undefined,
-                  animation: user?.avatar?.animation,
+                  animation: user?.avatar?.animation ?? DEFAULT_USER_ANIMATION,
                 }}
                 aiAvatar={{
                   name: companionAvatar?.name ?? "Adam",
                   url: companionAvatar?.url ?? undefined,
-                  animation: companionAvatar?.animation,
+                  animation: companionAvatar?.animation ?? DEFAULT_COMPANION_ANIMATION,
                 }}
+                assistantTalking={isTyping}
               />
             ) : (
               <div className="p-3 text-sm text-muted-foreground">

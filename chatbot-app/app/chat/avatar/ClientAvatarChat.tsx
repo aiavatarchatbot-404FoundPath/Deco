@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { ChatInterfaceScreen } from '../../../components/ChatInterfaceScreen';
 import MoodCheckIn from '../../../components/MoodCheckIn';
+import AnonymousExitWarning from '../../../components/chat/AnonymousExitWarning';
 import { sendUserMessage } from '@/lib/messages';
 import { useValidatedRpmGlb } from '@/lib/rpm';
 
@@ -77,6 +78,9 @@ export default function ClientAvatarChat() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [mood, setMood] = useState<MoodState>(null);
   const [showExitMoodCheckIn, setShowExitMoodCheckIn] = useState(false);
+  const [showEntryMoodCheckIn, setShowEntryMoodCheckIn] = useState(false);
+  const [showAnonymousExitWarning, setShowAnonymousExitWarning] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isTyping, setIsTyping] = useState(false);
 
@@ -85,7 +89,11 @@ export default function ClientAvatarChat() {
 
   /* ---------- Navigation / Exit ---------- */
   const handleNavigation = (screen: string) => {
-    if (screen === 'home') {
+    if (screen === 'home' || screen === 'endchat') {
+      if (!isAuthenticated) {
+        setShowAnonymousExitWarning(true);
+        return;
+      }
       setShowExitMoodCheckIn(true);
       return;
     }
@@ -136,11 +144,60 @@ export default function ClientAvatarChat() {
     completeExit();
   };
 
+  const handleAnonymousExitContinue = () => {
+    setShowAnonymousExitWarning(false);
+    setShowExitMoodCheckIn(true);
+  };
+
+  const handleAnonymousExitClose = () => {
+    setShowAnonymousExitWarning(false);
+  };
+
+  const handleAnonymousCreateAccount = () => {
+    setShowAnonymousExitWarning(false);
+    const current = typeof window !== 'undefined'
+      ? `${window.location.pathname}${window.location.search}`
+      : '/chat/avatar';
+    router.push(`/login?redirect=${encodeURIComponent(current)}`);
+  };
+
+  const persistMoodState = (state: MoodState) => {
+    if (typeof window === 'undefined') return;
+    if (!state) {
+      sessionStorage.removeItem(MOOD_SESSION_KEY);
+      return;
+    }
+    const payload = {
+      ...state,
+      timestamp:
+        state.timestamp instanceof Date ? state.timestamp.toISOString() : state.timestamp,
+    };
+    sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(payload));
+  };
+
+  const handleEntryMoodComplete = (moodData: MoodData) => {
+    const record: MoodState = { ...moodData, timestamp: new Date() };
+    setMood(record);
+    persistMoodState(record);
+    setShowEntryMoodCheckIn(false);
+  };
+
+  const handleEntryMoodSkip = () => {
+    const skippedRecord: MoodState = { skipped: true, timestamp: new Date() };
+    setMood(skippedRecord);
+    persistMoodState(skippedRecord);
+    setShowEntryMoodCheckIn(false);
+  };
+
   /* ---------- Profile ---------- */
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      setIsAuthenticated(!!user);
+      if (!user) {
+        setProfile(null);
+        return;
+      }
       const { data, error } = await supabase
         .from('profiles')
         .select('id, username, rpm_user_url, rpm_companion_url')
@@ -156,14 +213,22 @@ export default function ClientAvatarChat() {
 
   /* ---------- Mood (entry from session storage) ---------- */
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const stored = sessionStorage.getItem(MOOD_SESSION_KEY);
-    if (!stored) return;
+    if (!stored) {
+      setShowEntryMoodCheckIn(true);
+      return;
+    }
     try {
       const parsed = JSON.parse(stored);
-      if (parsed.timestamp) parsed.timestamp = new Date(parsed.timestamp);
-      setMood(parsed);
+      if (parsed?.timestamp) {
+        parsed.timestamp = new Date(parsed.timestamp);
+      }
+      setMood(parsed as MoodState);
+      setShowEntryMoodCheckIn(false);
     } catch {
-      setMood({ skipped: true, timestamp: new Date() });
+      sessionStorage.removeItem(MOOD_SESSION_KEY);
+      setShowEntryMoodCheckIn(true);
     }
   }, []);
 
@@ -376,9 +441,23 @@ export default function ClientAvatarChat() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
+      {showAnonymousExitWarning && (
+        <AnonymousExitWarning
+          onContinue={handleAnonymousExitContinue}
+          onCreateAccount={handleAnonymousCreateAccount}
+          onClose={handleAnonymousExitClose}
+        />
+      )}
+
+      {showEntryMoodCheckIn && (
+        <MoodCheckIn onComplete={handleEntryMoodComplete} onSkip={handleEntryMoodSkip} />
+      )}
+
       {showExitMoodCheckIn && (
         <MoodCheckIn
           title="How are you feeling now? ✨"
+          previousMood={mood && 'feeling' in mood ? { feeling: mood.feeling, intensity: mood.intensity } : null}
+          confirmLabel="Save & End Chat"
           onComplete={handleExitMoodComplete}
           onSkip={handleExitSkip}
         />

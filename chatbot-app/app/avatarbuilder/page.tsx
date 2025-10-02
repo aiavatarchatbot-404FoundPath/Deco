@@ -184,6 +184,7 @@ export default function AvatarBuilderPage() {
         onNavigate={handleNavigation}
         onNavigateToChat={handleNavigateToChat}
         user={user}
+        isLoggedIn={isLoggedIn}
         onSaveAvatar={handleSaveAvatar}
         onSelectCompanion={handleSelectCompanion} // This now correctly matches the updated AvatarBuilderScreenProps
       />
