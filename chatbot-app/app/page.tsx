@@ -465,8 +465,11 @@ export default function HomePage() {
                         e.preventDefault();
                         e.stopPropagation(); 
                         if (isLoading) return;
-                        setChatMode("avatar");
-                        handleNavigation("avatarbuilder"); 
+                        // Use a timeout to prevent rapid clicks during state changes
+                        setTimeout(() => {
+                          setChatMode("avatar");
+                          handleNavigation("avatarbuilder"); 
+                        }, 50);
                       }}
                       disabled={isLoading}
                       className="w-full bg-teal-500 hover:bg-teal-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -474,7 +477,7 @@ export default function HomePage() {
                       {isLoading ? (
                         <>
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                          Loading...
+                          Starting chat...
                         </>
                       ) : (
                         <>
@@ -550,7 +553,6 @@ export default function HomePage() {
                       </span>
                     </div>
                     <p className="text-xs text-purple-700">
-                      Start chatting instantly - no setup needed
                     </p>
                   </div>
 
@@ -566,7 +568,7 @@ export default function HomePage() {
                     {isLoading ? (
                       <>
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Loading...
+                        Starting chat...
                       </>
                     ) : (
                       <>
