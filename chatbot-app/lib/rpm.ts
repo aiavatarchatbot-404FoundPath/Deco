@@ -19,7 +19,9 @@ export async function firstReachable(urls: string[]) {
     try {
       const res = await fetch(u, { method: "HEAD", cache: "no-store" });
       if (res.ok) return u;
-    } catch {}
+    } catch {
+      // Ignore CORS/network failures; caller will fall back to an optimistic URL
+    }
   }
   return null;
 }
@@ -39,9 +41,24 @@ export function useValidatedRpmGlb(raw?: string | null) {
 
     (async () => {
       if (!raw) { setGlb(null); return; }
-      const { glb: candidates } = normalizeRpm(raw);
+
+      const trimmed = raw.trim();
+      const looksFullGlb = /^https?:\/\/./i.test(trimmed) && /\.glb(\?.*)?$/i.test(trimmed);
+      const { glb: candidates } = normalizeRpm(trimmed);
+
+      // Optimistic: use provided GLB (or first normalized candidate) immediately
+      const optimistic = looksFullGlb ? trimmed : candidates[0];
+      setGlb(optimistic ?? null);
+      if (optimistic) {
+        console.log('[useValidatedRpmGlb] raw:', trimmed, 'optimistic:', optimistic);
+      }
+
+      // Background: try to verify a reachable candidate; if found and different, update
       const ok = await firstReachable(candidates);
-      if (!cancelled) setGlb(ok);   // null if none reachable
+      if (!cancelled && ok && ok !== optimistic) {
+        console.log('[useValidatedRpmGlb] verified:', ok);
+        setGlb(ok);
+      }
     })();
 
     return () => { cancelled = true; };

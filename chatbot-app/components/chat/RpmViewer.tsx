@@ -102,6 +102,7 @@ export default function RpmViewer(props: Props) {
                 src={userUrl}
                 position={userPosition}
                 yaw={duoUserYaw + frontBias}
+                pitch={-0.18}
                 lookAt={userLookTarget}
                 talk={talkState}
                 scale={duoScale}
@@ -115,6 +116,7 @@ export default function RpmViewer(props: Props) {
                 src={aiUrl}
                 position={companionPosition}
                 yaw={duoCompanionYaw - frontBias}
+                pitch={-0.18}
                 lookAt={companionLookTarget}
                 talk={talkState}
                 scale={duoScale}
@@ -130,6 +132,7 @@ export default function RpmViewer(props: Props) {
                 src={userUrl}
                 position={[0, 0, 0]}
                 yaw={(leftFaceRightYaw + Math.PI) + frontBias}
+                pitch={-0.18}
                 lookAt={centerLookTargetLeft}  // bias head toward center
                 talk={talkState}
                 scale={singleScale}
@@ -141,6 +144,7 @@ export default function RpmViewer(props: Props) {
                 src={aiUrl}
                 position={[0, 0, 0]}
                 yaw={(rightFaceLeftYaw + Math.PI) - frontBias}
+                pitch={-0.18}
                 lookAt={centerLookTargetRight}
                 talk={talkState}
                 scale={singleScale}
@@ -153,6 +157,7 @@ export default function RpmViewer(props: Props) {
             src={singleSrc ?? userUrl ?? aiUrl}
             position={[0, -0.2, 0]}
             yaw={singleYaw}
+            pitch={-0.18}
             talk={talkState}
             lookAt={singleLookTarget}
             scale={singleScale}

@@ -24,6 +24,8 @@ type Props = {
   position?: [number, number, number];
   /** face roughly this yaw (radians) */
   yaw?: number;
+  /** forward/backward lean in radians (negative leans forward) */
+  pitch?: number;
   /** world-space target to look at (head only) */
   lookAt?: THREE.Vector3 | null;
   /** adds subtle “talking” micro-motions */
@@ -36,10 +38,16 @@ export default function RpmModel({
   src,
   position = [0, 0, 0],
   yaw = 0,
+  pitch = -0.18,
   lookAt = null,
   talk = false,
   scale = 1.0,
 }: Props) {
+  // Ensure Draco decoder is available (prevents 404s for /draco-gltf/*)
+  try {
+    // gstatic hosts versioned Draco decoders matching GLTFLoader expectations
+    useGLTF.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+  } catch {}
   const group = useRef<THREE.Group>(null);
   const inner = useRef<THREE.Group>(null);
   // Collect facial morph targets (e.g., jawOpen) for simple talking effect
@@ -49,6 +57,15 @@ export default function RpmModel({
     () => (src ? (src.endsWith('.glb') ? src : `${src}.glb`) : null),
     [src]
   );
+
+  // Debug: log which GLB URL this model attempts to load
+  useEffect(() => {
+    if (url) {
+      console.log('[RpmModel] Loading model:', url);
+    } else {
+      console.warn('[RpmModel] No model URL provided');
+    }
+  }, [url]);
 
   const { scene, animations } = useGLTF(url || '', true);
   // Deep-clone the GLTF with SkeletonUtils to preserve skinned mesh bindings
@@ -227,8 +244,6 @@ export default function RpmModel({
     () => ({ x: position[0], y: position[1] ?? 0, z: position[2] ?? 0 }),
     [position]
   );
-  // Use procedural fallback only when we don't have a retargeted mixer running
-  const usingFallback = !mixerRef.current;
   useFrame((state, dt) => {
     const g = group.current;
     if (!g) return;
@@ -241,6 +256,8 @@ export default function RpmModel({
     // Natural idle: small yaw sway and gentle bob
     const bodyYaw = 0.05 * Math.sin(t * 0.55);
     g.rotation.y = THREE.MathUtils.damp(g.rotation.y, yaw + bodyYaw, 6, dt);
+    // Apply a gentle forward tilt for a more dynamic stance
+    g.rotation.x = THREE.MathUtils.damp(g.rotation.x, pitch, 6, dt);
     const idleBob = 0.02 * Math.sin(t * 1.0);
     const idleSwayX = 0.04 * Math.sin(t * 0.65);
     const idleSwayZ = 0.03 * Math.sin(t * 0.5 + 1.2);
@@ -285,6 +302,8 @@ export default function RpmModel({
     // Gentle breathing via spine/chest and hips sway
     const chest = chestRef.current;
     const hips = hipsRef.current;
+    // Determine at runtime whether we are using retargeted animation
+    const usingFallback = !mixerRef.current;
     if (chest) {
       const baseX = chestBaseX.current;
       const breath = 0.10 * Math.sin(t * 0.9) * (usingFallback ? 1.2 : 1);
