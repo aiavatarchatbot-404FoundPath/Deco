@@ -280,7 +280,9 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
 
               <div className="pt-4 border-t border-border">
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <Button variant="outline" className="trauma-safe gentle-focus">
+                  <Button variant="outline" 
+                   className="trauma-safe gentle-focus" 
+                    onClick={() => onNavigate('privacy')} >
                     <FileText className="h-4 w-4 mr-2" />
                     Full Privacy Policy
                   </Button>

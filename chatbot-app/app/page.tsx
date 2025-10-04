@@ -128,6 +128,9 @@ export default function HomePage() {
         case 'login':
           router.push('/login');
           break;
+        case 'privacy-policy':
+          router.push('/privacy-policy');   // or your preferred path
+          break;
         default:
           console.log(`Navigate to: ${screen}`);
           setIsLoading(false);

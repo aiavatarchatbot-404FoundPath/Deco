@@ -42,6 +42,9 @@ export default function SettingsClient() {
             case 'login':
               router.push('/login');
               break;
+            case 'privacy':
+              router.push('/privacy-policy');
+              break;
             case 'welcome':
             case '/':
             case 'home':
@@ -56,6 +59,7 @@ export default function SettingsClient() {
       <SettingsScreen
         onNavigate={(screen) => {
           if (screen === "settings") router.push("/settings");
+          else if (screen === 'privacy') router.push('/privacy-policy');
           else if (screen === "profile") router.push("/profile");
           else if (screen === "profile?saved") router.push("/profile?tab=saved");
           else if (screen === "profile?settings") router.push("/profile?tab=settings");
