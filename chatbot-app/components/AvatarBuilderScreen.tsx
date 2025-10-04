@@ -1,8 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { ArrowRight, User, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
+import type { Persona } from '@/lib/personas';
 
 interface AvatarBuilderScreenProps {
   onNavigate: (screen: string) => void;
@@ -13,7 +15,16 @@ interface AvatarBuilderScreenProps {
   isLoggedIn?: boolean;
   navigationLoading?: boolean;
   saveLoading?: boolean;
+
+  // NEW (optional) – if parent passes these, we’ll use them; else we fall back to local state
+  personaChoice?: Persona;                            // 'adam' | 'eve' | 'custom' | 'neutral'
+  setPersonaChoice?: (p: Persona) => void;
+  customStyleText?: string;
+  setCustomStyleText?: (s: string) => void;
+  onApplyTone?: () => void | Promise<void>;
+  applyToneLoading?: boolean;
 }
+
 
 // Convert a Ready Player Me URL (.glb) into a displayable PNG
 function toThumbnail(url?: string | null): string | null {
@@ -51,6 +62,7 @@ function extractAvatarId(url?: string | null): string | null {
   }
 }
 
+
 export default function AvatarBuilderScreen({
   onNavigate,
   onNavigateToChat,
@@ -60,20 +72,43 @@ export default function AvatarBuilderScreen({
   isLoggedIn = false,
   navigationLoading = false,
   saveLoading = false,
+
+  // NEW (optional)
+  personaChoice,
+  setPersonaChoice,
+  customStyleText,
+  setCustomStyleText,
+  onApplyTone,
+  applyToneLoading = false,
 }: AvatarBuilderScreenProps) {
   const [selectedAvatar, setSelectedAvatar] = useState<string>('ready-adam');
   const [isCreatingAvatar, setIsCreatingAvatar] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [creatorSrc, setCreatorSrc] = useState<string>('https://readyplayer.me/avatar?frameApi');
 
+  // Local fallbacks if parent didn’t pass tone props
+  const [personaLocal, setPersonaLocal] = useState<Persona>('adam');
+  const [customStyleLocal, setCustomStyleLocal] = useState<string>('');
+
+  // Which “source of truth” should we use?
+  const persona = (personaChoice ?? personaLocal);
+  const setPersona = (p: Persona) => (setPersonaChoice ? setPersonaChoice(p) : setPersonaLocal(p));
+  const customText = (customStyleText ?? customStyleLocal);
+  const setCustomText = (s: string) => (setCustomStyleText ? setCustomStyleText(s) : setCustomStyleLocal(s));
+
   const handleAvatarSelect = useCallback((avatarId: string) => {
     setSelectedAvatar(avatarId);
     if (avatarId === 'eve' || avatarId === 'ready-eve') {
       onSelectCompanion('EVE');
+      if (persona !== 'custom') setPersona('eve');
+      if (customText) setCustomText('');
     } else if (avatarId === 'ready-adam' || avatarId === 'adam') {
       onSelectCompanion('ADAM');
+      if (persona !== 'custom') setPersona('adam');
+      if (customText) setCustomText('');
     }
-  }, [onSelectCompanion]);
+  }, [onSelectCompanion, persona, customText]);
+  
 
   const openCreator = useCallback(() => {
     const existingId = extractAvatarId(user?.rpm_user_url);
@@ -91,7 +126,8 @@ export default function AvatarBuilderScreen({
     if (readyPlayerMeAvatars.adam) {
       handleAvatarSelect('ready-adam');
     }
-  }, [handleAvatarSelect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const existingId = extractAvatarId(user?.rpm_user_url);
@@ -125,6 +161,7 @@ export default function AvatarBuilderScreen({
     
     onSaveAvatar({ url });
   }, [onSaveAvatar]);
+  
 
   const handleReadyPlayerMeMessage = useCallback((event: MessageEvent) => {
     let avatarUrl: string | null = null;
@@ -165,6 +202,8 @@ export default function AvatarBuilderScreen({
     window.addEventListener("message", handleReadyPlayerMeMessage);
     return () => window.removeEventListener("message", handleReadyPlayerMeMessage);
   }, [handleReadyPlayerMeMessage]);
+
+  
 
   if (isCreatingAvatar) {
     return (
@@ -218,7 +257,6 @@ export default function AvatarBuilderScreen({
                     alt="Your Custom Avatar"
                     className="w-full h-full object-cover rounded-full"
                     onError={(e) => {
-                      // Fallback to icon if image fails to load
                       e.currentTarget.style.display = 'none';
                       const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
                       if (nextElement) {
@@ -281,7 +319,7 @@ export default function AvatarBuilderScreen({
               Select Your AI Companion
             </h2>
             <p className="text-sm text-gray-600">
-              Choose who you'd like to chat with - your selection will appear in the chat
+              Choose who you'd like to chat with — your selection will appear in the chat. The tone affects <em>how</em> answers read, not the facts.
             </p>
           </div>
           
@@ -302,7 +340,6 @@ export default function AvatarBuilderScreen({
                     alt="Adam Avatar"
                     className="w-full h-full object-cover rounded-full"
                     onError={(e) => {
-                      // Fallback to icon if image fails to load
                       e.currentTarget.style.display = 'none';
                       const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
                       if (nextElement) {
@@ -315,6 +352,10 @@ export default function AvatarBuilderScreen({
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Adam</h3>
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
+                  {/* NEW: RAG tone description */}
+                  <p className="mt-2 text-sm text-gray-700">
+                    <span className="font-medium">RAG voice: Direct Coach.</span> Short, to-the-point answers with one clear next step. Minimal small talk; prefers bullet lists for actions.
+                  </p>
                 </div>
                 {selectedAvatar === 'ready-adam' && (
                   <div className="mt-2">
@@ -342,7 +383,6 @@ export default function AvatarBuilderScreen({
                     alt="Eve Avatar"
                     className="w-full h-full object-cover rounded-full"
                     onError={(e) => {
-                      // Fallback to icon if image fails to load
                       e.currentTarget.style.display = 'none';
                       const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
                       if (nextElement) {
@@ -355,6 +395,10 @@ export default function AvatarBuilderScreen({
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Eve</h3>
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
+                  {/* NEW: RAG tone description */}
+                  <p className="mt-2 text-sm text-gray-700">
+                    <span className="font-medium">RAG voice: Warm Guide.</span> Empathetic, reflective language with gentle questions. Collaboratively suggests next steps.
+                  </p>
                 </div>
                 {selectedAvatar === 'ready-eve' && (
                   <div className="mt-2">
@@ -365,6 +409,37 @@ export default function AvatarBuilderScreen({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* NEW: Custom tone box under the cards */}
+          <div className="mt-2 max-w-2xl mx-auto rounded-xl border p-4 bg-white/80 text-left">
+            <label className="block text-sm font-medium mb-2">
+              Prefer a custom tone? <span className="text-gray-500 font-normal">(optional)</span>
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder={`e.g., "very clear and understanding, simple words, one action step"`}
+                value={customText}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCustomText(v);
+                  if (v.trim().length > 0) setPersona('custom');
+                }}
+              />
+              <Button
+                type="button"
+                onClick={() => {
+                  if (customText.trim().length > 0) setPersona('custom');
+                  if (onApplyTone) onApplyTone();
+                }}
+                disabled={applyToneLoading}
+              >
+                {applyToneLoading ? 'Applying…' : 'Apply tone to this chat'}
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              We’ll compile your description into safe style settings (clarity, warmth, directness, etc.). Retrieval & safety rules stay the same.
+            </p>
           </div>
         </div>
 
