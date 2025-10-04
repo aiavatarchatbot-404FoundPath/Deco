@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import type { Route } from 'next';
+
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -120,7 +122,7 @@ export default function LoginPage() {
           }).catch(() => {});
         }
 
-        router.replace(safeTarget);
+        router.replace(safeTarget as Route);
         return;
       }
 
@@ -155,7 +157,7 @@ export default function LoginPage() {
       }
     }
 
-    router.replace(safeTarget);
+    router.replace(safeTarget as Route);
   } catch (e: any) {
     console.error(e);
     setErr(e?.message ?? "Something went wrong.");
