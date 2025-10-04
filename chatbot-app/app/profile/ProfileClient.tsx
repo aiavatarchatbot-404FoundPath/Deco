@@ -99,7 +99,7 @@ type Profile = {
 
 
 // Soft-delete ALL conversations for this user
-const applyDeleteHistory = async () => {
+/*const applyDeleteHistory = async () => {
   if (!profile?.id) return;
   try {
     setDeletingAll(true);
@@ -119,10 +119,10 @@ const applyDeleteHistory = async () => {
   } finally {
     setDeletingAll(false);
   }
-};
+}; */
 
 // Soft-delete ONE conversation (by id)
-const applyDeleteOne = async () => {
+/*const applyDeleteOne = async () => {
   if (!pendingDeleteConvo) return;
   try {
     setDeletingOne(true);
@@ -141,7 +141,7 @@ const applyDeleteOne = async () => {
   } finally {
     setDeletingOne(false);
   }
-};
+};*/
 
 
 const MOCK_CONVERSATIONS: Conversation[] = [
@@ -511,11 +511,9 @@ useEffect(() => {
       return;
     }
 
-    // Clear client-side lists
+    // Clear client-side lists & close modal
     setSavedConvos([]);
     setOngoingConvos([]);
-
-    // Close modal if it was open
     setShowDeleteHistory(false);
   } catch (e) {
     console.error("Delete history (soft) error:", e);
@@ -808,7 +806,7 @@ useEffect(() => {
           />
         )}
 
-        {pendingDeleteConvo && (
+      {pendingDeleteConvo && (
           <DeleteConversationModal
             onClose={() => { setPendingDeleteConvo(null); setPendingDeleteTitle(null); }}
             onConfirm={async () => {
