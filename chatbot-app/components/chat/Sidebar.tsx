@@ -16,6 +16,7 @@ interface SidebarProps {
   onShareRequiresLogin?: () => void;
   onCrisisSupport?: () => void;
   onCounselorRequest?: () => void;
+  stats?: { sessionSeconds: number; messageCount: number };
 }
 
 export default function Sidebar({
@@ -25,6 +26,8 @@ export default function Sidebar({
   onShareRequiresLogin,
   onCrisisSupport,
   onCounselorRequest,
+  stats,
+  
 }: SidebarProps) {
   // --- Support actions ---
   const handleCrisisSupport = () => {
@@ -62,6 +65,10 @@ export default function Sidebar({
     });
     setTimeout(() => onNavigate("home"), 600);
   };
+  // Session time and messages
+  const sessionLabel = formatHMS(stats?.sessionSeconds ?? 0);
+
+  const msgLabel = String(stats?.messageCount ?? 0);
 
   return (
     <aside className="w-80 shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col">
@@ -126,13 +133,13 @@ export default function Sidebar({
 
         {/* tiny session stats */}
         <div className="border-t border-gray-200 pt-4 space-y-2 text-xs text-gray-600">
-          <div className="flex justify-between">
+          <div className="flex items-center justify-between py-1">
             <span>Session time:</span>
-            <span>15 minutes</span>
+            <span className="font-medium text-gray-900">{sessionLabel}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex items-center justify-between py-1">
             <span>Messages:</span>
-            <span>12</span>
+            <span className="font-medium text-gray-900">{msgLabel}</span>
           </div>
           <div className="flex justify-between">
             <span>Status:</span>
@@ -145,4 +152,15 @@ export default function Sidebar({
       <Toaster position="bottom-center" richColors />
     </aside>
   );
+}
+
+function formatHMS(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "0s";
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
 }

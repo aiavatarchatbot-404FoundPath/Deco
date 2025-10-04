@@ -105,6 +105,10 @@ export default function ClientAvatarChat() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
+  const [convStartedAt, setConvStartedAt] = useState<Date | null>(null);
+  const [convEndedAt, setConvEndedAt] = useState<Date | null>(null);
 
   // If we fetch a temp avatar, stash it here (for anonymous users)
   const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
@@ -235,6 +239,45 @@ export default function ClientAvatarChat() {
     persistMoodState(skippedRecord);
     setShowEntryMoodCheckIn(false);
   };
+  // Fetch conversation timestamps
+  useEffect(() => {
+    if (!conversationId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('created_at, ended_at')
+        .eq('id', conversationId)
+        .single();
+      if (!error && data) {
+        setConvStartedAt(new Date(data.created_at));
+        setConvEndedAt(data.ended_at ? new Date(data.ended_at) : null);
+      }
+    })();
+  }, [conversationId]);
+
+   // Drive the live session timer
+  useEffect(() => {
+    if (!convStartedAt) return;
+
+    // if chat already ended, freeze time at (ended - started)
+    if (convEndedAt) {
+      setSessionSeconds(Math.max(0, Math.floor((convEndedAt.getTime() - convStartedAt.getTime()) / 1000)));
+      return;
+    }
+
+    const tick = () => {
+      setSessionSeconds(Math.max(0, Math.floor((Date.now() - convStartedAt.getTime()) / 1000)));
+    };
+    tick(); // immediate
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [convStartedAt, convEndedAt]);
+
+  // Keep message count synced with DB-backed messages (only user queries)
+  useEffect(() => {
+  const onlyUserMsgs = messages.filter((m) => m.role === "user").length;
+  setMessageCount(onlyUserMsgs);
+}, [messages]);
 
   /* ---------- Profile ---------- */
   useEffect(() => {
@@ -536,6 +579,7 @@ export default function ClientAvatarChat() {
         onSend={handleSend}
         messages={sortedMessages}
         isTyping={isTyping}
+        stats={{ sessionSeconds, messageCount }}
       />
     </div>
   );

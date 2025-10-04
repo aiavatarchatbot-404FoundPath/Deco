@@ -57,10 +57,15 @@ type ChatInterfaceScreenProps = {
   chatMode: "avatar" | "standard";
   user?: User;
   companionAvatar?: Avatar;
-  currentMood?: Mood | null;
+  currentMood?: {
+    feeling: string; intensity: number; reason?: string; support?: string; timestamp: Date;
+  } | null;
   onSend?: (text: string) => void;
   messages?: DbMessage[];
   isTyping?: boolean;
+
+  /** NEW */
+  stats?: { sessionSeconds: number; messageCount: number };
 };
 
 /** ---- Helpers ---- */
@@ -127,6 +132,7 @@ export function ChatInterfaceScreen({
   onSend,
   messages = [],
   isTyping = false,
+  stats,
 }: ChatInterfaceScreenProps) {
   const [inputValue, setInputValue] = useState("");
   const [uiOnlySystem, setUiOnlySystem] = useState<UIMsg[]>([]);
@@ -247,6 +253,7 @@ export function ChatInterfaceScreen({
         <Sidebar
           onNavigate={onNavigate}
           onInjectMessage={injectSystemMessage}
+          stats={stats}
           isLoggedIn={isLoggedInUser}
           onShareRequiresLogin={handleShareRequiresLogin}
           onCrisisSupport={handleCrisisOpen}
