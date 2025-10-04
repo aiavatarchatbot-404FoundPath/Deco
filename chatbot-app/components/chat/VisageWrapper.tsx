@@ -1,6 +1,8 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+// chatbots-app/types/readyplayerme-visage.d.ts
+
 
 type VisageEl = HTMLElement & { src?: string; model?: string };
 
