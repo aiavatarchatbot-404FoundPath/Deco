@@ -90,7 +90,7 @@ export default function SettingsScreen({ onNavigate }: SettingsScreenProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-teal-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-8">

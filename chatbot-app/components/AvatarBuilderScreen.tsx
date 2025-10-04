@@ -228,7 +228,7 @@ export default function AvatarBuilderScreen({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100 flex flex-col items-center justify-center p-4">
       {/* Main Content */}
       <div className="w-full max-w-4xl text-center space-y-8">
         {/* Header */}

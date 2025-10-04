@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import DeleteHistoryModal from "@/components/chat/DeleteHistoryModal";
+import DeleteConversationModal from "@/components/chat/DeleteConversationModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Search,
@@ -95,6 +97,53 @@ type Profile = {
   rpm_user_url?: string | null;
 };
 
+
+// Soft-delete ALL conversations for this user
+const applyDeleteHistory = async () => {
+  if (!profile?.id) return;
+  try {
+    setDeletingAll(true);
+    const { error } = await supabase
+      .from("conversations")
+      .update({ status: "deleted", deleted_at: new Date().toISOString() })
+      .eq("created_by", profile.id)
+      .neq("status", "deleted");
+    if (error) throw error;
+
+    // Clear client state
+    setSavedConvos([]);
+    setOngoingConvos([]);
+    setShowDeleteHistory(false);
+  } catch (e) {
+    console.error("Delete history (soft) error:", e);
+  } finally {
+    setDeletingAll(false);
+  }
+};
+
+// Soft-delete ONE conversation (by id)
+const applyDeleteOne = async () => {
+  if (!pendingDeleteConvo) return;
+  try {
+    setDeletingOne(true);
+    const { error } = await supabase
+      .from("conversations")
+      .update({ status: "deleted", deleted_at: new Date().toISOString() })
+      .eq("id", pendingDeleteConvo);
+    if (error) throw error;
+
+    // Remove from saved list UI
+    setSavedConvos(prev => prev.filter(c => c.id !== pendingDeleteConvo));
+    setPendingDeleteConvo(null);
+    setPendingDeleteTitle(null);
+  } catch (e) {
+    console.error("Delete (soft) error:", e);
+  } finally {
+    setDeletingOne(false);
+  }
+};
+
+
 const MOCK_CONVERSATIONS: Conversation[] = [
   { id: "1", title: "Chat with Mentor", status: "ongoing", lastMessage: "Yesterday · 14:05" },
   { id: "2", title: "Anxiety Support Session", status: "completed", lastMessage: "Aug 28 · 16:30" },
@@ -128,10 +177,14 @@ const MOCK_SAVED: SavedItem[] = [
 
 
 export default function ProfileClient() {
-
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const [showDeleteHistory, setShowDeleteHistory] = useState(false);
+  const [pendingDeleteConvo, setPendingDeleteConvo] = useState<string | null>(null);
+  const [pendingDeleteTitle, setPendingDeleteTitle] = useState<string | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [deletingOne, setDeletingOne] = useState(false);
 
   // STATE of profile from DB....
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -436,16 +489,17 @@ useEffect(() => {
     router.push("/login");
   };
 
-  const handleDeleteHistory = async () => {
-  const confirmed = window.confirm(
-    "Are you absolutely sure?\n\nThis will mark ALL your conversations as Deleted."
-  );
-  if (!confirmed) return;
+  const handleDeleteHistory = async (skipConfirm = false) => {
+  if (!skipConfirm) {
+    const confirmed = window.confirm(
+      "Are you absolutely sure?\n\nThis will mark ALL your conversations as Deleted."
+    );
+    if (!confirmed) return;
+  }
 
   try {
     if (!profile?.id) return;
 
-    // Flip every convo for this user to deleted (but don’t double-update already-deleted)
     const { error } = await supabase
       .from("conversations")
       .update({ status: "deleted", deleted_at: new Date().toISOString() })
@@ -460,6 +514,9 @@ useEffect(() => {
     // Clear client-side lists
     setSavedConvos([]);
     setOngoingConvos([]);
+
+    // Close modal if it was open
+    setShowDeleteHistory(false);
   } catch (e) {
     console.error("Delete history (soft) error:", e);
   }
@@ -481,7 +538,7 @@ useEffect(() => {
   const headerThumb = toThumbnail(profile.rpm_user_url);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       <Navbar onNavigate={handleNavigation as any} currentPage="profile" isLoggedIn={true} isLoading={false} />
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
@@ -564,7 +621,7 @@ useEffect(() => {
                 </TabsTrigger>
                 <TabsTrigger value="saved" className="trauma-safe gentle-focus">
                   <BookmarkCheck className="w-4 h-4 mr-2" />
-                  Saved
+                  Past Conversations
                 </TabsTrigger>
                 <TabsTrigger value="settings" className="trauma-safe gentle-focus">
                   <SettingsIcon className="w-4 h-4 mr-2" />
@@ -619,7 +676,7 @@ useEffect(() => {
                               <div className="flex flex-col items-end gap-2">
                                   <Button
                                     size="sm"
-                                    onClick={() => router.push(`/chat/avatar?convo=${c.id}`)}
+                                    onClick={() => router.push(`/chat/summary?convo=${c.id}`)}
                                     className="trauma-safe gentle-focus"
                                   >
                                     View
@@ -627,7 +684,7 @@ useEffect(() => {
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => handleDeleteSaved(c.id)}
+                                    onClick={() => { setPendingDeleteConvo(c.id); setPendingDeleteTitle(c.title || "Untitled Chat"); }}
                                     className="border-red-300 text-red-600 hover:bg-red-50"
                                   >
                                     Delete
@@ -689,7 +746,7 @@ useEffect(() => {
                       <CardDescription>Manage your personal data and account</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <Button onClick={handleDeleteHistory} className="w-full sm:w-auto trauma-safe gentle-focus" variant="destructive">
+                      <Button onClick={() => setShowDeleteHistory(true)} className="w-full sm:w-auto trauma-safe gentle-focus" variant="destructive">
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete History
                       </Button>
@@ -744,6 +801,26 @@ useEffect(() => {
           )}
         </div>
       </main>
+      {showDeleteHistory && (
+          <DeleteHistoryModal
+            onClose={() => setShowDeleteHistory(false)}
+            onConfirm={async () => { await handleDeleteHistory(true); }}
+          />
+        )}
+
+        {pendingDeleteConvo && (
+          <DeleteConversationModal
+            onClose={() => { setPendingDeleteConvo(null); setPendingDeleteTitle(null); }}
+            onConfirm={async () => {
+              if (pendingDeleteConvo) {
+                await handleDeleteSaved(pendingDeleteConvo);  // << reuse old logic
+              }
+              setPendingDeleteConvo(null);
+              setPendingDeleteTitle(null); // close modal after action
+            }}
+            title={pendingDeleteTitle}
+          />
+        )}
     </div>
   );
 }

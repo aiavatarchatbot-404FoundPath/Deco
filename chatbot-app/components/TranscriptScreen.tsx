@@ -89,7 +89,7 @@ This conversation was conducted in a safe, confidential environment with AI supp
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-teal-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-8">
@@ -305,12 +305,7 @@ This conversation was conducted in a safe, confidential environment with AI supp
           {/* Navigation */}
           <div className="text-center pt-8">
             <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
-              <Button
-                onClick={() => onNavigate('chat')}
-                className="trauma-safe calm-hover"
-              >
-                Continue Chatting
-              </Button>
+
               <Button
                 onClick={() => onNavigate('welcome')}
                 variant="outline"
