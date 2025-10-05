@@ -52,6 +52,11 @@ function checkFilters(userInput: string): "Imminent Danger" | null {
   for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(userInput)) return "Imminent Danger";
   return null;
 }
+// Choose correct tables for anon vs logged-in users
+const tables = (userId?: string) => ({
+  conv: userId ? "conversations" : "anon_conversations",
+  msgs: userId ? "messages"       : "anon_messages",
+});
 
 // ---------------- Types ----------------
 type RoleTurn = { role: "user" | "assistant"; content: string };
@@ -164,14 +169,14 @@ async function ensureConversationOwned(conversationId: string, userId?: string) 
   if (error) console.error("ensureConversationOwned select error:", error);
 
   if (!data) {
-    // Create the conversation on first send only
-    const { error: insErr } = await supabase
-      .from("conversations")
-      .insert({ id: conversationId, summary: "", created_by: userId ?? null });
+    const row: any = { id: conversationId, summary: "" };
+    if (userId) row.created_by = userId; // optional now
+    const { error: insErr } = await supabase.from("conversations").insert(row);
     if (insErr) console.error("ensureConversationOwned insert error:", insErr);
     return;
   }
-  if (!data.created_by && userId) {
+
+  if (userId && !data.created_by) {
     const { error: updErr } = await supabase
       .from("conversations")
       .update({ created_by: userId })
@@ -179,6 +184,7 @@ async function ensureConversationOwned(conversationId: string, userId?: string) 
     if (updErr) console.error("ensureConversationOwned update owner error:", updErr);
   }
 }
+
 
 async function loadSummary(conversationId: string): Promise<string> {
   const { data, error } = await supabase
@@ -274,20 +280,26 @@ async function saveTurnToDB({
   userMessage: string;
   botAnswer: string;
 }) {
+  const { msgs } = tables(userId);
   const now = new Date();
   const later = new Date(now.getTime() + 1);
+
   const rows: any[] = [
-    { conversation_id: conversationId, sender_id: userId ?? null, role: "user", content: userMessage, created_at: now.toISOString() },
-    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer, created_at: later.toISOString() },
+    { conversation_id: conversationId, sender_id: userId ?? null,    role: "user",      content: userMessage, created_at: now.toISOString() },
+    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer,   created_at: later.toISOString() },
   ];
+
   const { data, error } = await supabase
-    .from("messages")
-    .insert(rows)
-    .select("id, conversation_id, sender_id, role, content, created_at")
-    .order("created_at", { ascending: true });
+  .from("messages")
+  .insert(rows)
+  .select("id, conversation_id, sender_id, role, content, created_at")
+  .order("created_at", { ascending: true });
+
+
   if (error) console.error("saveTurnToDB error:", error);
-  return data ?? [];
+  return (data ?? []);
 }
+
 
 // ---------------- Risk classifier (LLM) ----------------
 async function classifyRisk(userMessage: string): Promise<RiskAssessment> {
@@ -382,6 +394,7 @@ export async function GET() {
 
 // ---------------- Main handler ----------------
 export async function POST(req: Request) {
+  
   try {
     // Parse once
     const body = await req.json();
@@ -417,6 +430,37 @@ export async function POST(req: Request) {
       .eq("id", conversationId)
       .maybeSingle();
     if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
+    // 6) Refresh summary occasionally (only for logged-in conversations)
+try {
+  if (userId) {
+    const assistantCount = await countAssistantMessages(conversationId);
+    const currentSummary = await loadSummary(conversationId);
+
+    const shouldRefresh =
+      (assistantCount > 0 && assistantCount % SUMMARY_REFRESH_EVERY === 0) ||
+      !currentSummary ||
+      currentSummary.trim().length === 0;
+
+    if (shouldRefresh) {
+      const recentForSummary = await loadLastPairs(
+        conversationId,
+        Math.max(6, MAX_PAIRS)
+      );
+      await refreshSummary({
+        conversationId,
+        currentSummary,
+        recentTurns: recentForSummary,
+        wordsTarget: 180,
+      });
+    }
+  }
+} catch (err) {
+  // Never let summary issues break the chat response
+  console.error("summary refresh skipped:", err);
+}
+
+
+
 
     if (!convo) {
       const initial: any = {
