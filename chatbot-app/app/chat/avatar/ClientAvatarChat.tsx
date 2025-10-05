@@ -109,6 +109,8 @@ export default function ClientAvatarChat() {
   const [messageCount, setMessageCount] = useState(0);
   const [convStartedAt, setConvStartedAt] = useState<Date | null>(null);
   const [convEndedAt, setConvEndedAt] = useState<Date | null>(null);
+  const [accumulatedSeconds, setAccumulatedSeconds] = useState(0);
+  const [activeSince, setActiveSince] = useState<Date | null>(null);
 
   // If we fetch a temp avatar, stash it here (for anonymous users)
   const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
@@ -146,24 +148,20 @@ export default function ClientAvatarChat() {
   };
 
   const completeExit = async (finalMood?: MoodData) => {
-    try {
-      if (conversationId) {
-        const patch: any = {
-          status: 'ended',
-          ended_at: new Date().toISOString(),
-        };
-        if (finalMood) patch.final_mood = finalMood;
-
-        const { error } = await supabase.from('conversations').update(patch).eq('id', conversationId);
-        if (error) console.error('Failed to update conversation on exit:', error);
-      }
-    } catch (e) {
-      console.error('Exit error:', e);
-    } finally {
-      sessionStorage.removeItem(MOOD_SESSION_KEY);
-      router.push('/');
+  try {
+    await pauseTimer(); // finalize time first
+    if (conversationId) {
+      const patch: any = { status: 'ended', ended_at: new Date().toISOString() };
+      if (finalMood) patch.final_mood = finalMood;
+      await supabase.from('conversations').update(patch).eq('id', conversationId);
     }
-  };
+  } catch (e) {
+    console.error('Exit error:', e);
+  } finally {
+    sessionStorage.removeItem(MOOD_SESSION_KEY);
+    router.push('/');
+  }
+};
 
   const handleExitMoodComplete = (moodData: MoodData) => {
     setShowExitMoodCheckIn(false);
@@ -245,39 +243,89 @@ export default function ClientAvatarChat() {
     (async () => {
       const { data, error } = await supabase
         .from('conversations')
-        .select('created_at, ended_at')
+        .select('created_at, ended_at, accumulated_seconds, active_since')
         .eq('id', conversationId)
         .single();
       if (!error && data) {
         setConvStartedAt(new Date(data.created_at));
         setConvEndedAt(data.ended_at ? new Date(data.ended_at) : null);
+        setAccumulatedSeconds(data.accumulated_seconds ?? 0);
+        setActiveSince(data.active_since ? new Date(data.active_since) : null);
       }
     })();
   }, [conversationId]);
 
+
    // Drive the live session timer
   useEffect(() => {
-    if (!convStartedAt) return;
+  if (!convStartedAt) return;
 
-    // if chat already ended, freeze time at (ended - started)
-    if (convEndedAt) {
-      setSessionSeconds(Math.max(0, Math.floor((convEndedAt.getTime() - convStartedAt.getTime()) / 1000)));
-      return;
-    }
+  const tick = () => {
+    const live = activeSince
+      ? Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000))
+      : 0;
+    setSessionSeconds(accumulatedSeconds + live);
+  };
+  tick();
+  const id = setInterval(tick, 1000);
+  return () => clearInterval(id);
+}, [convStartedAt, activeSince, accumulatedSeconds]);
 
-    const tick = () => {
-      setSessionSeconds(Math.max(0, Math.floor((Date.now() - convStartedAt.getTime()) / 1000)));
-    };
-    tick(); // immediate
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [convStartedAt, convEndedAt]);
+  useEffect(() => {
+  if (!conversationId) return;
+  // If currently paused, resume on mount
+  resumeTimer();
+
+  const onVis = () => {
+    if (document.hidden) pauseTimer();
+    else resumeTimer();
+  };
+  document.addEventListener('visibilitychange', onVis);
+
+  return () => {
+    document.removeEventListener('visibilitychange', onVis);
+    // ensure pause when navigating away/unmounting
+    pauseTimer();
+  };
+}, [conversationId, activeSince, accumulatedSeconds]);
+
+
+
 
   // Keep message count synced with DB-backed messages (only user queries)
   useEffect(() => {
   const onlyUserMsgs = messages.filter((m) => m.role === "user").length;
   setMessageCount(onlyUserMsgs);
 }, [messages]);
+
+  async function resumeTimer() {
+  if (!conversationId) return;
+  // only resume if currently paused
+  if (activeSince) return;
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from('conversations')
+    .update({ active_since: nowIso })
+    .eq('id', conversationId);
+  if (!error) setActiveSince(new Date(nowIso));
+}
+
+async function pauseTimer() {
+  if (!conversationId) return;
+  if (!activeSince) return; // already paused
+  const deltaSec = Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000));
+  const nextAccum = accumulatedSeconds + deltaSec;
+
+  const { error } = await supabase
+    .from('conversations')
+    .update({ accumulated_seconds: nextAccum, active_since: null })
+    .eq('id', conversationId);
+
+  if (!error) {
+    setAccumulatedSeconds(nextAccum);
+    setActiveSince(null);
+  }
+}
 
   /* ---------- Profile ---------- */
   useEffect(() => {
