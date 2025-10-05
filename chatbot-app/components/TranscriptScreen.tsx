@@ -1,4 +1,9 @@
-import React, { useState } from 'react';
+"use client";
+
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -24,33 +29,148 @@ interface TranscriptScreenProps {
   onNavigate: (screen: string) => void;
 }
 
+type TranscriptMsg = { sender: 'ai' | 'user'; content: string };
+type ConversationData = {
+  date: string;
+  duration: string;
+  messageCount: number; // user-only
+  summary: string;
+  transcript: TranscriptMsg[];
+};
+
+function formatHMS(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${String(ss).padStart(2, "0")}s`;
+  if (m > 0) return `${m}m ${String(ss).padStart(2, "0")}s`;
+  return `${ss}s`;
+}
+
 export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) {
+  const params = useSearchParams();
+  const convoFromUrl = params.get('convo'); // ?convo=<uuid>
+
   const [showFullTranscript, setShowFullTranscript] = useState(false);
   const [shareNote, setShareNote] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Mock conversation data
-  const conversationData = {
-    date: new Date().toLocaleDateString(),
-    duration: "23 minutes",
-    messageCount: 12,
-    summary: "Discussion about feelings of stress and anxiety related to upcoming court date. Explored coping strategies and identified support networks.",
-    transcript: [
-      { sender: 'ai', content: "Hi there! I'm Adam, your Avatar Companion. How are you feeling today?" },
-      { sender: 'user', content: "I'm feeling really anxious about my court date next week." },
-      { sender: 'ai', content: "That sounds really stressful. It's completely normal to feel anxious about court proceedings. Would you like to talk about what's worrying you most?" },
-      { sender: 'user', content: "I'm worried about what will happen and if I'll say the wrong thing." },
-      { sender: 'ai', content: "Those are very understandable concerns. Many people feel this way before court. Have you been able to talk to your lawyer or support worker about what to expect?" },
-      { sender: 'user', content: "Yes, my lawyer explained the process but I'm still nervous." },
-      { sender: 'ai', content: "It's great that you've prepared with your lawyer. Being nervous shows you care. What helps you feel calmer when you're anxious?" }
-    ]
-  };
+  const [conversationId, setConversationId] = useState<string | null>(convoFromUrl);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [conversationData, setConversationData] = useState<ConversationData>({
+    date: '',
+    duration: '0s',
+    messageCount: 0,
+    summary: '',
+    transcript: [],
+  });
+
+  // Resolve conversation id (prefer URL; otherwise latest ended for current user)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (convoFromUrl) {
+        setConversationId(convoFromUrl);
+        return;
+      }
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id;
+      if (!uid) return;
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('status', 'ended')
+        .order('ended_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled && data?.id) setConversationId(data.id);
+    })();
+    return () => { cancelled = true; };
+  }, [convoFromUrl]);
+
+  // Load conversation + messages
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setErr(null);
+
+      // 1) Conversation meta
+      const { data: convo, error: convoErr } = await supabase
+        .from('conversations')
+        .select('created_at, ended_at, accumulated_seconds, active_since')
+        .eq('id', conversationId)
+        .single();
+
+      if (convoErr) {
+        if (!cancelled) {
+          setErr(convoErr.message || 'Failed to load conversation');
+          setLoading(false);
+        }
+        return;
+      }
+
+      const endDate = convo?.ended_at ? new Date(convo.ended_at) : new Date(convo.created_at);
+      const seconds =
+        (convo?.accumulated_seconds ?? 0) > 0
+          ? convo.accumulated_seconds
+          : convo?.ended_at
+          ? Math.max(0, Math.floor((new Date(convo.ended_at).getTime() - new Date(convo.created_at).getTime()) / 1000))
+          : 0;
+
+      // 2) Transcript (messages)
+      const { data: msgs, error: msgErr } = await supabase
+        .from('messages')
+        .select('id, role, content, created_at')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
+
+      if (msgErr) {
+        if (!cancelled) {
+          setErr(msgErr.message || 'Failed to load messages');
+          setLoading(false);
+        }
+        return;
+      }
+
+      const transcript: TranscriptMsg[] = (msgs ?? [])
+        .filter((m) => m.role !== 'system')
+        .map((m) => ({
+          sender: m.role === 'assistant' ? 'ai' : 'user',
+          content: m.content,
+        }));
+
+      const messageCount = (msgs ?? []).filter((m) => m.role === 'user').length;
+
+      if (!cancelled) {
+        setConversationData({
+          date: endDate.toLocaleDateString(),
+          duration: formatHMS(seconds),
+          messageCount,
+          summary: '', // populate if you later add a 'summary' column
+          transcript,
+        });
+        setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
+  const transcriptText = useMemo(
+    () => conversationData.transcript
+      .map(msg => `${msg.sender === 'ai' ? 'Adam' : 'You'}: ${msg.content}`)
+      .join('\n\n'),
+    [conversationData.transcript]
+  );
 
   const handleCopyTranscript = async () => {
-    const transcriptText = conversationData.transcript
-      .map(msg => `${msg.sender === 'ai' ? 'Adam' : 'You'}: ${msg.content}`)
-      .join('\n\n');
-    
     try {
       await navigator.clipboard.writeText(transcriptText);
       setCopied(true);
@@ -61,23 +181,20 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
   };
 
   const handleDownload = () => {
-    const transcriptContent = `
+    const txt = `
 Avatar Companion Conversation Summary
 Date: ${conversationData.date}
 Duration: ${conversationData.duration}
 
-Summary: ${conversationData.summary}
+Summary: ${conversationData.summary || '(no saved summary)'}
 
 Conversation:
-${conversationData.transcript.map(msg => 
-  `${msg.sender === 'ai' ? 'Adam' : 'You'}: ${msg.content}`
-).join('\n\n')}
+${transcriptText}
 
 ---
 This conversation was conducted in a safe, confidential environment with AI support.
 `;
-
-    const blob = new Blob([transcriptContent], { type: 'text/plain' });
+    const blob = new Blob([txt], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -101,6 +218,11 @@ This conversation was conducted in a safe, confidential environment with AI supp
           </p>
         </div>
 
+        {loading ? (
+          <div className="p-6 text-sm text-gray-600">Loading summary…</div>
+        ) : err ? (
+          <div className="p-6 text-sm text-red-600">Error: {err}</div>
+        ) : (
         <div className="space-y-6">
           {/* Privacy Notice */}
           <Card className="trauma-safe border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20">
@@ -153,7 +275,7 @@ This conversation was conducted in a safe, confidential environment with AI supp
               <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
                 <h4 className="font-medium mb-2">Conversation Summary:</h4>
                 <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-                  {conversationData.summary}
+                  {conversationData.summary || 'No saved summary.'}
                 </p>
               </div>
             </CardContent>
@@ -305,7 +427,6 @@ This conversation was conducted in a safe, confidential environment with AI supp
           {/* Navigation */}
           <div className="text-center pt-8">
             <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
-
               <Button
                 onClick={() => onNavigate('welcome')}
                 variant="outline"
@@ -316,6 +437,7 @@ This conversation was conducted in a safe, confidential environment with AI supp
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
