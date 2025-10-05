@@ -222,6 +222,7 @@ export default function ProfileClient() {
       setActiveTab(t as Tab);
     }
   }, [searchParams, activeTab]);
+  
 
   useEffect(() => {
       if (!profile?.id) return;
@@ -255,14 +256,29 @@ export default function ProfileClient() {
 // ProfileConversationsTab component moved outside useEffect
 function ProfileConversationsTab() {
   const router = useRouter();
-  return (
-    <ConversationList
-      onSelect={(id) => router.push(`/chat/avatar?convo=${id}`)}
-      showSearch
-      mineOnly={true}
-    />
-  );
+  const [resolving, setResolving] = useState<string | null>(null);
+
+  const handleSelect = async (id: string) => {
+    setResolving(id);
+    try {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("chat_mode")
+        .eq("id", id)
+        .single();
+      if (error) throw error;
+      const mode = (data?.chat_mode ?? "simple") as "simple" | "avatar";
+      router.push(mode === "avatar" ? `/chat/avatar?convo=${id}` : `/chat/simple?convo=${id}`);
+    } catch (e) {
+      // Safe fallback: open in Simple Chat
+      router.push(`/chat/simple?convo=${id}`);
+    } finally {
+      setResolving(null);
+    }
+  };
+
 }
+
 // ---- Load Saved (status = 'ended') ----
 useEffect(() => {
   if (!profile?.id) return;
@@ -296,6 +312,7 @@ type OngoingConvo = { id: string; title: string | null; updated_at: string };
 
 const [ongoingConvos, setOngoingConvos] = useState<OngoingConvo[]>([]);
 const [loadingOngoing, setLoadingOngoing] = useState(false);
+
 
 // ---- Load Conversations (status = 'ongoing') ----
 useEffect(() => {
@@ -408,6 +425,8 @@ useEffect(() => {
 }, [router]);
 
 
+
+
   // When the selector fires, we update DB via selector (it already saves)
   // and also reflect the new URL immediately in our profile state so the header updates.
   const handleReadyPlayerMeAvatarSelect = (avatar: ReadyPlayerMeAvatar, type: "user" | "companion") => {
@@ -474,7 +493,8 @@ useEffect(() => {
 
   // nav handlers
   const handleBackToHome = () => router.push("/");
-  const handleNavigateToChat = () => router.push("/chat/avatar");
+ const handleNavigateToChat = () => router.push("/chat/simple?new=1"); // 👈 forces fresh chat
+
   const handleNavigation = (href: string) => router.push(href as any);
 
   const handleExportData = () => alert("Export started (placeholder).");
@@ -488,6 +508,24 @@ useEffect(() => {
     await supabase.auth.signOut();
     router.push("/login");
   };
+
+  const handleOpenConversation = async (id: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("chat_mode")
+      .eq("id", id)
+      .single();
+    if (error) throw error;
+
+    const mode = (data?.chat_mode ?? "simple") as "simple" | "avatar";
+    router.push(mode === "avatar" ? `/chat/avatar?convo=${id}` : `/chat/simple?convo=${id}`);
+  } catch (e) {
+    // Safe fallback
+    router.push(`/chat/simple?convo=${id}`);
+  }
+};
+
 
   const handleDeleteHistory = async (skipConfirm = false) => {
   if (!skipConfirm) {
@@ -630,8 +668,13 @@ useEffect(() => {
               {/* Conversations Tab */}
 
               <TabsContent value="conversations" className="mt-6">
-                <ProfileConversationsTab />
-              </TabsContent>
+  <ConversationList
+    onSelect={handleOpenConversation}   // ← use the handler above
+    showSearch
+    mineOnly={true}
+  />
+</TabsContent>
+
 
 
               {/* 3D Avatars Tab */}

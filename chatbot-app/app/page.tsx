@@ -90,7 +90,7 @@ export default function HomePage() {
         const convoId = await maybeCreateConversation();
         router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
       } else {
-        router.push('/chat/simple');
+        router.push("/chat/simple?new=1");
       }
     } catch (error) {
       console.error('Navigation to chat error:', error);

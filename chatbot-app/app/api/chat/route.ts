@@ -68,7 +68,7 @@ type SupportOption = { label: string; phone: string; when: string; audience?: st
 
 type UserProfile = {
   id: string;
-  display_name?: string | null;
+  username?: string | null;          // <-- use username (not display_name)
   age?: number | null;
   locale?: string | null;
   state?: string | null;
@@ -113,22 +113,28 @@ async function loadUserProfile(userId?: string): Promise<UserProfile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, display_name, age, locale, state, pronouns, indigenous, caregiver_role, preferred_tone")
+    .select("id, username, age, locale, state, pronouns, indigenous, caregiver_role, preferred_tone")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
   if (error) { console.error("loadUserProfile error:", error); return null; }
   return data as UserProfile;
 }
 
+// (kept for reference; not used directly in the happy path)
 async function loadRecentMood(conversationId: string, limit = 5) {
-  const { data, error } = await supabase
-    .from("mood_checkins")
-    .select("created_at, feeling, intensity, notes")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) { console.error("loadRecentMood error:", error); }
-  return data ?? [];
+  try {
+    const { data, error } = await supabase
+      .from("mood_checkins")
+      .select("created_at, feeling, intensity, reason, support")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data ?? [];
+  } catch (e: any) {
+    console.warn("loadRecentMood skipped:", e?.code || e?.message);
+    return [];
+  }
 }
 
 function buildSupportOptions(p: UserProfile | null): SupportOption[] {
@@ -158,6 +164,7 @@ async function ensureConversationOwned(conversationId: string, userId?: string) 
   if (error) console.error("ensureConversationOwned select error:", error);
 
   if (!data) {
+    // Create the conversation on first send only
     const { error: insErr } = await supabase
       .from("conversations")
       .insert({ id: conversationId, summary: "", created_by: userId ?? null });
@@ -332,7 +339,6 @@ async function resolveStyleGuide({
       tokens: NEUTRAL_DEFAULT,
     };
   }
-  
 
   // Read any stored persona/style for this conversation
   const { data: convo } = await supabase
@@ -350,12 +356,9 @@ async function resolveStyleGuide({
     resolvedPersona === "adam" ? ADAM_DEFAULT
     : resolvedPersona === "eve" ? EVE_DEFAULT
     : NEUTRAL_DEFAULT;
-    
 
   // 2) merge any previously saved customizations
-  if (convo?.style_json) {
-    tokens = { ...tokens, ...convo.style_json };
-  }
+  if (convo?.style_json) tokens = { ...tokens, ...convo.style_json };
 
   // 3) ALWAYS apply customStyleText if present (overlay on top of current tokens)
   if ((customStyleText ?? "").trim()) {
@@ -372,8 +375,6 @@ async function resolveStyleGuide({
   return { guide: styleGuideFromTokens(tokens), resolvedPersona, tokens };
 }
 
-
-
 // ---------------- Healthcheck ----------------
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat" });
@@ -382,13 +383,21 @@ export async function GET() {
 // ---------------- Main handler ----------------
 export async function POST(req: Request) {
   try {
+    // Parse once
     const body = await req.json();
-    const { conversationId, userMessage, persona, customStyleText } = body as {
+    const {
+      conversationId,
+      userMessage,
+      chatMode,             // "simple" | "avatar" (optional)
+      persona,
+      customStyleText,
+    }: {
       conversationId: string;
       userMessage: string;
-      persona?: Persona;
-      customStyleText?: string;
-    };
+      chatMode?: "simple" | "avatar";
+      persona?: string | null;
+      customStyleText?: string | null;
+    } = body;
 
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     if (!userMessage)     return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
@@ -396,6 +405,36 @@ export async function POST(req: Request) {
     // carry uid (anon or logged-in) and stamp ownership
     const userId = req.headers.get("x-user-id") || undefined;
     await ensureConversationOwned(conversationId, userId);
+
+    // ——— Ensure/patch conversation meta (respect requested chatMode) ———
+    const mode: "simple" | "avatar" | null =
+      chatMode === "avatar" || chatMode === "simple" ? chatMode : null;
+    const now = new Date().toISOString();
+
+    const { data: convo, error: selErr } = await supabase
+      .from("conversations")
+      .select("id, chat_mode, title")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
+
+    if (!convo) {
+      const initial: any = {
+        id: conversationId,
+        status: "ongoing",
+        updated_at: now,
+        ...(mode ? { chat_mode: mode } : {}),
+        ...(mode === "avatar" ? { title: "Avatar Chat" } : {}),
+      };
+      const { error: insErr } = await supabase.from("conversations").insert(initial);
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+    } else {
+      const patch: any = { status: "ongoing", updated_at: now };
+      if (convo.chat_mode == null && mode) patch.chat_mode = mode;
+      const { error: updErr } = await supabase.from("conversations").update(patch).eq("id", conversationId);
+      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+    }
+    // ————————————————————————————————————————————————————————————————
 
     // Exit command
     if (userMessage.trim().toLowerCase() === "exit") {
@@ -418,27 +457,51 @@ export async function POST(req: Request) {
       const answer = [
         "I’m really concerned about your safety.",
         "If you are in immediate danger, please call 000 now.",
-        `${profile?.display_name ? profile.display_name + "," : ""} you’re not alone — I care about your safety.`,
-        supports.map(s => `• ${s.label}: ${s.phone}`).join("\n"),
+        `${profile?.username ? profile.username + "," : ""} you’re not alone — I care about your safety.`,
+        supports.map((s) => `• ${s.label}: ${s.phone}`).join("\n"),
       ].join("\n\n");
 
       const inserted = await saveTurnToDB({
-        conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer,
+        conversationId,
+        userId,
+        botUserId: BOT_USER_ID,
+        userMessage,
+        botAnswer: answer,
       });
+
+      const titleGuess =
+        (userMessage ?? "").split("\n")[0].slice(0, 60).trim() ||
+        (mode === "avatar" ? "Avatar Chat" : "Simple Chat");
+
+      await supabase
+        .from("conversations")
+        .update({ status: "ongoing", updated_at: now })
+        .eq("id", conversationId);
+
+      await supabase
+        .from("conversations")
+        .update({ title: titleGuess })
+        .eq("id", conversationId)
+        .is("title", null);
 
       const recentForSummary = await loadLastPairs(conversationId, Math.max(6, MAX_PAIRS));
       const currentSummary = await loadSummary(conversationId);
-      await refreshSummary({ conversationId, currentSummary, recentTurns: recentForSummary, wordsTarget: 180 });
+      await refreshSummary({
+        conversationId,
+        currentSummary,
+        recentTurns: recentForSummary,
+        wordsTarget: 180,
+      });
 
-      const userRow = inserted.find(r => r.role === "user");
-      const assistantRow = inserted.find(r => r.role === "assistant");
+      const userRow = inserted.find((r) => r.role === "user");
+      const assistantRow = inserted.find((r) => r.role === "assistant");
 
       return NextResponse.json({
         conversationId,
         answer,
         emotion: "Negative",
         tier: "Imminent",
-        suggestions: supports.map(s => `${s.label} — ${s.phone}`),
+        suggestions: supports.map((s) => `${s.label} — ${s.phone}`),
         citations: [],
         rows: { user: userRow, assistant: assistantRow },
       });
@@ -447,74 +510,82 @@ export async function POST(req: Request) {
     // 1) Risk
     const risk = await classifyRisk(userMessage);
 
-    // 2) Personalisation + RAG + history
+    // 2) Personalisation + RAG + history (safe)
     const [profile, recentMood, summary, historyMsgs] = await Promise.all([
       loadUserProfile(userId),
-      loadRecentMood(conversationId, 5),
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from("mood_checkins")
+            .select("feeling, intensity, reason, support, created_at")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          if (error) throw error;
+          return data?.[0] ?? null;
+        } catch (e: any) {
+          console.warn("loadRecentMood skipped:", e?.code || e?.message);
+          return null;
+        }
+      })(),
       loadSummary(conversationId),
       loadLastPairs(conversationId, MAX_PAIRS),
     ]);
 
     const supports = buildSupportOptions(profile);
 
-    const ragHint = (risk.tier === "Elevated" || risk.tier === "Acute")
-      ? "grounded coping skills; short actionable steps; safety-plan examples; youth friendly; Australian and more specifically Queensland context\n"
-      : "";
+    const ragHint =
+      risk.tier === "Elevated" || risk.tier === "Acute"
+        ? "grounded coping skills; short actionable steps; safety-plan examples; youth friendly; Australian and more specifically Queensland context\n"
+        : "";
     const { context, hits } = await retrieveContext(ragHint + userMessage);
 
     // 3) Style (reads DB + applies overrides)
     const { guide: styleGuide, resolvedPersona, tokens } = await resolveStyleGuide({
-  conversationId,
-  personaFromBody: persona,
-  customStyleText,
-  profile,
-  riskTier: risk.tier,
-});
+      conversationId,
+      personaFromBody: persona as any,
+      customStyleText: customStyleText || undefined,
+      profile,
+      riskTier: risk.tier,
+    });
 
-    
+    // Persist style if an explicit override OR custom tone was provided
+    if (persona || (customStyleText ?? "").trim()) {
+      await supabase
+        .from("conversations")
+        .update({ persona: resolvedPersona, style_json: tokens })
+        .eq("id", conversationId);
+    }
 
-    // Persist style if an explicit override was provided (so DB reflects UI)
-   // Persist style if an explicit override OR custom tone was provided
-if (persona || (customStyleText ?? "").trim()) {
-  await supabase
-    .from("conversations")
-    .update({ persona: resolvedPersona, style_json: tokens })
-    .eq("id", conversationId);
-}
-
-
-
-// Persona identity block (hard requirements so Adam/Eve feel different)
-const personaRule =
-  resolvedPersona === "adam"
-    ? `Persona: **Adam — Direct Coach**.
+    // Persona identity block
+    const personaRule =
+      resolvedPersona === "adam"
+        ? `Persona: **Adam — Direct Coach**.
 HARD:
 - Keep replies compact (≤ 5 lines).
 - Prefer bullet points; minimal small talk.
 - Exactly one clear next step.`
-    : resolvedPersona === "eve"
-    ? `Persona: **Eve — Warm Guide**.
+        : resolvedPersona === "eve"
+        ? `Persona: **Eve — Warm Guide**.
 HARD:
 - Gentle, reflective tone; short paragraphs (no bullets unless asked).
 - 1–2 collaborative questions max.
 - Suggest a next step together.`
-    : `Persona: **Neutral**. Balanced, concise, plain language.`;
+        : `Persona: **Neutral**. Balanced, concise, plain language.`;
 
-// If the custom style asks for short/strict output, compress CARE automatically
-const hasHardCaps =
-  !!tokens.strict_bullets ||
-  tokens.bullet_count != null ||
-  tokens.max_bullet_words != null ||
-  !!tokens.no_greeting ||
-  !!tokens.one_next_step ||
-  tokens.max_questions != null ||
-  tokens.length === "short";
+    const hasHardCaps =
+      !!tokens.strict_bullets ||
+      tokens.bullet_count != null ||
+      tokens.max_bullet_words != null ||
+      !!tokens.no_greeting ||
+      !!tokens.one_next_step ||
+      tokens.max_questions != null ||
+      tokens.length === "short";
 
-const careRule = hasHardCaps
-  ? `When hard caps or short style are present, compress CARE into the limits.
+    const careRule = hasHardCaps
+      ? `When hard caps or short style are present, compress CARE into the limits.
 Keep only a brief acknowledgement + one tiny next step. No preamble.`
-  : `Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps.`;
-
+      : `Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps.`;
 
     const systemPrompt =
 `You are a concise, empathetic youth-support assistant for Australia.
@@ -546,11 +617,17 @@ DON'T:
 
 Return plain text suitable for a chat UI.`;
 
-
+    const displayName = (profile?.username ?? "").trim();
+    const openerName = displayName ? `Hi ${displayName}, ` : "";
 
     const careCard = {
-      opener: `${profile?.display_name ? `Hi ${profile.display_name}, ` : ""}thanks for telling me. ${recentMood?.[0]?.feeling ? `I remember you mentioned feeling ${recentMood[0].feeling} recently. ` : ""}I’m listening.`.trim(),
-      safetyLine: (risk.tier === "Imminent" || risk.tier === "Acute") ? "If you feel unsafe, call 000 now. It’s the fastest way to get help in Australia." : "",
+      opener: `${openerName}thanks for telling me. ${
+        recentMood?.feeling ? `I remember you mentioned feeling ${recentMood.feeling} recently. ` : ""
+      }I’m listening.`.trim(),
+      safetyLine:
+        risk.tier === "Imminent" || risk.tier === "Acute"
+          ? "If you feel unsafe, call 000 now. It’s the fastest way to get help in Australia."
+          : "",
       nextSteps: [
         "Name one thing that makes this moment 1% easier. I can help you plan the next 10 minutes.",
         "If you’d like, we can write a tiny safety plan (what you’ll do, who you’ll contact, where you’ll be).",
@@ -559,17 +636,16 @@ Return plain text suitable for a chat UI.`;
     };
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-  { role: "system", content: systemPrompt },
-  { role: "system", content: `Conversation summary:\n${summary || "(none)"}` },
-  { role: "system", content: `User profile:\n${JSON.stringify(profile || {}, null, 2)}` },
-  { role: "system", content: `Risk assessment:\n${JSON.stringify(risk, null, 2)}` },
-  { role: "system", content: `Support options (region/persona-aware):\n${supports.map(s => `${s.label}: ${s.phone} — ${s.when}`).join("\n")}` },
-  { role: "system", content: `Reference (do NOT quote or repeat): CARE card scaffold for internal planning only:\n${JSON.stringify(careCard, null, 2)}` },
-  { role: "system", content: `Context (RAG):\n${context}` },
-  ...historyMsgs,
-  { role: "user", content: userMessage },
-];
-
+      { role: "system", content: systemPrompt },
+      { role: "system", content: `Conversation summary:\n${summary || "(none)"}` },
+      { role: "system", content: `User profile:\n${JSON.stringify(profile || {}, null, 2)}` },
+      { role: "system", content: `Risk assessment:\n${JSON.stringify(risk, null, 2)}` },
+      { role: "system", content: `Support options (region/persona-aware):\n${supports.map(s => `${s.label}: ${s.phone} — ${s.when}`).join("\n")}` },
+      { role: "system", content: `Reference (do NOT quote or repeat): CARE card scaffold for internal planning only:\n${JSON.stringify(careCard, null, 2)}` },
+      { role: "system", content: `Context (RAG):\n${context}` },
+      ...historyMsgs,
+      { role: "user", content: userMessage },
+    ];
 
     // 4) Generate answer
     const resp = await openai.chat.completions.create({
