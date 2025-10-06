@@ -458,10 +458,7 @@ try {
   // Never let summary issues break the chat response
   console.error("summary refresh skipped:", err);
 }
-
-
-
-
+    
     if (!convo) {
       const initial: any = {
         id: conversationId,
