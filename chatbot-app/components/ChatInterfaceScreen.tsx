@@ -1,7 +1,7 @@
 // components/ChatInterfaceScreen.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import AvatarDisplay from "./chat/AvatarDisplay";
 import ChatHeader from "./chat/ChatHeader";
@@ -135,6 +135,8 @@ export function ChatInterfaceScreen({
   stats,
 }: ChatInterfaceScreenProps) {
   const [inputValue, setInputValue] = useState("");
+  const [userTyping, setUserTyping] = useState(false);
+  const userTypingTimer = useRef<number | null>(null);
   const [uiOnlySystem, setUiOnlySystem] = useState<UIMsg[]>([]);
   const [showShareWarning, setShowShareWarning] = useState(false);
   const [showCrisisModal, setShowCrisisModal] = useState(false);
@@ -273,6 +275,7 @@ export function ChatInterfaceScreen({
                   url: companionAvatar?.url ?? undefined,
                 }}
                 assistantTalking={isTyping}
+                userTalking={userTyping}
               />
             ) : (
               <div className="p-3 text-sm text-muted-foreground">
@@ -294,16 +297,32 @@ export function ChatInterfaceScreen({
 
           <MessageInput
             value={inputValue}
-            onChange={setInputValue}
+            onChange={(val) => {
+              setInputValue(val);
+              // Toggle user talking while actively typing (debounced)
+              setUserTyping(true);
+              if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
+              userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 600);
+            }}
             onSendMessage={(text) => {
               const t = text.trim();
               if (!t) return;
               (onSend ?? (() => {}))(t);
               setInputValue("");
+              setUserTyping(false);
             }}
             isAnonymous={user?.id === "anon"}
             onToggleAnonymous={() => {}}
             disabled={false}
+            onFocus={() => {
+              setUserTyping(true);
+              if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
+            }}
+            onBlur={() => {
+              // Graceful fade-out shortly after leaving the input
+              if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
+              userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 250);
+            }}
           />
         </div>
       </div>

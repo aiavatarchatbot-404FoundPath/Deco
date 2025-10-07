@@ -32,16 +32,10 @@ export default function Sidebar({
   // --- Support actions ---
   const handleCrisisSupport = () => {
     onCrisisSupport?.();
-    onInjectMessage?.(
-      "If you’re in immediate danger, please contact emergency services (000) or Lifeline (13 11 14). I'm here with you — you're not alone."
-    );
   };
 
   const handleFindCounselor = () => {
     onCounselorRequest?.();
-    onInjectMessage?.(
-      "Yes, connecting with a counselor could be helpful. Would you like me to share a few youth-friendly, trauma-informed contacts?"
-    );
   };
 
   const handlePreferences = () => {

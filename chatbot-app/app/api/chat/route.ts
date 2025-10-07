@@ -1,15 +1,8 @@
+//app/api/chat/route.ts
 // app/api/chat/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import {
-  ADAM_DEFAULT,
-  EVE_DEFAULT,
-  NEUTRAL_DEFAULT,
-  compileStyleFromText,
-  styleGuideFromTokens,
-  type Persona,
-} from "@/lib/personas";
 
 // ---------------- Runtime ----------------
 export const runtime = "nodejs";
@@ -33,9 +26,9 @@ const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 const MAX_CONTEXT_CHARS = 12000;
 
 // Rolling summary
-const MAX_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 6);
-const SUMMARY_MAX_CHARS = 1500;
-const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3);
+const MAX_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 6);            // last N user/assistant pairs
+const SUMMARY_MAX_CHARS = 1500;                                       // cap stored summary
+const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3); // refresh cadence
 
 const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
 
@@ -52,11 +45,6 @@ function checkFilters(userInput: string): "Imminent Danger" | null {
   for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(userInput)) return "Imminent Danger";
   return null;
 }
-// Choose correct tables for anon vs logged-in users
-const tables = (userId?: string) => ({
-  conv: userId ? "conversations" : "anon_conversations",
-  msgs: userId ? "messages"       : "anon_messages",
-});
 
 // ---------------- Types ----------------
 type RoleTurn = { role: "user" | "assistant"; content: string };
@@ -73,12 +61,12 @@ type SupportOption = { label: string; phone: string; when: string; audience?: st
 
 type UserProfile = {
   id: string;
-  username?: string | null;          // <-- use username (not display_name)
+  display_name?: string | null;
   age?: number | null;
-  locale?: string | null;
-  state?: string | null;
+  locale?: string | null;            // e.g., "en-AU"
+  state?: string | null;             // e.g., "QLD"
   pronouns?: string | null;
-  indigenous?: boolean | null;
+  indigenous?: boolean | null;       // if user opted-in/shared
   caregiver_role?: "youth" | "parent" | "worker" | null;
   preferred_tone?: "casual" | "warm" | "professional" | null;
 };
@@ -118,28 +106,22 @@ async function loadUserProfile(userId?: string): Promise<UserProfile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, age, locale, state, pronouns, indigenous, caregiver_role, preferred_tone")
+    .select("id, display_name, age, locale, state, pronouns, indigenous, caregiver_role, preferred_tone")
     .eq("id", userId)
-    .maybeSingle();
+    .single();
   if (error) { console.error("loadUserProfile error:", error); return null; }
   return data as UserProfile;
 }
 
-// (kept for reference; not used directly in the happy path)
 async function loadRecentMood(conversationId: string, limit = 5) {
-  try {
-    const { data, error } = await supabase
-      .from("mood_checkins")
-      .select("created_at, feeling, intensity, reason, support")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(limit);
-    if (error) throw error;
-    return data ?? [];
-  } catch (e: any) {
-    console.warn("loadRecentMood skipped:", e?.code || e?.message);
-    return [];
-  }
+  const { data, error } = await supabase
+    .from("mood_checkins")
+    .select("created_at, feeling, intensity, notes")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) { console.error("loadRecentMood error:", error); }
+  return data ?? [];
 }
 
 function buildSupportOptions(p: UserProfile | null): SupportOption[] {
@@ -159,7 +141,7 @@ function buildSupportOptions(p: UserProfile | null): SupportOption[] {
   return opts;
 }
 
-// ---------------- Conversations helpers ----------------
+// ---------------- Conversations: ensure ownership (CRITICAL for anon) ----------------
 async function ensureConversationOwned(conversationId: string, userId?: string) {
   const { data, error } = await supabase
     .from("conversations")
@@ -169,14 +151,13 @@ async function ensureConversationOwned(conversationId: string, userId?: string) 
   if (error) console.error("ensureConversationOwned select error:", error);
 
   if (!data) {
-    const row: any = { id: conversationId, summary: "" };
-    if (userId) row.created_by = userId; // optional now
-    const { error: insErr } = await supabase.from("conversations").insert(row);
+    const { error: insErr } = await supabase
+      .from("conversations")
+      .insert({ id: conversationId, summary: "", created_by: userId ?? null });
     if (insErr) console.error("ensureConversationOwned insert error:", insErr);
     return;
   }
-
-  if (userId && !data.created_by) {
+  if (userId && (!data.created_by || (BOT_USER_ID && data.created_by === BOT_USER_ID))) {
     const { error: updErr } = await supabase
       .from("conversations")
       .update({ created_by: userId })
@@ -184,7 +165,6 @@ async function ensureConversationOwned(conversationId: string, userId?: string) 
     if (updErr) console.error("ensureConversationOwned update owner error:", updErr);
   }
 }
-
 
 async function loadSummary(conversationId: string): Promise<string> {
   const { data, error } = await supabase
@@ -266,7 +246,7 @@ async function refreshSummary({
   await saveSummary(conversationId, updated);
 }
 
-// ---------------- Persistence for the turn ----------------
+// ---------------- Persistence for the turn (returns inserted rows) ----------------
 async function saveTurnToDB({
   conversationId,
   userId,
@@ -280,26 +260,34 @@ async function saveTurnToDB({
   userMessage: string;
   botAnswer: string;
 }) {
-  const { msgs } = tables(userId);
   const now = new Date();
-  const later = new Date(now.getTime() + 1);
-
+  const aBitLater = new Date(now.getTime() + 1); // 1 ms later
   const rows: any[] = [
-    { conversation_id: conversationId, sender_id: userId ?? null,    role: "user",      content: userMessage, created_at: now.toISOString() },
-    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer,   created_at: later.toISOString() },
+    {
+      conversation_id: conversationId,
+      sender_id: userId ?? null,   // anon or logged-in uid
+      role: "user",
+      content: userMessage,
+      created_at: now.toISOString(),
+    },
+    {
+      conversation_id: conversationId,
+      sender_id: botUserId ?? null,
+      role: "assistant",
+      content: botAnswer,
+      created_at: aBitLater.toISOString(),
+    }
   ];
 
   const { data, error } = await supabase
-  .from("messages")
-  .insert(rows)
-  .select("id, conversation_id, sender_id, role, content, created_at")
-  .order("created_at", { ascending: true });
-
+    .from("messages")
+    .insert(rows)
+    .select("id, conversation_id, sender_id, role, content, created_at")
+    .order("created_at", { ascending: true });
 
   if (error) console.error("saveTurnToDB error:", error);
-  return (data ?? []);
+  return data ?? [];
 }
-
 
 // ---------------- Risk classifier (LLM) ----------------
 async function classifyRisk(userMessage: string): Promise<RiskAssessment> {
@@ -329,89 +317,80 @@ Return only JSON.`;
   }
 }
 
-// ---------------- Style resolver ----------------
-async function resolveStyleGuide({
-  conversationId,
-  personaFromBody,
-  customStyleText,
-  profile,
-  riskTier,
+// ---------------- Micro-templates: style & CARE card ----------------
+function buildStyle(profile: UserProfile | null) {
+  const tone = profile?.preferred_tone || "warm";
+  const style = (tone === "professional")
+    ? "professional, clear, non-judgmental"
+    : tone === "casual"
+    ? "casual, friendly, non-judgmental"
+    : "warm, supportive, non-judgmental";
+  return `${style}; use plain language; 2–4 short paragraphs; use the user's words; offer 2–3 small next steps.`;
+}
+
+function buildCARECard({
+  profile, risk, supports, recentMood
 }: {
-  conversationId: string;
-  personaFromBody?: Persona;        // "adam" | "eve" | "neutral" | (maybe "custom")
-  customStyleText?: string;
-  profile: UserProfile | null;
-  riskTier: RiskTier;
-}): Promise<{ guide: string; resolvedPersona: Persona; tokens: any }> {
-  // Crisis: force neutral + short
-  if (riskTier === "Imminent" || riskTier === "Acute") {
-    return {
-      guide: "- Crisis style: calm, nonjudgmental; advise calling 000; keep it short.",
-      resolvedPersona: "neutral" as Persona,
-      tokens: NEUTRAL_DEFAULT,
-    };
-  }
+  profile: UserProfile | null; risk: RiskAssessment; supports: SupportOption[]; recentMood: any[];
+}) {
+  const name = profile?.display_name;
+  const addressByName = name ? `Hi ${name}, ` : "";
+  const safetyLine = (risk.tier === "Imminent" || risk.tier === "Acute")
+    ? "If you feel unsafe, call **000** now. It’s the fastest way to get help in Australia."
+    : "";
 
-  // Read any stored persona/style for this conversation
-  const { data: convo } = await supabase
-    .from("conversations")
-    .select("persona, style_json")
-    .eq("id", conversationId)
-    .maybeSingle();
+  const firstSupport = supports[0] ? `You can also talk to ${supports[0].label} at **${supports[0].phone}**.` : "";
+  const lastFeel = recentMood?.[0]?.feeling ? `I remember you mentioned feeling **${recentMood[0].feeling}** recently.` : "";
 
-  // 1) pick a base persona (body → stored → neutral)
-  const resolvedPersona =
-    (personaFromBody as Persona | undefined) ??
-    ((convo?.persona as Persona | undefined) ?? "neutral");
-
-  let tokens =
-    resolvedPersona === "adam" ? ADAM_DEFAULT
-    : resolvedPersona === "eve" ? EVE_DEFAULT
-    : NEUTRAL_DEFAULT;
-
-  // 2) merge any previously saved customizations
-  if (convo?.style_json) tokens = { ...tokens, ...convo.style_json };
-
-  // 3) ALWAYS apply customStyleText if present (overlay on top of current tokens)
-  if ((customStyleText ?? "").trim()) {
-    tokens = compileStyleFromText(customStyleText!, tokens);
-  }
-
-  // 4) Gentle profile nudge if nothing explicit from user stored before
-  if (!convo?.style_json && profile?.preferred_tone) {
-    if (profile.preferred_tone === "professional") tokens.formality = Math.min(1, (tokens.formality ?? 0.5) + 0.2);
-    if (profile.preferred_tone === "casual")       tokens.formality = Math.max(0, (tokens.formality ?? 0.5) - 0.2);
-    if (profile.preferred_tone === "warm")         tokens.warmth    = Math.min(1, (tokens.warmth ?? 0.5) + 0.2);
-  }
-
-  return { guide: styleGuideFromTokens(tokens), resolvedPersona, tokens };
+  return {
+    opener: `${addressByName}thanks for telling me. ${lastFeel} I’m listening.`.trim(),
+    safetyLine,
+    nextSteps: [
+      "Name one thing that makes this moment 1% easier. I can help you plan the next 10 minutes.",
+      "If you’d like, we can write a tiny safety plan (what you’ll do, who you’ll contact, where you’ll be).",
+      firstSupport
+    ].filter(Boolean),
+  };
 }
 
 // ---------------- Healthcheck ----------------
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat" });
 }
+// in app/api/chat/route.ts
+// app/api/chat/route.ts
+async function ensureConversationRow(conversationId: string, userId?: string) {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("id, created_by")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (error) console.error("ensureConversationRow select error:", error);
 
-// ---------------- Main handler ----------------
+  if (!data) {
+    const { error: insErr } = await supabase
+      .from("conversations")
+      .insert({ id: conversationId, created_by: userId ?? null, summary: "" });
+    if (insErr) console.error("ensureConversationRow insert error:", insErr);
+    return;
+  }
+
+  if (userId && (!data.created_by || (BOT_USER_ID && data.created_by === BOT_USER_ID))) {
+    const { error: updErr } = await supabase
+      .from("conversations")
+      .update({ created_by: userId })
+      .eq("id", conversationId);
+    if (updErr) console.error("ensureConversationRow update owner error:", updErr);
+  }
+}
+
+
+
+
+
 export async function POST(req: Request) {
-  
   try {
-    // Parse once
-    const body = await req.json();
-    const {
-      conversationId,
-      userMessage,
-      chatMode,             // "simple" | "avatar" (optional)
-      persona,
-      customStyleText,
-    }: {
-      conversationId: string;
-      userMessage: string;
-      chatMode?: "simple" | "avatar";
-      persona?: string | null;
-      customStyleText?: string | null;
-    } = body;
-
+    const { conversationId, userMessage } = await req.json();
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     if (!userMessage)     return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
 
@@ -419,65 +398,7 @@ export async function POST(req: Request) {
     const userId = req.headers.get("x-user-id") || undefined;
     await ensureConversationOwned(conversationId, userId);
 
-    // ——— Ensure/patch conversation meta (respect requested chatMode) ———
-    const mode: "simple" | "avatar" | null =
-      chatMode === "avatar" || chatMode === "simple" ? chatMode : null;
-    const now = new Date().toISOString();
-
-    const { data: convo, error: selErr } = await supabase
-      .from("conversations")
-      .select("id, chat_mode, title")
-      .eq("id", conversationId)
-      .maybeSingle();
-    if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
-    // 6) Refresh summary occasionally (only for logged-in conversations)
-try {
-  if (userId) {
-    const assistantCount = await countAssistantMessages(conversationId);
-    const currentSummary = await loadSummary(conversationId);
-
-    const shouldRefresh =
-      (assistantCount > 0 && assistantCount % SUMMARY_REFRESH_EVERY === 0) ||
-      !currentSummary ||
-      currentSummary.trim().length === 0;
-
-    if (shouldRefresh) {
-      const recentForSummary = await loadLastPairs(
-        conversationId,
-        Math.max(6, MAX_PAIRS)
-      );
-      await refreshSummary({
-        conversationId,
-        currentSummary,
-        recentTurns: recentForSummary,
-        wordsTarget: 180,
-      });
-    }
-  }
-} catch (err) {
-  // Never let summary issues break the chat response
-  console.error("summary refresh skipped:", err);
-}
-    
-    if (!convo) {
-      const initial: any = {
-        id: conversationId,
-        status: "ongoing",
-        updated_at: now,
-        ...(mode ? { chat_mode: mode } : {}),
-        ...(mode === "avatar" ? { title: "Avatar Chat" } : {}),
-      };
-      const { error: insErr } = await supabase.from("conversations").insert(initial);
-      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
-    } else {
-      const patch: any = { status: "ongoing", updated_at: now };
-      if (convo.chat_mode == null && mode) patch.chat_mode = mode;
-      const { error: updErr } = await supabase.from("conversations").update(patch).eq("id", conversationId);
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
-    }
-    // ————————————————————————————————————————————————————————————————
-
-    // Exit command
+    // Exit command (no persistence here)
     if (userMessage.trim().toLowerCase() === "exit") {
       return NextResponse.json({
         conversationId,
@@ -489,7 +410,7 @@ try {
       });
     }
 
-    // Hard-stop regex → immediate escalation
+    // 0) Hard-stop regex → immediate escalation
     const forcedTier = checkFilters(userMessage);
     if (forcedTier) {
       const profile = await loadUserProfile(userId);
@@ -497,9 +418,9 @@ try {
 
       const answer = [
         "I’m really concerned about your safety.",
-        "If you are in immediate danger, please call 000 now.",
-        `${profile?.username ? profile.username + "," : ""} you’re not alone — I care about your safety.`,
-        supports.map((s) => `• ${s.label}: ${s.phone}`).join("\n"),
+        "If you are in immediate danger, please call **000** now.",
+        `${profile?.display_name ? profile.display_name + "," : ""} you’re not alone — I care about your safety.`,
+        supports.map(s => `• ${s.label}: ${s.phone}`).join("\n"),
       ].join("\n\n");
 
       const inserted = await saveTurnToDB({
@@ -510,21 +431,6 @@ try {
         botAnswer: answer,
       });
 
-      const titleGuess =
-        (userMessage ?? "").split("\n")[0].slice(0, 60).trim() ||
-        (mode === "avatar" ? "Avatar Chat" : "Simple Chat");
-
-      await supabase
-        .from("conversations")
-        .update({ status: "ongoing", updated_at: now })
-        .eq("id", conversationId);
-
-      await supabase
-        .from("conversations")
-        .update({ title: titleGuess })
-        .eq("id", conversationId)
-        .is("title", null);
-
       const recentForSummary = await loadLastPairs(conversationId, Math.max(6, MAX_PAIRS));
       const currentSummary = await loadSummary(conversationId);
       await refreshSummary({
@@ -534,113 +440,42 @@ try {
         wordsTarget: 180,
       });
 
-      const userRow = inserted.find((r) => r.role === "user");
-      const assistantRow = inserted.find((r) => r.role === "assistant");
+      const userRow = inserted.find(r => r.role === "user");
+      const assistantRow = inserted.find(r => r.role === "assistant");
 
       return NextResponse.json({
         conversationId,
         answer,
         emotion: "Negative",
         tier: "Imminent",
-        suggestions: supports.map((s) => `${s.label} — ${s.phone}`),
+        suggestions: supports.map(s => `${s.label} — ${s.phone}`),
         citations: [],
         rows: { user: userRow, assistant: assistantRow },
       });
     }
 
-    // 1) Risk
+    // 1) Nuanced classifier
     const risk = await classifyRisk(userMessage);
 
-    // 2) Personalisation + RAG + history (safe)
+    // 2) Personalisation inputs + RAG + history
     const [profile, recentMood, summary, historyMsgs] = await Promise.all([
       loadUserProfile(userId),
-      (async () => {
-        try {
-          const { data, error } = await supabase
-            .from("mood_checkins")
-            .select("feeling, intensity, reason, support, created_at")
-            .eq("conversation_id", conversationId)
-            .order("created_at", { ascending: false })
-            .limit(1);
-          if (error) throw error;
-          return data?.[0] ?? null;
-        } catch (e: any) {
-          console.warn("loadRecentMood skipped:", e?.code || e?.message);
-          return null;
-        }
-      })(),
+      loadRecentMood(conversationId, 5),
       loadSummary(conversationId),
       loadLastPairs(conversationId, MAX_PAIRS),
     ]);
+    
+await ensureConversationRow(conversationId, userId);
 
     const supports = buildSupportOptions(profile);
 
-    const ragHint =
-      risk.tier === "Elevated" || risk.tier === "Acute"
-        ? "grounded coping skills; short actionable steps; safety-plan examples; youth friendly; Australian and more specifically Queensland context\n"
-        : "";
+    const ragHint = (risk.tier === "Elevated" || risk.tier === "Acute")
+      ? "grounded coping skills; short actionable steps; safety-plan examples; youth friendly; Australian and more specifically Queensland context\n"
+      : "";
     const { context, hits } = await retrieveContext(ragHint + userMessage);
-
-    // 3) Style (reads DB + applies overrides)
-    const { guide: styleGuide, resolvedPersona, tokens } = await resolveStyleGuide({
-      conversationId,
-      personaFromBody: persona as any,
-      customStyleText: customStyleText || undefined,
-      profile,
-      riskTier: risk.tier,
-    });
-
-    // Persist style if an explicit override OR custom tone was provided
-    if (persona || (customStyleText ?? "").trim()) {
-      await supabase
-        .from("conversations")
-        .update({ persona: resolvedPersona, style_json: tokens })
-        .eq("id", conversationId);
-    }
-
-    // Persona identity block
-    const personaRule =
-      resolvedPersona === "adam"
-        ? `Persona: **Adam — Direct Coach**.
-HARD:
-- Keep replies compact (≤ 5 lines).
-- Prefer bullet points; minimal small talk.
-- Exactly one clear next step.`
-        : resolvedPersona === "eve"
-        ? `Persona: **Eve — Warm Guide**.
-HARD:
-- Gentle, reflective tone; short paragraphs (no bullets unless asked).
-- 1–2 collaborative questions max.
-- Suggest a next step together.`
-        : `Persona: **Neutral**. Balanced, concise, plain language.`;
-
-    const hasHardCaps =
-      !!tokens.strict_bullets ||
-      tokens.bullet_count != null ||
-      tokens.max_bullet_words != null ||
-      !!tokens.no_greeting ||
-      !!tokens.one_next_step ||
-      tokens.max_questions != null ||
-      tokens.length === "short";
-
-    const careRule = hasHardCaps
-      ? `When hard caps or short style are present, compress CARE into the limits.
-Keep only a brief acknowledgement + one tiny next step. No preamble.`
-      : `Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps.`;
 
     const systemPrompt =
 `You are a concise, empathetic youth-support assistant for Australia.
-
-${personaRule}
-
-# STYLEGUIDE — HARD REQUIREMENTS
-${styleGuide}
-You MUST follow the StyleGuide EXACTLY. If the StyleGuide asks for:
-- bullet points → write the main body ONLY as bullets (no paragraphs),
-- "one clear next step" → give exactly one next step,
-- "minimal small talk" → do not add chit-chat,
-- "direct & concise" → keep sentences short and action-focused.
-If the StyleGuide and user request conflict, the StyleGuide wins.
 
 PRIORITIES (in order):
 1) Safety first:
@@ -649,8 +484,13 @@ PRIORITIES (in order):
 2) Personalisation: reflect the user's words and the profile/summary/mood provided.
 3) Helpfulness: offer 2–3 small, doable next steps tailored to the user's goals and context.
 4) RAG: use provided Context ONLY to add accurate ideas/resources; never hallucinate.
+5) Tone: ${buildStyle(profile)}
 
-${careRule}
+DO:
+- Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps.
+- Mirror key phrases the user used. Use their name/pronouns if provided.
+- If youth ≤25, prefer youth-specific supports. If indigenous==true, include 13YARN.
+- End with a permission-based question like “Want me to help you plan the next 10 minutes?”
 
 DON'T:
 - Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
@@ -658,23 +498,7 @@ DON'T:
 
 Return plain text suitable for a chat UI.`;
 
-    const displayName = (profile?.username ?? "").trim();
-    const openerName = displayName ? `Hi ${displayName}, ` : "";
-
-    const careCard = {
-      opener: `${openerName}thanks for telling me. ${
-        recentMood?.feeling ? `I remember you mentioned feeling ${recentMood.feeling} recently. ` : ""
-      }I’m listening.`.trim(),
-      safetyLine:
-        risk.tier === "Imminent" || risk.tier === "Acute"
-          ? "If you feel unsafe, call 000 now. It’s the fastest way to get help in Australia."
-          : "",
-      nextSteps: [
-        "Name one thing that makes this moment 1% easier. I can help you plan the next 10 minutes.",
-        "If you’d like, we can write a tiny safety plan (what you’ll do, who you’ll contact, where you’ll be).",
-        supports[0] ? `You can also talk to ${supports[0].label} at ${supports[0].phone}.` : "",
-      ].filter(Boolean),
-    };
+    const careCard = buildCARECard({ profile, risk, supports, recentMood });
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },
@@ -682,13 +506,13 @@ Return plain text suitable for a chat UI.`;
       { role: "system", content: `User profile:\n${JSON.stringify(profile || {}, null, 2)}` },
       { role: "system", content: `Risk assessment:\n${JSON.stringify(risk, null, 2)}` },
       { role: "system", content: `Support options (region/persona-aware):\n${supports.map(s => `${s.label}: ${s.phone} — ${s.when}`).join("\n")}` },
-      { role: "system", content: `Reference (do NOT quote or repeat): CARE card scaffold for internal planning only:\n${JSON.stringify(careCard, null, 2)}` },
+      { role: "system", content: `CARE card:\n${JSON.stringify(careCard, null, 2)}` },
       { role: "system", content: `Context (RAG):\n${context}` },
       ...historyMsgs,
       { role: "user", content: userMessage },
     ];
 
-    // 4) Generate answer
+    // 4) Generate answer (low temp for stability)
     const resp = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
@@ -699,7 +523,7 @@ Return plain text suitable for a chat UI.`;
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
 
-    // 5) Persist turn
+    // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
       conversationId,
       userId,
@@ -708,7 +532,7 @@ Return plain text suitable for a chat UI.`;
       botAnswer: answer,
     });
 
-    // 6) Refresh summary occasionally
+    // 6) Refresh summary occasionally / on first reply
     const assistantCount = await countAssistantMessages(conversationId);
     const currentSummary = await loadSummary(conversationId);
     const shouldRefresh =
@@ -725,7 +549,7 @@ Return plain text suitable for a chat UI.`;
       });
     }
 
-    // 7) Suggestions + citations
+    // 7) Build suggestions based on risk
     const baseSuggestions = [
       "Write a 3-step safety plan together",
       "Try a 60-second breathing reset",
@@ -752,6 +576,7 @@ Return plain text suitable for a chat UI.`;
     const userRow = inserted.find(r => r.role === "user");
     const assistantRow = inserted.find(r => r.role === "assistant");
 
+    // 9) Envelope
     return NextResponse.json({
       conversationId,
       answer,
@@ -759,8 +584,9 @@ Return plain text suitable for a chat UI.`;
       tier: risk.tier === "None" ? "None" : risk.tier,
       suggestions,
       citations,
-      rows: { user: userRow, assistant: assistantRow },
+      rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
     });
+
   } catch (e: any) {
     console.error("CHAT route error:", e);
     return NextResponse.json({ error: e.message ?? "chat error" }, { status: 400 });
