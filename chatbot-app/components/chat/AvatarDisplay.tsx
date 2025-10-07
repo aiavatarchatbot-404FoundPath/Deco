@@ -15,10 +15,12 @@ export default function AvatarDisplay({
   userAvatar,
   aiAvatar,
   assistantTalking = false, // pass isTyping here if you want AI mouth to move
+  userTalking = false,
 }: {
   userAvatar: Avatar;
   aiAvatar: Avatar;
   assistantTalking?: boolean;
+  userTalking?: boolean;
 }) {
   const hasUser = !!userAvatar?.url;
   const hasCompanion = !!aiAvatar?.url;
@@ -45,9 +47,10 @@ export default function AvatarDisplay({
             <div className="absolute inset-0">
               <RpmViewer
                 src={userAvatar?.url ?? null}
-                singleYaw={-Math.PI / 2}
+                singleYaw={Math.PI / 2}
                 singleLookAt={[2.2, 1.3, 0]}
-                talkOverride={assistantTalking}
+                talkOverride={userTalking}
+                actor={'user'}
               />
             </div>
           ) : (
@@ -60,9 +63,10 @@ export default function AvatarDisplay({
             <div className="absolute inset-0">
               <RpmViewer
                 src={aiAvatar?.url ?? null}
-                singleYaw={Math.PI / 2}
+                singleYaw={-Math.PI / 2}
                 singleLookAt={[-2.2, 1.3, 0]}
                 talkOverride={assistantTalking}
+                actor={'ai'}
               />
             </div>
           ) : (

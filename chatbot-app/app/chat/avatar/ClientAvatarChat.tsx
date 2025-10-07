@@ -465,8 +465,11 @@ export default function ClientAvatarChat() {
   const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
   const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
 
+  // Respect explicit choice in URL (name or url) over stored profile
+  const namedCompanionUrl = companionNameFromParams ? (COMPANIONS[key]?.url ?? null) : null;
   const rawComp =
     companionUrlFromParams ||
+    namedCompanionUrl ||
     profile?.rpm_companion_url ||
     fallbackComp.url;
 
@@ -489,6 +492,30 @@ export default function ClientAvatarChat() {
     type: (companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
     url: compGlb,
   };
+
+  // If the user logs in mid-chat and we have an explicit companionName in the URL,
+  // sync that selection into their profile so it persists.
+  useEffect(() => {
+    (async () => {
+      if (!profile?.id) return;
+      if (!companionNameFromParams) return;
+      const desiredUrl = COMPANIONS[key]?.url;
+      if (!desiredUrl) return;
+      if (profile.rpm_companion_url === desiredUrl) return;
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ rpm_companion_url: desiredUrl })
+          .eq('id', profile.id);
+        if (!error) {
+          setProfile((p) => (p ? { ...p, rpm_companion_url: desiredUrl } : p));
+        }
+      } catch (e) {
+        console.error('Failed to sync companion selection to profile:', e);
+      }
+    })();
+  // include key so switching name in URL is respected
+  }, [profile?.id, profile?.rpm_companion_url, companionNameFromParams, key]);
 
   /* ---------- Render ---------- */
   const chatInterfaceMood = useMemo(() => {

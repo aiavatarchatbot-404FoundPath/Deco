@@ -6,6 +6,7 @@ import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
 import RpmModel from './RpmModel';
 
+
 type Props = {
   src?: string | null;
   userUrl?: string | null;
@@ -14,50 +15,35 @@ type Props = {
   singleYaw?: number;
   singleLookAt?: [number, number, number] | null;
   talkOverride?: boolean;
+  actor?: 'user' | 'ai';
 };
 
 const DEFAULT_LOOK_TARGET = new THREE.Vector3(0, 1.2, 2);
 
 export default function RpmViewer(props: Props) {
   const userUrl = props.userUrl ?? null;
-  const aiUrl = props.aiUrl ?? null;
+  const aiUrl   = props.aiUrl ?? null;
   const singleSrc = props.src ?? null;
 
   const hasUser = !!userUrl;
   const hasCompanion = !!aiUrl;
 
   const duo = hasUser && hasCompanion;
-  const isSeparate = (hasUser && !hasCompanion) || (!hasUser && hasCompanion); // NEW: separate-container mode
+  const isSeparate = (hasUser && !hasCompanion) || (!hasUser && hasCompanion);
   const separationX = 4;
   const duoScale = 0.6;
-  const singleScale = 0.68; // larger avatars while fitting frame
+  const singleScale = 0.68;
 
   const userPosition: [number, number, number] = duo ? [-separationX, 0, 0] : [0, 0, 0];
   const companionPosition: [number, number, number] = duo ? [separationX, 0, 0] : [0, 0, 0];
 
-  // In one-canvas duo mode, keep these as you had them
-  const duoUserYaw = -Math.PI / 2;
-  const duoCompanionYaw = Math.PI / 2;
+  // Yaw so both face each other (tweak signs if needed for your GLBs)
+  const duoUserYaw = -Math.PI / 2;      // left avatar faces toward center
+  const duoCompanionYaw = Math.PI / 2;  // right avatar faces toward center
 
-  const userLookTarget = useMemo(() => {
-    if (!duo || !hasUser) return null;
-    return new THREE.Vector3(0, 1.35, 0);
-  }, [duo, hasUser]);
-
-  const companionLookTarget = useMemo(() => {
-    if (!duo || !hasCompanion) return null;
-    return new THREE.Vector3(0, 1.35, 0);
-  }, [duo, hasCompanion]);
-
-  // NEW: local “center” targets for separate canvases
-  const centerLookTargetLeft  = useMemo(() => new THREE.Vector3( 2.0, 1.35, 0), []);
-  const centerLookTargetRight = useMemo(() => new THREE.Vector3(-2.0, 1.35, 0), []);
-
-  // NEW: fixed yaws (RPM forward ≈ -Z)
-  // Face inward but bias toward the camera so they aren't perfectly profile
+  const frontBias = 0.25; // slight camera bias
   const leftFaceRightYaw = Math.PI / 2;
   const rightFaceLeftYaw = -Math.PI / 2;
-  const frontBias = 0.6; // stronger front bias in radians (~34°)
 
   const singleYaw = props.singleYaw ?? 0;
   const singleLookTarget = useMemo(() => {
@@ -69,10 +55,11 @@ export default function RpmViewer(props: Props) {
     return DEFAULT_LOOK_TARGET;
   }, [props.singleLookAt]);
 
-  // Force visible talking motion for now
-  const talkState = true;
+  // talking states per avatar
+  const userTalking = Boolean(props.talkOverride ?? false);
+  const aiTalking = Boolean(props.assistantTalking ?? false);
 
-  // Camera presets
+  // camera presets
   const camera = useMemo(
     () =>
       duo
@@ -80,6 +67,11 @@ export default function RpmViewer(props: Props) {
         : ({ position: [0, 1.2, 4.5] as [number, number, number], fov: 28 }),
     [duo]
   );
+
+  // Paths to FBX clips (ensure these files exist under public/)
+  const idleFbx = '/mixamo/breathing_idle.fbx';
+  const userTalkFbx = '/mixamo/Talking_user.fbx';
+  const aiTalkFbx = '/mixamo/Talking_ai.fbx';
 
   return (
     <Canvas
@@ -97,74 +89,83 @@ export default function RpmViewer(props: Props) {
           <>
             {/* USER (left) */}
             {userUrl && (
-              <RpmModel
-                key={`user-${userUrl}`}
-                src={userUrl}
-                position={userPosition}
-                yaw={duoUserYaw + frontBias}
-                pitch={-0.18}
-                lookAt={userLookTarget}
-                talk={talkState}
-                scale={duoScale}
-              />
+              <group position={userPosition} rotation={[ -0.18, duoUserYaw + frontBias, 0 ]} scale={duoScale}>
+                <RpmModel
+                  avatarUrl={userUrl}
+                  animUrls={userTalking ? userTalkFbx : idleFbx}
+                  playing={true}
+                  timeScale={1}
+                  fadeSec={0.3}
+                  loop={THREE.LoopRepeat}
+                  repetitions={Infinity}
+                />
+              </group>
             )}
 
             {/* AI (right) */}
             {aiUrl && (
-              <RpmModel
-                key={`ai-${aiUrl}`}
-                src={aiUrl}
-                position={companionPosition}
-                yaw={duoCompanionYaw - frontBias}
-                pitch={-0.18}
-                lookAt={companionLookTarget}
-                talk={talkState}
-                scale={duoScale}
-              />
+              <group position={companionPosition} rotation={[ -0.18, duoCompanionYaw - frontBias, 0 ]} scale={duoScale}>
+                <RpmModel
+                  avatarUrl={aiUrl}
+                  animUrls={aiTalking ? aiTalkFbx : idleFbx}
+                  playing={true}
+                  timeScale={1}
+                  fadeSec={0.3}
+                  loop={THREE.LoopRepeat}
+                  repetitions={Infinity}
+                />
+              </group>
             )}
           </>
         ) : isSeparate ? (
-          // NEW: Separate-container mode (exactly one avatar in this canvas)
           <>
             {hasUser && (
-              <RpmModel
-                key={`user-separate-${userUrl}`}
-                src={userUrl}
-                position={[0, 0, 0]}
-                yaw={(leftFaceRightYaw + Math.PI) + frontBias}
-                pitch={-0.18}
-                lookAt={centerLookTargetLeft}  // bias head toward center
-                talk={talkState}
-                scale={singleScale}
-              />
+              <group position={[0, 0, 0]} rotation={[ -0.18, leftFaceRightYaw + frontBias, 0 ]} scale={singleScale}>
+                <RpmModel
+                  avatarUrl={userUrl!}
+                  animUrls={userTalking ? userTalkFbx : idleFbx}
+                  playing={true}
+                  timeScale={1}
+                  fadeSec={0.3}
+                  loop={THREE.LoopRepeat}
+                  repetitions={Infinity}
+                />
+              </group>
             )}
             {hasCompanion && (
-              <RpmModel
-                key={`ai-separate-${aiUrl}`}
-                src={aiUrl}
-                position={[0, 0, 0]}
-                yaw={(rightFaceLeftYaw + Math.PI) - frontBias}
-                pitch={-0.18}
-                lookAt={centerLookTargetRight}
-                talk={talkState}
-                scale={singleScale}
-              />
+              <group position={[0, 0, 0]} rotation={[ -0.18, rightFaceLeftYaw - frontBias, 0 ]} scale={singleScale}>
+                <RpmModel
+                  avatarUrl={aiUrl!}
+                  animUrls={aiTalking ? aiTalkFbx : idleFbx}
+                  playing={true}
+                  timeScale={1}
+                  fadeSec={0.3}
+                  loop={THREE.LoopRepeat}
+                  repetitions={Infinity}
+                />
+              </group>
             )}
           </>
         ) : (
-          // Single-preview fallback (uses src or one of the urls)
-          <RpmModel
-            src={singleSrc ?? userUrl ?? aiUrl}
-            position={[0, -0.2, 0]}
-            yaw={singleYaw}
-            pitch={-0.18}
-            talk={talkState}
-            lookAt={singleLookTarget}
-            scale={singleScale}
-          />
+          // Single-preview fallback (src or either url)
+          <group position={[0, -0.2, 0]} rotation={[ -0.18, singleYaw, 0 ]} scale={singleScale}>
+            <RpmModel
+              avatarUrl={(singleSrc ?? userUrl ?? aiUrl) as string}
+              animUrls={
+                (props.actor ?? (userUrl ? 'user' : 'ai')) === 'user'
+                  ? (userTalking ? userTalkFbx : idleFbx)
+                  : (aiTalking ? aiTalkFbx : idleFbx)
+              }
+              playing={true}
+              timeScale={1}
+              fadeSec={0.3}
+              loop={THREE.LoopRepeat}
+              repetitions={Infinity}
+            />
+          </group>
         )}
 
-        <Environment preset="park" />
+        <Environment preset="sunset" />
       </Suspense>
 
       <OrbitControls
@@ -181,3 +182,4 @@ export default function RpmViewer(props: Props) {
     </Canvas>
   );
 }
+  

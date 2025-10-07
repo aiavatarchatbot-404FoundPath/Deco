@@ -10,6 +10,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Treat this as the placeholder owner for anonymous sessions
+const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
+
 export async function POST(req: Request) {
   try {
     const { conversationId } = await req.json();
@@ -37,7 +40,7 @@ export async function POST(req: Request) {
     let created = false;
     let updatedOwner = false;
 
-    // 2) Create or set owner if missing
+    // 2) Create or set owner if missing or held by BOT_USER_ID
     if (!convo) {
       const { error: insErr } = await supabase
         .from("conversations")
@@ -47,7 +50,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "insert failed" }, { status: 500 });
       }
       created = true;
-    } else if (!convo.created_by) {
+    } else if (!convo.created_by || (BOT_USER_ID && convo.created_by === BOT_USER_ID)) {
       const { error: updErr } = await supabase
         .from("conversations")
         .update({ created_by: userId })
@@ -92,4 +95,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

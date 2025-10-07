@@ -13,6 +13,8 @@ interface MessageInputProps {
   isAnonymous: boolean;                   // whether user is in anonymous mode
   onToggleAnonymous: (anonymous: boolean) => void; // toggles anonymous mode
   disabled?: boolean;                     // disable input during AI typing
+  onFocus?: () => void;                   // fired when user focuses the input
+  onBlur?: () => void;                    // fired when user blurs the input
 }
 
 export default function MessageInput({
@@ -21,7 +23,9 @@ export default function MessageInput({
   onSendMessage,
   isAnonymous,
   onToggleAnonymous,
-  disabled = false
+  disabled = false,
+  onFocus,
+  onBlur,
 }: MessageInputProps) {
   
   /**
@@ -80,6 +84,8 @@ export default function MessageInput({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={onFocus}
+            onBlur={onBlur}
             disabled={disabled}
             className="min-h-[44px] max-h-32 resize-none border-gray-300 focus:border-blue-500 focus:ring-blue-500"
           />

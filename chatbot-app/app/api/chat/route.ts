@@ -157,7 +157,7 @@ async function ensureConversationOwned(conversationId: string, userId?: string) 
     if (insErr) console.error("ensureConversationOwned insert error:", insErr);
     return;
   }
-  if (!data.created_by && userId) {
+  if (userId && (!data.created_by || (BOT_USER_ID && data.created_by === BOT_USER_ID))) {
     const { error: updErr } = await supabase
       .from("conversations")
       .update({ created_by: userId })
@@ -375,7 +375,7 @@ async function ensureConversationRow(conversationId: string, userId?: string) {
     return;
   }
 
-  if (!data.created_by && userId) {
+  if (userId && (!data.created_by || (BOT_USER_ID && data.created_by === BOT_USER_ID))) {
     const { error: updErr } = await supabase
       .from("conversations")
       .update({ created_by: userId })
