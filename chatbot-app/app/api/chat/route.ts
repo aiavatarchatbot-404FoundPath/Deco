@@ -359,34 +359,6 @@ export async function GET() {
 }
 // in app/api/chat/route.ts
 // app/api/chat/route.ts
-async function ensureConversationRow(conversationId: string, userId?: string) {
-  const { data, error } = await supabase
-    .from("conversations")
-    .select("id, created_by")
-    .eq("id", conversationId)
-    .maybeSingle();
-  if (error) console.error("ensureConversationRow select error:", error);
-
-  if (!data) {
-    const { error: insErr } = await supabase
-      .from("conversations")
-      .insert({ id: conversationId, created_by: userId ?? null, summary: "" });
-    if (insErr) console.error("ensureConversationRow insert error:", insErr);
-    return;
-  }
-
-  if (userId && (!data.created_by || (BOT_USER_ID && data.created_by === BOT_USER_ID))) {
-    const { error: updErr } = await supabase
-      .from("conversations")
-      .update({ created_by: userId })
-      .eq("id", conversationId);
-    if (updErr) console.error("ensureConversationRow update owner error:", updErr);
-  }
-}
-
-
-
-
 
 export async function POST(req: Request) {
   try {
@@ -464,8 +436,6 @@ export async function POST(req: Request) {
       loadSummary(conversationId),
       loadLastPairs(conversationId, MAX_PAIRS),
     ]);
-    
-await ensureConversationRow(conversationId, userId);
 
     const supports = buildSupportOptions(profile);
 
