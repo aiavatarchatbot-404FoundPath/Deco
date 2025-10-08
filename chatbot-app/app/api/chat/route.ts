@@ -540,6 +540,14 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
 
+    const cleanSuggestions = suggestions.map(s =>
+  s
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/^#+\s+/gm, '')
+    .replace(/^-{1,}\s*/gm, '- ')
+);
+
     const citations = hits.map((h, i) => ({
       rank: i + 1,
       file: h.file ?? null,
@@ -557,7 +565,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: risk.tier === "None" ? "None" : risk.tier,
-      suggestions,
+      suggestions: cleansuggestions,
       citations,
       rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
     });
