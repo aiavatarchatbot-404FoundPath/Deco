@@ -6,10 +6,10 @@
 
 ## Project Overview
 
-**Trust-Building AI Avatar Conversations** is a Studio 3 (DECO) project developed at **The University of Queensland**.  
-It explores how **AI avatars**, **ethical design**, and **trauma-informed responses** can create emotionally safe, trustworthy digital interactions for vulnerable youth.
+**Trust-Building AI Avatar Conversations** is a Studio 3 (DECO3801) project developed at **The University of Queensland**.  
+It explores how **AI avatars**, **ethical design** and **trauma-informed responses** can create emotionally safe, trustworthy digital interactions for vulnerable youth.
 
-The system combines **natural language understanding**, **3D visual empathy**, and **context-aware reasoning** through Retrieval-Augmented Generation (RAG).  
+The system combines **natural language understanding**, **3D visual empathy** and **context-aware reasoning** through Retrieval-Augmented Generation (RAG).  
 It ensures every response is **grounded**, **private**, and **emotionally sensitive**.
 
 ---
@@ -35,10 +35,3 @@ cd Deco
 pnpm i
 cp .env.example .env.local   # add your API keys
 pnpm dev
----
-Then visit [http://localhost:3000](http://localhost:3000)  
-to explore the avatar builder and start chatting.
-
-For detailed setup instructions →  
-📘 **[Quickstart Guide on Wiki →](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki/Quickstart)**
-
