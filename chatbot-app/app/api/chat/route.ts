@@ -492,6 +492,12 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
 
+    answer = answer
+  .replace(/\*\*(.*?)\*\*/g, '$1')   // remove **bold**
+  .replace(/\*(.*?)\*/g, '$1')       // remove *italic*
+  .replace(/^#+\s+/gm, '')           // remove Markdown headings (#, ##)
+  .replace(/^-{1,}\s*/gm, '- ');     // normalize list bullets
+
     // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
       conversationId,
