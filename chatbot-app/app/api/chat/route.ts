@@ -488,7 +488,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       temperature: 0.2,
     });
 
-    const answer =
+    let answer =
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
 
