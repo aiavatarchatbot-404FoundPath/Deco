@@ -465,7 +465,7 @@ DON'T:
 - Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
 - Don’t give medical diagnoses or definitive clinical claims.
 
-Return plain text suitable for a chat UI (no Markdown formatting like *, **, #, or bullet symbols). Use plain dashes or numbers instead.`;
+Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashes or numbers when providing suggestions.`;
 
     const careCard = buildCARECard({ profile, risk, supports, recentMood });
 
