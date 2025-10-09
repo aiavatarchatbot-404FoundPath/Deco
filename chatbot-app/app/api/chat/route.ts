@@ -359,14 +359,28 @@ export async function GET() {
 // in app/api/chat/route.ts
 // app/api/chat/route.ts
 
-function stripMarkdown(text = '') {
+// ---------------- Text cleanup ----------------
+function stripMarkdown(text = ''): string {
+  if (!text) return '';
+
   return text
-    .replace(/\\\*\*(.*?)\\\*\*/g, '$1') // remove escaped **
-    .replace(/\\\*(.*?)\\\*/g, '$1')     // remove escaped *
-    .replace(/\*\*(.*?)\*\*/g, '$1')     // remove **
-    .replace(/\*(.*?)\*/g, '$1')         // remove *
-    .replace(/^#+\s+/gm, '')             // remove headings
-    .replace(/^-{1,}\s*/gm, '- ')        // normalize dashes
+    // Remove escaped markdown (like \*\*bold\*\*)
+    .replace(/\\[*_~`>#-]/g, '')
+    // Remove bold/italic markers
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/_(.*?)_/g, '$1')
+    // Remove backticks (inline code)
+    .replace(/`([^`]*)`/g, '$1')
+    // Remove markdown headings (#, ##, etc.)
+    .replace(/^#{1,6}\s+/gm, '')
+    // Normalize bullet points (replace • or * with -)
+    .replace(/^[\s]*[-*•]\s+/gm, '- ')
+    // Remove any extra backslashes
+    .replace(/\\/g, '')
+    // Clean trailing spaces and newlines
+    .replace(/[ \t]+$/gm, '')
     .trim();
 }
 
