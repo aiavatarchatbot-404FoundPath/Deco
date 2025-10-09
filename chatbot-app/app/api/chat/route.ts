@@ -490,7 +490,7 @@ DON'T:
 - Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
 - Don’t give medical diagnoses or definitive clinical claims.
 
-Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashes or numbers when providing suggestions.`;
+Use plain dashes or numbers when providing suggestions.`;
 
     const careCard = buildCARECard({ profile, risk, supports, recentMood });
 
@@ -577,7 +577,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
     // 9) Envelope
     return NextResponse.json({
       conversationId,
-      answer,
+      answer: answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: risk.tier === "None" ? "None" : risk.tier,
       suggestions: cleanSuggestions,
