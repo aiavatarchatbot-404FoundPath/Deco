@@ -561,7 +561,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
 
-    const cleanSuggestions = suggestions.map(stripMarkdown);
+    suggestions = stripMarkdown(suggestions)
 
     const citations = hits.map((h, i) => ({
       rank: i + 1,
@@ -580,7 +580,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: risk.tier === "None" ? "None" : risk.tier,
-      suggestions: cleanSuggestions,
+      suggestions,
       citations,
       rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
     });
