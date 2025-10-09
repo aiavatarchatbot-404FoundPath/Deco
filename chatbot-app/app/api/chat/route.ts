@@ -565,7 +565,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: risk.tier === "None" ? "None" : risk.tier,
-      suggestions: cleansuggestions,
+      suggestions: cleanSuggestions,
       citations,
       rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
     });
