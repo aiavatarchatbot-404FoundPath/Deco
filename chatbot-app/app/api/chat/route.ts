@@ -359,6 +359,17 @@ export async function GET() {
 // in app/api/chat/route.ts
 // app/api/chat/route.ts
 
+function stripMarkdown(text = '') {
+  return text
+    .replace(/\\\*\*(.*?)\\\*\*/g, '$1') // remove escaped **
+    .replace(/\\\*(.*?)\\\*/g, '$1')     // remove escaped *
+    .replace(/\*\*(.*?)\*\*/g, '$1')     // remove **
+    .replace(/\*(.*?)\*/g, '$1')         // remove *
+    .replace(/^#+\s+/gm, '')             // remove headings
+    .replace(/^-{1,}\s*/gm, '- ')        // normalize dashes
+    .trim();
+}
+
 export async function POST(req: Request) {
   try {
     const { conversationId, userMessage } = await req.json();
@@ -491,12 +502,8 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
     let answer =
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
-
-    answer = answer
-  .replace(/\*\*(.*?)\*\*/g, '$1')   // remove **bold**
-  .replace(/\*(.*?)\*/g, '$1')       // remove *italic*
-  .replace(/^#+\s+/gm, '')           // remove Markdown headings (#, ##)
-  .replace(/^-{1,}\s*/gm, '- ');     // normalize list bullets
+    
+    answer = stripMarkdown(answer)
 
     // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
@@ -540,13 +547,7 @@ Do not use markdown formatting like *, **, #, or bullet symbols. Use plain dashe
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
 
-    const cleanSuggestions = suggestions.map(s =>
-  s
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/^#+\s+/gm, '')
-    .replace(/^-{1,}\s*/gm, '- ')
-);
+    const cleanSuggestions = suggestions.map(stripMarkdown);
 
     const citations = hits.map((h, i) => ({
       rank: i + 1,
