@@ -364,22 +364,17 @@ function stripMarkdown(text = ''): string {
   if (!text) return '';
 
   return text
-    // Remove escaped markdown (like \*\*bold\*\*)
+    // Remove escaped markdown and extra backslashes
     .replace(/\\[*_~`>#-]/g, '')
-    // Remove bold/italic markers
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/__(.*?)__/g, '$1')
-    .replace(/_(.*?)_/g, '$1')
-    // Remove backticks (inline code)
+    // Remove bold/italic/underline markers
+    .replace(/(\*\*|\*|__|_)(.*?)\1/g, '$2')
+    // Remove inline code
     .replace(/`([^`]*)`/g, '$1')
-    // Remove markdown headings (#, ##, etc.)
+    // Remove headings
     .replace(/^#{1,6}\s+/gm, '')
-    // Normalize bullet points (replace • or * with -)
+    // Normalize bullet points
     .replace(/^[\s]*[-*•]\s+/gm, '- ')
-    // Remove any extra backslashes
-    .replace(/\\/g, '')
-    // Clean trailing spaces and newlines
+    // Trim trailing spaces and overall text
     .replace(/[ \t]+$/gm, '')
     .trim();
 }
