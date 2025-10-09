@@ -335,7 +335,7 @@ function buildCARECard({
   const name = profile?.display_name;
   const addressByName = name ? `Hi ${name}, ` : "";
   const safetyLine = (risk.tier === "Imminent" || risk.tier === "Acute")
-    ? "If you feel unsafe, call **000** now. It’s the fastest way to get help in Australia."
+    ? "If you feel unsafe, call 000 now. It’s the fastest way to get help in Australia."
     : "";
 
   const firstSupport = supports[0] ? `You can also talk to ${supports[0].label} at **${supports[0].phone}**.` : "";
