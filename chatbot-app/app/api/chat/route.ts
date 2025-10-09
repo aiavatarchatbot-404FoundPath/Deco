@@ -390,7 +390,7 @@ export async function POST(req: Request) {
       const answer = [
         "I’m really concerned about your safety.",
         "If you are in immediate danger, please call **000** now.",
-        `${profile?.display_name ? profile.display_name + "," : ""} you’re not alone — I care about your safety.`,
+        `${profile?.display_name ? profile.display_name + "," : ""} You’re not alone — I care about your safety.`,
         supports.map(s => `• ${s.label}: ${s.phone}`).join("\n"),
       ].join("\n\n");
 
