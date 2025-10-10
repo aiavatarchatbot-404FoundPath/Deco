@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import { marked } from "marked";
 
 // ---------------- Runtime ----------------
 export const runtime = "nodejs";
@@ -358,7 +357,6 @@ export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat" });
 }
 // in app/api/chat/route.ts
-// app/api/chat/route.ts
 
 export async function POST(req: Request) {
   try {
@@ -389,9 +387,9 @@ export async function POST(req: Request) {
       const supports = buildSupportOptions(profile);
 
       const answer = [
-        "Bro I’m really concerned about your safety.",
+        "I’m really concerned about your safety.",
         "If you are in immediate danger, please call **000** now.",
-        `${profile?.display_name ? profile.display_name + "," : ""} You’re not alone — I care about your safety.`,
+        `${profile?.display_name ? profile.display_name + "," : ""}You’re not alone — I care about your safety.`,
         supports.map(s => `• ${s.label}: ${s.phone}`).join("\n"),
       ].join("\n\n");
 
@@ -466,7 +464,8 @@ DON'T:
 - Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
 - Don’t give medical diagnoses or definitive clinical claims.
 
-Use plain dashes or numbers when providing suggestions.`;
+"Do not use Markdown, do not use bullets, do not use ** — return plain text only."
+"Provide suggestions only if the user asks for them."`;
 
     const careCard = buildCARECard({ profile, risk, supports, recentMood });
 
