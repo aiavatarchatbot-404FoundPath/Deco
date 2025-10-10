@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { marked } from "marked";
 
 // ---------------- Runtime ----------------
 export const runtime = "nodejs";
@@ -359,26 +360,6 @@ export async function GET() {
 // in app/api/chat/route.ts
 // app/api/chat/route.ts
 
-// ---------------- Text cleanup ----------------
-function stripMarkdown(text = ''): string {
-  if (!text) return '';
-
-  return text
-    // Remove escaped markdown and extra backslashes
-    .replace(/\\[*_~`>#-]/g, '')
-    // Remove bold/italic/underline markers
-    .replace(/(\*\*|\*|__|_)(.*?)\1/g, '$2')
-    // Remove inline code
-    .replace(/`([^`]*)`/g, '$1')
-    // Remove headings
-    .replace(/^#{1,6}\s+/gm, '')
-    // Normalize bullet points
-    .replace(/^[\s]*[-*•]\s+/gm, '- ')
-    // Trim trailing spaces and overall text
-    .replace(/[ \t]+$/gm, '')
-    .trim();
-}
-
 export async function POST(req: Request) {
   try {
     const { conversationId, userMessage } = await req.json();
@@ -511,8 +492,9 @@ Use plain dashes or numbers when providing suggestions.`;
     let answer =
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
-    
-    answer = stripMarkdown(answer)
+
+    // ✅ Convert Markdown → HTML (so **text** becomes <strong>text</strong>)
+    const boldedAnswer = marked.parse(answer);
 
     // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
@@ -556,7 +538,7 @@ Use plain dashes or numbers when providing suggestions.`;
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
 
-    const cleanSuggestions = suggestions.map(stripMarkdown);
+    const boldedSuggestions = suggestions.map(s => marked.parse(s));
 
     const citations = hits.map((h, i) => ({
       rank: i + 1,
@@ -572,10 +554,10 @@ Use plain dashes or numbers when providing suggestions.`;
     // 9) Envelope
     return NextResponse.json({
       conversationId,
-      answer: answer,
+      answer: boldedAnswer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: risk.tier === "None" ? "None" : risk.tier,
-      suggestions: cleanSuggestions,
+      suggestions: boldedSuggestions,
       citations,
       rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
     });
