@@ -358,6 +358,7 @@ export async function GET() {
 }
 // in app/api/chat/route.ts
 
+
 export async function POST(req: Request) {
   try {
     const { conversationId, userMessage } = await req.json();
@@ -372,7 +373,7 @@ export async function POST(req: Request) {
     if (userMessage.trim().toLowerCase() === "exit") {
       return NextResponse.json({
         conversationId,
-        answer: "🤖: Goodbye! Your session has been cleared. Take care! 👋",
+        answer: "I’ll be here if you need me again. Take care! 😊",
         emotion: "Neutral",
         tier: "None",
         suggestions: [],
@@ -388,7 +389,7 @@ export async function POST(req: Request) {
 
       const answer = [
         "I’m really concerned about your safety.",
-        "If you are in immediate danger, please call **000** now.",
+        "If you are in immediate danger, please call 000 now.",
         `${profile?.display_name ? profile.display_name + "," : ""}You’re not alone — I care about your safety.`,
         supports.map(s => `• ${s.label}: ${s.phone}`).join("\n"),
       ].join("\n\n");
@@ -458,14 +459,13 @@ DO:
 - Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps.
 - Mirror key phrases the user used. Use their name/pronouns if provided.
 - If youth ≤25, prefer youth-specific supports. If indigenous==true, include 13YARN.
-- End with a permission-based question like “Want me to help you plan the next 10 minutes?”
+- Please provide suggestions in bullet points. Do not use Markdown formatting.
 
 DON'T:
 - Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
 - Don’t give medical diagnoses or definitive clinical claims.
+- Do not include any "next steps" paragraphs or bullet lists unless the user explicitly asks for advice, help, or suggestions`;
 
-"Do not use Markdown, do not use bullets, do not use ** — return plain text only."
-"Provide suggestions only if the user asks for them."`;
 
     const careCard = buildCARECard({ profile, risk, supports, recentMood });
 
@@ -533,7 +533,7 @@ DON'T:
     const suggestions = (risk.tier === "Imminent" || risk.tier === "Acute")
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
-    
+
     const citations = hits.map((h, i) => ({
       rank: i + 1,
       file: h.file ?? null,
