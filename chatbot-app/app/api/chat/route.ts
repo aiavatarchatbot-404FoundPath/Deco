@@ -545,6 +545,12 @@ Use plain dashes or numbers when providing suggestions.`;
 
     const boldedSuggestions = suggestions.map(s => marked.parse(s));
 
+    // Display the suggestions in a <ul> on the page
+    const container = document.getElementById("suggestions");
+    if (container) {
+      container.innerHTML = boldedSuggestions.map(item => `<li>${item}</li>`).join("");
+    }
+    
     const citations = hits.map((h, i) => ({
       rank: i + 1,
       file: h.file ?? null,
