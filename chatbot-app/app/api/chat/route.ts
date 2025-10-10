@@ -496,11 +496,6 @@ Use plain dashes or numbers when providing suggestions.`;
     // ✅ Convert Markdown → HTML (so **text** becomes <strong>text</strong>)
     const boldedAnswer = marked.parse(answer);
 
-    const container = document.getElementById("answer");
-    if (container) {
-      container.innerHTML = boldedAnswer; // ✅ Bold text will now render
-    }
-
     // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
       conversationId,
@@ -544,12 +539,6 @@ Use plain dashes or numbers when providing suggestions.`;
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
 
     const boldedSuggestions = suggestions.map(s => marked.parse(s));
-
-    // Display the suggestions in a <ul> on the page
-    const container = document.getElementById("suggestions");
-    if (container) {
-      container.innerHTML = boldedSuggestions.map(item => `<li>${item}</li>`).join("");
-    }
     
     const citations = hits.map((h, i) => ({
       rank: i + 1,
