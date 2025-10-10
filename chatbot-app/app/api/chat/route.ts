@@ -496,6 +496,11 @@ Use plain dashes or numbers when providing suggestions.`;
     // ✅ Convert Markdown → HTML (so **text** becomes <strong>text</strong>)
     const boldedAnswer = marked.parse(answer);
 
+    const container = document.getElementById("answer");
+    if (container) {
+      container.innerHTML = boldedAnswer; // ✅ Bold text will now render
+    }
+
     // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
       conversationId,
