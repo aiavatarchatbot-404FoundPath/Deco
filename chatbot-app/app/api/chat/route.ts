@@ -488,12 +488,9 @@ DON'T:
       temperature: 0.2,
     });
 
-    let answer =
+    const answer =
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
-
-    // ✅ Convert Markdown → HTML (so **text** becomes <strong>text</strong>)
-    const boldedAnswer = marked.parse(answer);
 
     // 5) Persist the new user+assistant turn (always insert both rows) and return them
     const inserted = await saveTurnToDB({
@@ -536,8 +533,6 @@ DON'T:
     const suggestions = (risk.tier === "Imminent" || risk.tier === "Acute")
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
-
-    const boldedSuggestions = suggestions.map(s => marked.parse(s));
     
     const citations = hits.map((h, i) => ({
       rank: i + 1,
@@ -553,10 +548,10 @@ DON'T:
     // 9) Envelope
     return NextResponse.json({
       conversationId,
-      answer: boldedAnswer,
+      answer: answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: risk.tier === "None" ? "None" : risk.tier,
-      suggestions: boldedSuggestions,
+      suggestions: suggestions,
       citations,
       rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
     });
