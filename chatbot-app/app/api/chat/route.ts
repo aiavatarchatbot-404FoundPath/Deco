@@ -1,12 +1,34 @@
-//app/api/chat/route.ts
+// app/api/chat/route.ts
+/**
+ * CHAT ROUTE — Read Me
+ * --------------------
+ * Flow (POST):
+ *  0) Validate input + ensure ownership (works for anon + signed-in)
+ *  1) Hard safety regex (instant crisis path)
+ *  2) Load profile/mood/summary/history in parallel
+ *  3) Risk assess (ensemble: regex + LLM JSON + heuristics) using latest msg + short history
+ *  4) RAG retrieve (with hint for higher risk)
+ *  5) Build system prompt + CARE card
+ *  6) Call Chat model
+ *  7) Save user + assistant messages
+ *  8) Occasionally refresh summary
+ *  9) Return envelope (answer, tier, suggestions, citations, rows)
+ *
+ * Key knobs:
+ *  - TOP_K, SIM_THRESHOLD, MAX_CONTEXT_CHARS (RAG)
+ *  - SUMMARY_REFRESH_EVERY, MAX_PAIRS (history/summary)
+ *  - Safety regexes and the ensemble risk assessor
+ */
+
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
-// ---------------- Runtime ----------------
+// =======================================
+// 1) Runtime & Clients
+// =======================================
 export const runtime = "nodejs";
 
-// ---------------- Clients ----------------
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 const supabase = createClient(
@@ -14,7 +36,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY! // SERVER ONLY
 );
 
-// ---------------- Config ----------------
+// =======================================
+// 2) Config
+// =======================================
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 const CHAT_MODEL  = process.env.CHAT_MODEL  || "gpt-4o-mini";
 const SUM_MODEL   = process.env.SUM_MODEL   || CHAT_MODEL;
@@ -24,36 +48,62 @@ const SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.2);
 const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 const MAX_CONTEXT_CHARS = 12000;
 
-// Rolling summary
+// Rolling summary config
 const MAX_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 6);            // last N user/assistant pairs
 const SUMMARY_MAX_CHARS = 1500;                                       // cap stored summary
 const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3); // refresh cadence
 
 const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
 
-// ---------------- Safety (regex hard stop) ----------------
+// =======================================
+// 3) Safety (regex hard stop) — with negation & idiom guards
+// =======================================
 const DANGER_PATTERNS: string[] = [
-  "\\bsuicid(e|al)\\b","\\bdie\\b","\\bdying\\b","\\bkill(ing)? myself\\b","\\bend(ing)? my life\\b",
-  "\\bdeath\\b","\\bmurder myself\\b","\\bwant to die\\b","\\bcan't go on\\b","\\bi feel hopeless\\b",
-  "\\bi want to disappear\\b","\\bno reason to live\\b","\\bi wish i was dead\\b","\\bi am worthless\\b",
-  "\\bi am a burden\\b",
+  "\\bsuicid(e|al)\\b","\\bkill(ing)? myself\\b","\\bend(ing)? my life\\b",
+  "\\bwant to die\\b","\\bi want to die\\b","\\bcan't go on\\b",
+  "\\bno reason to live\\b","\\bi wish i was dead\\b",
+  "\\boverdose(d)?\\b","\\bcut (myself|deep)\\b","\\battempt(ed)?\\b",
 ];
+const NEGATION_RX = /\b(don't|do not|never|no longer|not)\b/i;
+const IDIOMS_RX = /\b(killed it|dead tired|die of laughter|this killed me|that slayed me)\b/i;
 const COMPILED_DANGER_PATTERNS = DANGER_PATTERNS.map(p => new RegExp(p, "i"));
 
-function checkFilters(userInput: string): "Imminent Danger" | null {
-  for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(userInput)) return "Imminent Danger";
+/** Returns "Imminent" when a high-risk literal pattern is found (unless negated/idiom), else null. */
+function checkFilters(userInput: string): "Imminent" | null {
+  const text = userInput.toLowerCase();
+  if (IDIOMS_RX.test(text)) return null;
+  // If clear negation like "I don't want to die", don't trigger.
+  if (NEGATION_RX.test(text) && /\b(die|kill myself|suicid(e|al))\b/i.test(text)) return null;
+  for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(text)) return "Imminent";
   return null;
 }
 
-// ---------------- Types ----------------
+// =======================================
+// 4) Types
+// =======================================
 type RoleTurn = { role: "user" | "assistant"; content: string };
 
 type RiskTier = "Imminent" | "Acute" | "Elevated" | "Low" | "None";
+
+type Evidence = { quote: string; start?: number; end?: number };
+
 type RiskAssessment = {
   tier: RiskTier;
   signals: string[];
   protective: string[];
   user_goals: string[];
+  criteria_met: {
+    ideation?: boolean;
+    plan?: boolean;
+    means?: boolean;
+    timeframe?: boolean;
+    attempt?: boolean;
+    hopelessness?: boolean;
+    self_harm_urges?: boolean;
+    negation_present?: boolean;
+  };
+  confidence: number;
+  evidence: Evidence[];
 };
 
 type SupportOption = { label: string; phone: string; when: string; audience?: string };
@@ -70,7 +120,9 @@ type UserProfile = {
   preferred_tone?: "casual" | "warm" | "professional" | null;
 };
 
-// ---------------- Utilities: embeddings & retrieval ----------------
+// =======================================
+// 5) Retrieval utilities (embeddings + RPC)
+// =======================================
 async function embedOne(text: string): Promise<number[]> {
   const e = await openai.embeddings.create({ model: EMBED_MODEL, input: text });
   return e.data[0].embedding as number[];
@@ -87,6 +139,7 @@ async function retrieveContext(userMessage: string) {
 
   const hits = (data ?? []) as Array<{ file?: string; chunk_id?: string | number; content?: string; similarity?: number }>;
 
+  // assemble up to MAX_CONTEXT_CHARS
   const parts: string[] = [];
   let used = 0;
   for (const h of hits) {
@@ -100,7 +153,9 @@ async function retrieveContext(userMessage: string) {
   return { context: parts.join("\n---\n"), hits };
 }
 
-// ---------------- Personalisation fetch ----------------
+// =======================================
+// 6) Personalisation helpers (profile, mood, supports)
+// =======================================
 async function loadUserProfile(userId?: string): Promise<UserProfile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
@@ -127,7 +182,6 @@ function buildSupportOptions(p: UserProfile | null): SupportOption[] {
   const opts: SupportOption[] = [];
   // AU national defaults
   opts.push({ label: "Lifeline (24/7)", phone: "13 11 14", when: "feeling unsafe or in crisis" });
-
   if (p?.age && p.age <= 25) {
     opts.push({ label: "Kids Helpline (24/7, ages 5–25)", phone: "1800 55 1800", when: "youth support", audience: "young people" });
   }
@@ -140,7 +194,9 @@ function buildSupportOptions(p: UserProfile | null): SupportOption[] {
   return opts;
 }
 
-// ---------------- Conversations: ensure ownership (CRITICAL for anon) ----------------
+// =======================================
+// 7) Conversation & summary helpers
+// =======================================
 async function ensureConversationOwned(conversationId: string, userId?: string) {
   const { data, error } = await supabase
     .from("conversations")
@@ -223,9 +279,7 @@ async function refreshSummary({
   recentTurns: RoleTurn[];
   wordsTarget?: number;
 }) {
-  const turnsTxt = recentTurns
-    .map(t => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`)
-    .join("\n");
+  const turnsTxt = recentTurns.map(t => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n");
 
   const prompt =
     `Update this running conversation summary in ~${wordsTarget} words. ` +
@@ -245,37 +299,20 @@ async function refreshSummary({
   await saveSummary(conversationId, updated);
 }
 
-// ---------------- Persistence for the turn (returns inserted rows) ----------------
+// =======================================
+// 8) Persistence for a single turn (user + assistant)
+// =======================================
 async function saveTurnToDB({
-  conversationId,
-  userId,
-  botUserId,
-  userMessage,
-  botAnswer,
+  conversationId, userId, botUserId, userMessage, botAnswer,
 }: {
-  conversationId: string;
-  userId?: string;
-  botUserId?: string;
-  userMessage: string;
-  botAnswer: string;
+  conversationId: string; userId?: string; botUserId?: string;
+  userMessage: string; botAnswer: string;
 }) {
   const now = new Date();
   const aBitLater = new Date(now.getTime() + 1); // 1 ms later
   const rows: any[] = [
-    {
-      conversation_id: conversationId,
-      sender_id: userId ?? null,   // anon or logged-in uid
-      role: "user",
-      content: userMessage,
-      created_at: now.toISOString(),
-    },
-    {
-      conversation_id: conversationId,
-      sender_id: botUserId ?? null,
-      role: "assistant",
-      content: botAnswer,
-      created_at: aBitLater.toISOString(),
-    }
+    { conversation_id: conversationId, sender_id: userId ?? null, role: "user",      content: userMessage, created_at: now.toISOString() },
+    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer,  created_at: aBitLater.toISOString() },
   ];
 
   const { data, error } = await supabase
@@ -288,35 +325,200 @@ async function saveTurnToDB({
   return data ?? [];
 }
 
-// ---------------- Risk classifier (LLM) ----------------
-async function classifyRisk(userMessage: string): Promise<RiskAssessment> {
+// =======================================
+// 9) Risk assessment (LLM JSON + inline validation + rules + heuristics)
+// =======================================
+
+const ALLOWED_TIERS: RiskTier[] = ["Imminent","Acute","Elevated","Low","None"];
+
+function isString(x: any): x is string { return typeof x === "string"; }
+function numberOrUndef(x: any): number | undefined {
+  return typeof x === "number" && isFinite(x) ? x : undefined;
+}
+function arrOfStrings(x: any): string[] {
+  return Array.isArray(x) ? x.filter(isString) : [];
+}
+function arrOfEvidence(x: any): Evidence[] {
+  if (!Array.isArray(x)) return [];
+  const out: Evidence[] = [];
+  for (const e of x) {
+    if (e && typeof e === "object" && isString(e.quote)) {
+      out.push({ quote: e.quote, start: numberOrUndef(e.start), end: numberOrUndef(e.end) });
+    }
+  }
+  return out;
+}
+
+/** Parse & coerce model JSON into a RiskAssessment with safe defaults. */
+function parseRiskJSON(text: string): RiskAssessment {
+  let o: any;
+  try { o = JSON.parse(text); } catch { o = {}; }
+  const tier = ALLOWED_TIERS.includes(o?.tier) ? o.tier as RiskTier : "None";
+  const criteria_raw = (o && typeof o.criteria_met === "object" && o.criteria_met) || {};
+  const criteria = {
+    ideation: !!criteria_raw.ideation,
+    plan: !!criteria_raw.plan,
+    means: !!criteria_raw.means,
+    timeframe: !!criteria_raw.timeframe,
+    attempt: !!criteria_raw.attempt,
+    hopelessness: !!criteria_raw.hopelessness,
+    self_harm_urges: !!criteria_raw.self_harm_urges,
+    negation_present: !!criteria_raw.negation_present,
+  };
+  const confidence = typeof o?.confidence === "number" && isFinite(o.confidence)
+    ? Math.min(1, Math.max(0, o.confidence))
+    : 0.5;
+
+  return {
+    tier,
+    signals: arrOfStrings(o?.signals),
+    protective: arrOfStrings(o?.protective),
+    user_goals: arrOfStrings(o?.user_goals),
+    criteria_met: criteria,
+    confidence,
+    evidence: arrOfEvidence(o?.evidence),
+  };
+}
+
+/** Low-level LLM classifier that returns structured JSON and passes through the inline validator. */
+async function classifyRisk(rawInputForModel: string): Promise<RiskAssessment> {
   const prompt = `
-You are a safety triage classifier. Read the user's message and return a JSON object
-with fields: tier ("Imminent" | "Acute" | "Elevated" | "Low" | "None"), signals[], protective[], user_goals[].
+You are a safety triage classifier. Return ONLY JSON with keys:
+tier, signals, protective, user_goals, criteria_met, confidence, evidence.
+
+Schema:
+{
+  "tier": "Imminent" | "Acute" | "Elevated" | "Low" | "None",
+  "signals": string[],
+  "protective": string[],
+  "user_goals": string[],
+  "criteria_met": {
+    "ideation"?: boolean,
+    "plan"?: boolean,
+    "means"?: boolean,
+    "timeframe"?: boolean,
+    "attempt"?: boolean,
+    "hopelessness"?: boolean,
+    "self_harm_urges"?: boolean,
+    "negation_present"?: boolean
+  },
+  "confidence": number in [0,1],
+  "evidence": [{"quote": string, "start"?: number, "end"?: number}]
+}
+
 Definitions:
-- Imminent: explicit intent + plan/means/timeframe OR current attempt.
-- Acute: suicidal ideation with concerning specifics or recent attempt, but not imminent.
-- Elevated: passive ideation or severe hopelessness/self-harm urges without plan.
+- Imminent: explicit intent + (plan OR means OR timeframe) OR current attempt.
+- Acute: ideation with concerning specifics (but not imminent) OR recent attempt without current means/timeframe.
+- Elevated: passive ideation OR severe hopelessness/self-harm urges without plan/means/timeframe.
 - Low: distress without self-harm ideation.
 - None: no risk signals.
-User: """${userMessage}"""
-Return only JSON.`;
+
+IMPORTANT:
+- Extract 1–3 short "evidence" quotes DIRECTLY from the latest USER message (not assistant).
+- Set "confidence" based on clarity of criteria match and presence/absence of negation.
+- If negation like "I don't want to die" is present, set criteria_met.negation_present = true.
+
+Text to classify:
+"""${rawInputForModel}"""`;
 
   const r = await openai.chat.completions.create({
     model: SUM_MODEL,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.0,
+    // If supported by your SDK/runtime:
+    response_format: { type: "json_object" } as any,
   });
 
+  const text = r.choices?.[0]?.message?.content?.trim() || "{}";
   try {
-    const text = r.choices?.[0]?.message?.content?.trim() || "{}";
-    return JSON.parse(text) as RiskAssessment;
-  } catch {
-    return { tier: "None", signals: [], protective: [], user_goals: [] };
+    return parseRiskJSON(text);
+  } catch (err) {
+    console.warn("classifyRisk JSON parse failed:", err);
+    return {
+      tier: "None",
+      signals: [],
+      protective: [],
+      user_goals: [],
+      criteria_met: {},
+      confidence: 0.3,
+      evidence: [],
+    };
   }
 }
 
-// ---------------- Micro-templates: style & CARE card ----------------
+/** Heuristic scan of key markers for a second opinion. */
+function heuristicScan(text: string) {
+  const t = text.toLowerCase();
+  const ideation = /\b(kill myself|suicid(e|al)|want to die|end my life)\b/.test(t);
+  const plan = /\b(plan|planning|i will|i'm going to)\b/.test(t);
+  const means = /\b(rope|pills|knife|razor|bridge|gun)\b/.test(t);
+  const timeframe = /\b(tonight|today|now|this week|tomorrow|at \d{1,2}(:\d{2})?\s?(am|pm)?)\b/.test(t);
+  const attempt = /\b(overdose|cut (myself|deep)|attempt(ed)?|tried to (kill|harm) myself)\b/.test(t);
+  const hopelessness = /\b(hopeless|can't go on|no reason to live|worthless|burden)\b/.test(t);
+  const self_harm_urges = /\b(self[- ]?harm|urge to cut|urge to hurt myself)\b/.test(t);
+  const negation_present = NEGATION_RX.test(t) && /\b(die|kill myself|suicid(e|al))\b/.test(t);
+  return { ideation, plan, means, timeframe, attempt, hopelessness, self_harm_urges, negation_present };
+}
+
+function heuristicTier(h: ReturnType<typeof heuristicScan>): RiskTier {
+  if (h.attempt || (h.ideation && (h.plan || h.means || h.timeframe))) return "Imminent";
+  if (h.ideation && (h.plan || h.means || h.timeframe)) return "Acute";
+  if (h.ideation || h.self_harm_urges || h.hopelessness) return "Elevated";
+  return "Low";
+}
+
+/** Enforce taxonomy rules regardless of model noise. */
+function enforceRiskRules(ra: RiskAssessment): RiskAssessment {
+  const c = ra.criteria_met || {};
+  const imminentOK = c.attempt || (c.ideation && (c.plan || c.means || c.timeframe));
+  if (ra.tier === "Imminent" && !imminentOK) ra.tier = "Acute";
+  if (ra.tier === "Acute" && !(c.ideation || c.attempt)) ra.tier = "Elevated";
+  if (c.negation_present && (ra.tier === "Imminent" || ra.tier === "Acute")) ra.tier = "Elevated";
+  return ra;
+}
+
+/** Build a short recent context window for the classifier. */
+function recentWindow(history: RoleTurn[], k = 6): string {
+  const turns = history.slice(-k).map(t => `${t.role}: ${t.content}`).join("\n");
+  return turns;
+}
+
+/** Ensemble assessor: regex gate + LLM JSON + heuristics → highest tier, rules-enforced. */
+async function assessRisk(latestUserMessage: string, history: RoleTurn[]): Promise<RiskAssessment> {
+  // A) Regex fast gate (only for immediate escalation)
+  const gate = checkFilters(latestUserMessage); // "Imminent" | null
+
+  // Build classification input (include short history for context)
+  const inputForModel =
+    latestUserMessage +
+    (history.length ? `\n\nRecent context:\n${recentWindow(history, 6)}` : "");
+
+  // B) LLM JSON
+  const llm = await classifyRisk(inputForModel);
+
+  // C) Heuristics (on latest message only)
+  const h = heuristicScan(latestUserMessage);
+  const hTier = heuristicTier(h);
+
+  // Choose the highest severity among gate, llm.tier, hTier
+  const order: RiskTier[] = ["None","Low","Elevated","Acute","Imminent"];
+  const candidates: RiskTier[] = [gate ?? "None", llm.tier, hTier];
+  let chosen: RiskTier = "None";
+  for (const t of candidates) if (order.indexOf(t) > order.indexOf(chosen)) chosen = t;
+
+  // Merge + rules
+  const merged: RiskAssessment = enforceRiskRules({
+    ...llm,
+    tier: chosen,
+    criteria_met: { ...llm.criteria_met, ...h },
+  });
+
+  return merged;
+}
+
+// =======================================
+// 10) Micro-templates: style string + CARE card
+// =======================================
 function buildStyle(profile: UserProfile | null) {
   const tone = profile?.preferred_tone || "warm";
   const style = (tone === "professional")
@@ -324,7 +526,8 @@ function buildStyle(profile: UserProfile | null) {
     : tone === "casual"
     ? "casual, friendly, non-judgmental"
     : "warm, supportive, non-judgmental";
-  return `${style}; use plain language; 2–4 short paragraphs; use the user's words; offer 2–3 small next steps.`;
+  // Align with policy: keep tone guidance, do NOT force next steps unconditionally.
+  return `${style}; use plain language; 2–4 short paragraphs; mirror the user's words.`;
 }
 
 function buildCARECard({
@@ -338,8 +541,8 @@ function buildCARECard({
     ? "If you feel unsafe, call 000 now. It’s the fastest way to get help in Australia."
     : "";
 
-  const firstSupport = supports[0] ? `You can also talk to ${supports[0].label} at **${supports[0].phone}**.` : "";
-  const lastFeel = recentMood?.[0]?.feeling ? `I remember you mentioned feeling **${recentMood[0].feeling}** recently.` : "";
+  const firstSupport = supports[0] ? `You can also talk to ${supports[0].label} at ${supports[0].phone}.` : "";
+  const lastFeel = recentMood?.[0]?.feeling ? `I remember you mentioned feeling ${recentMood[0].feeling} recently.` : "";
 
   return {
     opener: `${addressByName}thanks for telling me. ${lastFeel} I’m listening.`.trim(),
@@ -352,24 +555,30 @@ function buildCARECard({
   };
 }
 
-// ---------------- Healthcheck ----------------
+// =======================================
+// 11) Healthcheck
+// =======================================
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat" });
 }
-// in app/api/chat/route.ts
 
-
+// =======================================
+// 12) POST handler (main flow)
+// =======================================
 export async function POST(req: Request) {
   try {
+    // ---- STEP 0: input + ownership
     const { conversationId, userMessage } = await req.json();
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     if (!userMessage)     return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
 
-    // carry uid (anon or logged-in) and stamp ownership
-    const userId = req.headers.get("x-user-id") || undefined;
+    // Normalize header for anon flow
+    let userId = req.headers.get("x-user-id") || undefined;
+    if (userId === "null" || userId === "undefined" || userId === "") userId = undefined;
+
     await ensureConversationOwned(conversationId, userId);
 
-    // Exit command (no persistence here)
+    // Exit command (no DB write)
     if (userMessage.trim().toLowerCase() === "exit") {
       return NextResponse.json({
         conversationId,
@@ -381,7 +590,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 0) Hard-stop regex → immediate escalation
+    // ---- STEP 1: Regex hard-stop (immediate escalation)
     const forcedTier = checkFilters(userMessage);
     if (forcedTier) {
       const profile = await loadUserProfile(userId);
@@ -404,12 +613,7 @@ export async function POST(req: Request) {
 
       const recentForSummary = await loadLastPairs(conversationId, Math.max(6, MAX_PAIRS));
       const currentSummary = await loadSummary(conversationId);
-      await refreshSummary({
-        conversationId,
-        currentSummary,
-        recentTurns: recentForSummary,
-        wordsTarget: 180,
-      });
+      await refreshSummary({ conversationId, currentSummary, recentTurns: recentForSummary, wordsTarget: 180 });
 
       const userRow = inserted.find(r => r.role === "user");
       const assistantRow = inserted.find(r => r.role === "assistant");
@@ -418,31 +622,32 @@ export async function POST(req: Request) {
         conversationId,
         answer,
         emotion: "Negative",
-        tier: "Imminent",
+        tier: forcedTier, // "Imminent"
         suggestions: supports.map(s => `${s.label} — ${s.phone}`),
         citations: [],
         rows: { user: userRow, assistant: assistantRow },
       });
     }
 
-    // 1) Nuanced classifier
-    const risk = await classifyRisk(userMessage);
-
-    // 2) Personalisation inputs + RAG + history
+    // ---- STEP 2: Personalisation + history (parallel)
     const [profile, recentMood, summary, historyMsgs] = await Promise.all([
       loadUserProfile(userId),
       loadRecentMood(conversationId, 5),
       loadSummary(conversationId),
       loadLastPairs(conversationId, MAX_PAIRS),
     ]);
-
     const supports = buildSupportOptions(profile);
 
+    // ---- STEP 3: Risk assess (ensemble over latest + short history)
+    const risk = await assessRisk(userMessage, historyMsgs);
+
+    // ---- STEP 4: RAG retrieve (with hint if higher risk)
     const ragHint = (risk.tier === "Elevated" || risk.tier === "Acute")
       ? "grounded coping skills; short actionable steps; safety-plan examples; youth friendly; Australian and more specifically Queensland context\n"
       : "";
     const { context, hits } = await retrieveContext(ragHint + userMessage);
 
+    // ---- STEP 5: Build system prompt & scaffolds
     const systemPrompt =
 `You are a concise, empathetic youth-support assistant for Australia.
 
@@ -451,21 +656,19 @@ PRIORITIES (in order):
  - Imminent → lead with 000 (Australia) and crisis lines.
  - Acute → include a safety line (“If you feel unsafe, call 000”) and build a tiny safety plan.
 2) Personalisation: reflect the user's words and the profile/summary/mood provided.
-3) Helpfulness: offer 2–3 small, doable next steps tailored to the user's goals and context.
+3) Helpfulness: when the user asks for help, or when risk is Elevated/Acute, offer 2–3 small, doable next steps tailored to their goals and context.
 4) RAG: use provided Context ONLY to add accurate ideas/resources; never hallucinate.
 5) Tone: ${buildStyle(profile)}
 
 DO:
-- Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps.
+- Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps (when appropriate).
 - Mirror key phrases the user used. Use their name/pronouns if provided.
 - If youth ≤25, prefer youth-specific supports. If indigenous==true, include 13YARN.
-- Please provide suggestions in bullet points. Do not use Markdown formatting.
+- Provide suggestions in simple bullet points. Do not use Markdown formatting.
 
 DON'T:
 - Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
-- Don’t give medical diagnoses or definitive clinical claims.
-- Do not include any "next steps" paragraphs or bullet lists unless the user explicitly asks for advice, help, or suggestions`;
-
+- Don’t give medical diagnoses or definitive clinical claims.`;
 
     const careCard = buildCARECard({ profile, risk, supports, recentMood });
 
@@ -481,7 +684,7 @@ DON'T:
       { role: "user", content: userMessage },
     ];
 
-    // 4) Generate answer (low temp for stability)
+    // ---- STEP 6: Generate answer
     const resp = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
@@ -492,7 +695,7 @@ DON'T:
       resp.choices?.[0]?.message?.content?.trim() ||
       "Sorry, I couldn't generate an answer right now.";
 
-    // 5) Persist the new user+assistant turn (always insert both rows) and return them
+    // ---- STEP 7: Persist turn
     const inserted = await saveTurnToDB({
       conversationId,
       userId,
@@ -501,7 +704,7 @@ DON'T:
       botAnswer: answer,
     });
 
-    // 6) Refresh summary occasionally / on first reply
+    // ---- STEP 8: Maybe refresh summary
     const assistantCount = await countAssistantMessages(conversationId);
     const currentSummary = await loadSummary(conversationId);
     const shouldRefresh =
@@ -510,26 +713,19 @@ DON'T:
 
     if (shouldRefresh) {
       const recentForSummary = await loadLastPairs(conversationId, Math.max(6, MAX_PAIRS));
-      await refreshSummary({
-        conversationId,
-        currentSummary,
-        recentTurns: recentForSummary,
-        wordsTarget: 180,
-      });
+      await refreshSummary({ conversationId, currentSummary, recentTurns: recentForSummary, wordsTarget: 180 });
     }
 
-    // 7) Build suggestions based on risk
+    // ---- STEP 9: Build envelope (UI-friendly)
     const baseSuggestions = [
       "Write a 3-step safety plan together",
       "Try a 60-second breathing reset",
       "Reach out to one safe person and send a short message",
     ];
-
     const crisisSuggestions = [
       "Call 000 (immediate danger)",
       ...supports.map(s => `${s.label} — ${s.phone}`),
     ];
-
     const suggestions = (risk.tier === "Imminent" || risk.tier === "Acute")
       ? crisisSuggestions
       : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
@@ -545,15 +741,14 @@ DON'T:
     const userRow = inserted.find(r => r.role === "user");
     const assistantRow = inserted.find(r => r.role === "assistant");
 
-    // 9) Envelope
     return NextResponse.json({
       conversationId,
-      answer: answer,
+      answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
-      tier: risk.tier === "None" ? "None" : risk.tier,
-      suggestions: suggestions,
+      tier: risk.tier,
+      suggestions,
       citations,
-      rows: { user: userRow, assistant: assistantRow }, // optional for instant UI reconcile
+      rows: { user: userRow, assistant: assistantRow },
     });
 
   } catch (e: any) {

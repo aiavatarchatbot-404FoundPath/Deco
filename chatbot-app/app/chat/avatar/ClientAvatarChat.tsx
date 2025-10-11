@@ -141,6 +141,19 @@ export default function ClientAvatarChat() {
     }
   };
 
+   useEffect(() => {
+      if (!conversationId) return;
+      (async () => {
+        try {
+          await supabase
+            .from("conversations")
+            .update({ chat_mode: "avatar" })
+            .eq("id", conversationId)
+            .is("chat_mode", null);
+        } catch {}
+      })();
+    }, [conversationId]);
+
   const completeExit = async (finalMood?: MoodData) => {
     try {
       if (conversationId) {
@@ -427,6 +440,7 @@ export default function ClientAvatarChat() {
       answer: string;
       rows: { user?: MessageRow; assistant?: MessageRow };
     };
+    
 
     setIsTyping(false);
 

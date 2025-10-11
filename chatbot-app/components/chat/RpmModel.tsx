@@ -163,7 +163,7 @@ export default function RpmModel({
   useEffect(() => {
     if (!groupRef.current) return;
     groupRef.current.add(avatarScene);
-    return () => { groupRef.current.remove(avatarScene); };
+    return () => { groupRef.current?.remove(avatarScene); };
   }, [avatarScene]);
 
   // 9) Cleanup

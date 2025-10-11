@@ -7,6 +7,7 @@ import { ChatInterfaceScreen } from "../../../components/ChatInterfaceScreen";
 import type { DbMessage } from "../../../components/ChatInterfaceScreen";
 import MoodCheckIn from "../../../components/MoodCheckIn";
 import AnonymousExitWarning from "../../../components/chat/AnonymousExitWarning";
+import type { User as SupaUser } from "@supabase/supabase-js";
 
 type MsgStatus = "sending" | "sent" | "failed";
 
@@ -104,6 +105,31 @@ export default function ClientSimpleChat() {
     }
     setConversationId(cid);
   }, []);
+
+  // state (near your other useState calls)
+const [authUser, setAuthUser] = useState<SupaUser | null>(null);
+
+// replace your existing "auth" effect with this (so it updates live)
+useEffect(() => {
+  let mounted = true;
+
+  supabase.auth.getUser().then(({ data }) => {
+    if (!mounted) return;
+    setAuthUser(data.user ?? null);
+    setIsAuthenticated(!!data.user);
+  });
+
+  const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+    if (!mounted) return;
+    setAuthUser(session?.user ?? null);
+    setIsAuthenticated(!!session?.user);
+  });
+
+  return () => {
+    mounted = false;
+    sub?.subscription?.unsubscribe?.();
+  };
+}, []);
 
   /* ensure conversation exists (works for anon too because created_by is nullable) */
   useEffect(() => {
@@ -342,14 +368,27 @@ export default function ClientSimpleChat() {
       )}
 
       <ChatInterfaceScreen
-        onNavigate={handleNavigation}
-        chatMode="standard"
-        currentMood={entryMood}
-        onSend={handleSend}
-        messages={uiMessages}
-        isTyping={isTyping}
-        stats={{ sessionSeconds: 0, messageCount: onlyUserCount }}
-      />
+  onNavigate={handleNavigation}
+  chatMode="standard"
+  // ⬇️ prevents any GLB loading in simple chat paths
+  companionAvatar={{ name: "Adam", type: "default", url: undefined }}
+  currentMood={entryMood}
+   user={
+    authUser
+      ? {
+          id: authUser.id,
+          username:
+            (authUser.user_metadata?.username as string) ||
+            (authUser.email ? authUser.email.split("@")[0] : "You"),
+          // avatar is optional; omit or fill if you have it
+        }
+      : undefined // will use the default anon until auth loads
+  }
+  onSend={handleSend}
+  messages={uiMessages}
+  isTyping={isTyping}
+  stats={{ sessionSeconds: 0, messageCount: onlyUserCount }}
+/>
     </div>
   );
 }
