@@ -1,95 +1,42 @@
-# Trust-Building AI Avatar Conversations for Youth Justice
+# Deco - AI Avatar Chatbot Platform
 
-[![Demo](https://img.shields.io/badge/Demo-Live-brightgreen)](https://aiavatarchatbot.vercel.app)
-[![Build Status](https://img.shields.io/badge/Build-Passing-success)]()
-[![License](https://img.shields.io/badge/License-MIT-blue)]()
-[![Next.js](https://img.shields.io/badge/Next.js-14-black)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)]()
+[![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-Backend-green)](https://supabase.com/)
 
-> An empathetic, trauma-informed AI chatbot using lifelike 3D avatars to build trust and provide safe, supportive conversations for youth in the justice system.
+A sophisticated AI-powered chatbot platform featuring customizable 3D avatars, real-time conversations, and intelligent document processing through RAG (Retrieval-Augmented Generation).
 
-## Table of Contents
+## Features
 
-- [Project Overview](#-project-overview)
-- [Key Features](#-key-features)
-- [How It Works](#-how-it-works)
-- [Technology Stack](#-technology-stack)
-- [Quick Start](#-quick-start)
-- [Project Structure](#-project-structure)
-- [Configuration](#-configuration)
-- [Usage Examples](#-usage-examples)
-- [API Documentation](#-api-documentation)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Acknowledgments](#-acknowledgments)
+### Core Capabilities
+- **3D Avatar Integration**: Customizable avatars powered by Ready Player Me
+- **Intelligent Conversations**: Context-aware responses using GPT-4o mini
+- **Document Intelligence**: RAG system for processing and querying uploaded documents
+- **Real-time Interaction**: Instant message delivery and updates
+- **Safety First**: Built-in content moderation and risk classification
+- **Responsive Design**: Seamless experience across all devices
 
-## Project Overview
+### Advanced Features
+- Vector similarity search for relevant context retrieval
+- Conversation history management
+- Multi-document support
+- Voice input/output capabilities (planned)
+- Avatar emotion synchronization
+- Custom personality configuration
 
-**Trust-Building AI Avatar Conversations** is a Studio 3 (DECO3801) project developed at **The University of Queensland**. It explores how **AI avatars**, **ethical design** and **trauma-informed responses** can create emotionally safe, trustworthy digital interactions for vulnerable youth.
-
-### Problem Statement
-Youth in the justice system often face barriers to accessing mental health support due to stigma, trust issues, and lack of culturally appropriate resources. Traditional text-based chatbots can feel impersonal and fail to build the necessary trust for meaningful therapeutic conversations.
-
-### Our Solution
-The system combines **natural language understanding**, **3D visual empathy** and **context-aware reasoning** through Retrieval-Augmented Generation (RAG). It ensures every response is **grounded**, **private**, and **emotionally sensitive**.
-
-### Goals
-- Create a safe, non-judgmental space for youth to express themselves
-- Build trust through empathetic AI avatars and trauma-informed responses  
-- Provide 24/7 accessible mental health support
-- Maintain strict privacy and security standards
-
-## Key Features
-
-### AI & Conversation
-- **Conversational AI Core:** GPT-4o mini + RAG using `text-embedding-3-small`
-- **Context-Aware Responses:** Retrieval-Augmented Generation for grounded answers
-- **Trauma-Informed Design:** CARE framework (Collaboration, Autonomy, Respect, Empowerment)
-- **Safety Filtering:** Advanced risk classification and content moderation
-
-### 3D Avatar System
-- **Realistic Avatars:** Ready Player Me integration with customizable appearances
-- **Interactive Animations:** React Three Fiber for smooth 3D rendering
-- **Emotion Expression:** Avatar facial expressions and gestures match conversation tone
-- **Accessibility:** Multiple avatar options to represent diverse identities
-
-### Privacy & Security
-- **Row-Level Security:** Supabase RLS for data protection
-- **Anonymous Sessions:** No personal data required to use the system
-- **End-to-End Encryption:** Secure data transmission and storage
-- **GDPR Compliant:** Privacy-first approach with data minimization
-
-### Technical Architecture
-- **Tech Stack:** Next.js • Supabase • TailwindCSS • OpenAI API • Vercel
-- **Real-time Chat:** WebSocket connections for instant messaging
-- **Responsive Design:** Works seamlessly across desktop and mobile
-- **PWA Ready:** Progressive Web App capabilities for offline access
-
-## How It Works
-
-<img width="182" height="612" alt="Screenshot 2025-10-08 at 5 45 16 PM" src="https://github.com/user-attachments/assets/cc7ca4ed-4eab-46a4-9708-a8812675a9c2" />
-
-1. **Input Processing**: User messages are processed through safety filters
-2. **Context Retrieval**: RAG pipeline finds relevant information from knowledge base
-3. **Response Generation**: GPT-4o mini generates contextually appropriate responses
-4. **Safety Validation**: CARE framework ensures trauma-informed approach
-5. **Avatar Rendering**: 3D avatar displays response with appropriate emotions
-6. **Feedback Loop**: System learns from interactions to improve responses
-
-## Technology Stack
+## Architecture
 
 ### Frontend
 - **Framework**: Next.js 14 with App Router
 - **Language**: TypeScript
-- **Styling**: TailwindCSS + Shadcn/ui components
-- **3D Rendering**: React Three Fiber + Three.js
-- **State Management**: Zustand
-- **Forms**: React Hook Form + Zod validation
+- **Styling**: Tailwind CSS
+- **3D Rendering**: Three.js with Ready Player Me SDK
+- **State Management**: React Context + Hooks
+- **UI Components**: Shadcn/ui
 
 ### Backend
 - **Database**: Supabase (PostgreSQL)
 - **Authentication**: Supabase Auth
-- **API**: Next.js API routes
 - **File Storage**: Supabase Storage
 - **Real-time**: Supabase Realtime
 
@@ -108,7 +55,7 @@ The system combines **natural language understanding**, **3D visual empathy** an
 ## Quick Start
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - pnpm (recommended) or npm
 - Supabase account
 - OpenAI API key
@@ -117,44 +64,106 @@ The system combines **natural language understanding**, **3D visual empathy** an
 ### Installation
 
 1. **Clone the repository**
+```bash
 git clone https://github.com/aiavatarchatbot-404FoundPath/Deco.git
 cd Deco
+```
 
 2. **Install dependencies**
+```bash
 npm install
+```
 
 3. **Set up environment variables**
+```bash
 cp .env.example .env.local
+```
 
 Edit `.env.local` with your credentials:
 
-Supabase
+```env
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
-OpenAI
+# OpenAI
 OPENAI_API_KEY=your_openai_api_key
 
-Ready Player Me
+# Ready Player Me
 NEXT_PUBLIC_RPM_APP_ID=your_rpm_app_id
 
-App Configuration
+# App Configuration
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-
+```
 
 4. **Set up the database**
+```bash
 cd chatbot-app
 npm db:setup
+```
 
 5. **Start the development server**
+```bash
 npm run dev
-
+```
 
 6. **Open your browser**
 Navigate to [http://localhost:3000](http://localhost:3000)
 
+## Documentation
 
+For detailed documentation, visit our [Wiki](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki):
 
+- [Getting Started Guide](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki/Getting-Started)
+- [Architecture Overview](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki/Architecture)
+- [API Reference](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki/API-Reference)
+- [Deployment Guide](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki/Deployment)
+- [Troubleshooting](https://github.com/aiavatarchatbot-404FoundPath/Deco/wiki/Troubleshooting)
 
+## Development
 
+### Project Structure
+```
+Deco/
+├── chatbot-app/          # Main Next.js application
+│   ├── app/              # App router pages
+│   ├── components/       # React components
+│   ├── lib/              # Utility functions
+│   └── public/           # Static assets
+├── RAG/                  # RAG system implementation
+│   ├── embeddings/       # Document processing
+│   └── retrieval/        # Vector search logic
+└── .idea/                # IDE configuration
+```
+
+### Available Scripts
+```bash
+npm run dev          # Start development server
+npm run build        # Build for production
+npm run start        # Start production server
+npm run lint         # Run ESLint
+npm run type-check   # Run TypeScript compiler
+```
+
+### Development Workflow
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+TBD
+
+## Acknowledgments
+
+- [Ready Player Me](https://readyplayer.me/) for avatar technology
+- [OpenAI](https://openai.com/) for AI capabilities
+- [Supabase](https://supabase.com/) for backend infrastructure
+- [Vercel](https://vercel.com/) for hosting
+
+---
+
+Built with ❤️ by the 404FoundPath Team
