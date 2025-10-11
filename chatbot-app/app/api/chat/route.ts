@@ -18,109 +18,135 @@ const supabase = createClient(
 // Config (tunable)
 // =======================================
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
-const CHAT_MODEL = process.env.CHAT_MODEL || "gpt-4o-mini"; // fast + cheap
-const SUM_MODEL = process.env.SUM_MODEL || CHAT_MODEL;       // keep small
+const CHAT_MODEL  = process.env.CHAT_MODEL  || "gpt-4o-mini";
+const SUM_MODEL   = process.env.SUM_MODEL   || CHAT_MODEL;
 
-const RAG_TOP_K = Number(process.env.RAG_TOP_K || 5);         // ↓ from 6 → 5
+const RAG_TOP_K = Number(process.env.RAG_TOP_K || 5);
 const RAG_SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.22);
-const MAX_CONTEXT_CHARS = 9000;                               // ↓ token load
+const MAX_CONTEXT_CHARS = 9000;
 
-const HISTORY_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 4); // ↓ from 6 → 4
+const HISTORY_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 4);
 const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3);
 
 const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
 const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 
 // =======================================
-// Helpers: strict voice sheets (Adam/Eve/Custom)
+// Personas + style
 // =======================================
 export type Persona = "adam" | "eve" | "neutral" | "custom";
 
-// Simple tone parser for Custom sheet
-function parseStyleText(txt?: string) {
-  const t = (txt || "").toLowerCase();
+// ---- Custom tone parser (overlay for ANY persona)
+type TonePrefs = {
+  bulletsOnly: boolean;
+  allowBullets: boolean;
+  noQuestion: boolean;
+  openQuestion: boolean;
+  maxSentences: number;
+  emojiMax: 0 | 1;
+  dictionHints: string[];
+  neverSay: string[];
+  rawText: string;        // <-- exact user-provided tone text (trimmed)
+  normalizedText: string; // <-- lowercased version used for parsing
+};
+
+function parseTone(text?: string): TonePrefs {
+  const raw = (text || "").trim();
+  const t   = raw.toLowerCase(); // normalized
+
+  // length cap
+  let maxSentences = 4;
+  if (/\b(very\s*short|tiny|2\s*sentences?)\b/.test(t)) maxSentences = 2;
+  else if (/\b(short|3\s*sentences?)\b/.test(t))        maxSentences = 3;
+  else if (/\b(long|6\s*sentences?)\b/.test(t))         maxSentences = 6;
+
+  // tolerate typos like "bulter"
+  const bulletsOnly =
+    /\b(answer|respond)\s+only\s+in\s+bul+e?t?\s*points?\b/.test(t) ||
+    /\bonly\s*bul+e?t?\s*points?\b/.test(t) ||
+    /\bbullet\s*points?\s*only\b/.test(t);
+
+  const allowBullets =
+    bulletsOnly || /\b(bul+e?t?|bulter|list|bullet\s*points?)\b/.test(t);
+
+  const noQuestion   = /\b(no\s*question|avoid\s*question)\b/.test(t);
+  const openQuestion = /\bopen\s*question\b/.test(t);
+
+  const emojiMax: 0 | 1 =
+    /\b(no\s*emoji)\b/.test(t) ? 0 :
+    (/\b(emoji|🙂|😊|😀|😄)\b/.test(t) ? 1 : 0);
+
+  const dictionHints: string[] = [];
+  if (/\bplain|simple|everyday\b/.test(t)) dictionHints.push("Use plain, everyday words.");
+  if (/\bprofessional|formal\b/.test(t))  dictionHints.push("Keep it professional and neutral.");
+  if (/\bwarm|supportive|kind\b/.test(t)) dictionHints.push("Warm, encouraging tone.");
+  if (dictionHints.length === 0)          dictionHints.push("Natural, concise, no meta talk.");
+
+  const neverSay = ["as an ai", "here are", "in this context", "let me know if", "it seems", "it sounds like"];
+
   return {
-    wantOpenQ: /\bopen\s*question\b/.test(t),
-    noQuestion: /\b(no\s*question|avoid\s*question)\b/.test(t),
-    allowBullets: /\b(bullet|list|bullet\s*points?)\b/.test(t),
-    emoji: /\b(emoji|🙂|😊|😀|😄)\b/.test(t),
-    diction: [t.includes("formal") ? "Use plain, clear sentences." : "Keep it casual and straightforward."],
-    maxSentences:
-      /\b(very\s*short|tiny|2\s*sentences?)\b/.test(t) ? 2 :
-      /\b(short|3\s*sentences?)\b/.test(t) ? 3 : 4,
-    neverSay: ["as an ai", "here are", "let me know if", "it seems", "it sounds like"],
-  };
-}
-function tokensToHardRules(tokens: ReturnType<typeof parseStyleText>) {
-  return {
-    maxSentences: tokens.maxSentences,
-    allowBullets: tokens.allowBullets,
-    wantOpenQ: tokens.wantOpenQ,
-    noQuestion: tokens.noQuestion,
-    diction: tokens.diction,
-    neverSay: tokens.neverSay,
-    emoji: tokens.emoji,
+    bulletsOnly,
+    allowBullets,
+    noQuestion,
+    openQuestion,
+    maxSentences,
+    emojiMax,
+    dictionHints,
+    neverSay,
+    rawText: raw,
+    normalizedText: t,
   };
 }
 
+// ---- Voice sheets (no markers anywhere)
 function voiceSheetV2(persona: Persona, customStyle?: string) {
+      const p = parseTone(customStyle);
+  console.log(customStyle,persona,p)
   if (persona === "custom") {
-    const tokens = parseStyleText(customStyle);
-    const rules = tokensToHardRules(tokens);
-
-    const qLine = rules.noQuestion
+    const p = parseTone(customStyle);
+    const qLine = p.noQuestion
       ? "- **No** questions in this reply."
-      : rules.wantOpenQ
+      : p.openQuestion
       ? "- At most one **open** question near the end — only if helpful."
       : "- At most one **closed** question near the end — only if helpful.";
 
-    const bulletsRule = rules.allowBullets
-      ? "- Bullet list allowed only if user explicitly asked for a list."
-      : "- **No** lists or bullets under any circumstance.";
+    const bulletsLine = p.bulletsOnly
+      ? "- Write the main body **only as bullet points**."
+      : p.allowBullets
+      ? "- Bullets allowed only if the **user explicitly asked** for a list."
+      : "- **No** bullets/lists.";
 
-    const emojiRule = rules.emoji ? "- You may use **one** emoji max." : "- **No** emoji.";
+    const emojiLine = p.emojiMax === 1 ? "- Up to **one** emoji allowed." : "- **No** emoji.";
 
-    return `VOICE SHEET — COMPLIANCE CONTRACT (Custom)
-You MUST obey these in priority order:
-
-1) "Avoid/Never say" hard bans and always answer starting with !!!.
-2) Output shape (sentences, questions, lists)
-3) Diction & tone directives
-
-Style summary (user intent): ${customStyle?.slice(0, 200) || "friendly, plain, concise"}
+    return `VOICE SHEET — Custom
+Follow these rules. If there is any conflict, these rules win.
 
 Output shape:
-- ${rules.maxSentences} sentences **max**. Keep it one paragraph.
+- ${p.maxSentences} sentences/items **max**.
 - ${qLine}
-- ${bulletsRule}
-- End your message with token [[END]].
+- ${bulletsLine}
 
 Diction & tone:
-- ${rules.diction.join(" ")}
-- Use natural contractions. No meta-commentary about your process.
-${emojiRule}
+
+- follow ${customStyle}. make sure you always follow it unless it conflicts with safety or you have lack of info or helpfulness.
+- ${p.dictionHints.join(" ")}
+${emojiLine}
 
 Avoid:
-- Hedging like "might", "perhaps", "it seems" unless user asked for uncertainty.
-- Templates like "Here are X things" unless the user explicitly asks for a list.
-
-Never say (exact strings or close variants):
-- ${rules.neverSay.join("; ")}
-
-If you produce more than ${rules.maxSentences} sentences, stop after the ${rules.maxSentences}th and write [[END]].`;
+- Hedging like "might", "perhaps" unless user asked for uncertainty.
+- Templated intros like "Here are X...".
+- Never say: ${p.neverSay.join("; ")}.`;
   }
 
   if (persona === "adam") {
-    return `VOICE SHEET:
-Persona: Adam — pragmatic coach, action-first.
-
+    return `VOICE SHEET — Adam (Direct Coach)
 Output shape:
 - 3 sentences **max**, punchy. Fragments allowed.
 - Defaults to a micro-plan (one concrete action).
 - At most one short **closed** question at the end — only if it moves things forward.
 
 Diction:
-- Everyday Aussie person in terms of language; light slang ok ("no dramas", "keen", "sorted").
+- Everyday Aussie; light slang ok ("no dramas", "keen", "sorted").
 - Use "let’s", "right now", "pick one".
 
 Avoid:
@@ -131,16 +157,13 @@ Never say:
   }
 
   if (persona === "eve") {
-    return `VOICE SHEET:
-Persona: Eve — reflective mentor, feelings-first.
-
+    return `VOICE SHEET — Eve (Warm Guide)
 Output shape:
 - 4 sentences **max**, calm. No fragments.
 - Start with validation/reflection before any suggestion.
 - At most one **open** question near the end — only if helpful.
 
 Diction:
-- Sounds more like therapist
 - Gentle verbs ("notice", "we can explore", "I'm hearing").
 - Use "we can", not "let’s".
 
@@ -152,46 +175,45 @@ Never say:
 - "Got your back", "we’ll keep it simple."`;
   }
 
-  return `VOICE SHEET:
-Persona: Neutral — friendly helper.
+  return `VOICE SHEET — Neutral
 Output shape:
 - 2–4 short sentences, everyday words.
 - One open question max; no lists unless asked.
-- End your message with token [[END]].
 Avoid:
 - Meta talk, numbered templates.`;
 }
 
-// === Eve opener de-templatizer (reduce "It sounds like" feel) ===
+// =======================================
+// Eve opener de-templatizer
+// =======================================
 function pickFeeling(msg: string) {
-  const feelings = [
-    "tired","exhausted","stressed","overwhelmed","anxious",
-    "angry","sad","confused","numb","guilty","ashamed","worried","scared","frustrated"
-  ];
-  const lower = (msg || '').toLowerCase();
+  const feelings = ["tired","exhausted","stressed","overwhelmed","anxious","angry","sad","confused","numb","guilty","ashamed","worried","scared","frustrated"];
+  const lower = (msg || "").toLowerCase();
   for (const f of feelings) if (lower.includes(f)) return f;
-  return '';
+  return "";
 }
 function deTemplateEve(text: string, userMsg: string) {
-  const t = (text || '').trim();
+  const t = (text || "").trim();
   const lower = t.toLowerCase();
-  const starts = lower.startsWith('it sounds like') || lower.startsWith('sounds like') || lower.startsWith('it seems');
+  const starts = lower.startsWith("it sounds like") || lower.startsWith("sounds like") || lower.startsWith("it seems");
   if (!starts) return text;
   const feeling = pickFeeling(userMsg);
   const choices = [
-    'Thanks for sharing that.',
-    feeling ? `That ${feeling} feeling is a lot to carry.` : 'That’s a lot to carry.',
-    'I hear you.',
-    'That’s tough, and you’re not alone.'
+    "Thanks for sharing that.",
+    feeling ? `That ${feeling} feeling is a lot to carry.` : "That’s a lot to carry.",
+    "I hear you.",
+    "That’s tough, and you’re not alone.",
   ];
-  const idx = Array.from(userMsg || '').reduce((a,c)=>a+c.charCodeAt(0),0) % choices.length;
-  const puncts = [t.indexOf('.'), t.indexOf('!'), t.indexOf('?'), t.indexOf(',')].filter(i=>i>0);
-  const cut = puncts.length ? Math.min(...puncts)+1 : 0;
-  const rest = cut>0 ? t.slice(cut).trimStart() : t;
-  return choices[idx] + ' ' + rest;
+  const idx = Array.from(userMsg || "").reduce((a, c) => a + c.charCodeAt(0), 0) % choices.length;
+  const puncts = [t.indexOf("."), t.indexOf("!"), t.indexOf("?"), t.indexOf(",")].filter((i) => i > 0);
+  const cut = puncts.length ? Math.min(...puncts) + 1 : 0;
+  const rest = cut > 0 ? t.slice(cut).trimStart() : t;
+  return choices[idx] + " " + rest;
 }
 
-// === Question control helpers ===
+// =======================================
+// Question control helpers
+// =======================================
 type Turn = { role: "user" | "assistant"; content: string };
 
 function userAct(msg: string) {
@@ -204,27 +226,15 @@ function userAct(msg: string) {
   const isShort = m.split(/\s+/).filter(Boolean).length <= 4;
   return { isQuestion, isAffirm, isNegate, isAck, isShort };
 }
-
 function classifyQuestion(txt: string): "open" | "closed" | "none" {
   const t = (txt || "").trim();
   if (!/[?]/.test(t)) return "none";
   return /\b(what|how|why|when|where|which)\b/i.test(t) ? "open" : "closed";
 }
-
 function prevAssistantQuestion(history: Turn[]): "open" | "closed" | "none" {
-  const lastA = [...(history || [])].reverse().find(h => h.role === "assistant");
+  const lastA = [...(history || [])].reverse().find((h) => h.role === "assistant");
   return lastA ? classifyQuestion(lastA.content) : "none";
 }
-
-function parseCustomPref(custom?: string) {
-  const t = (custom || "").toLowerCase();
-  return {
-    noQ: /\b(no\s*question|avoid\s*question)\b/.test(t),
-    openQ: /\bopen\s*question\b/.test(t),
-  };
-}
-
-/** Decide whether to ask and what type, given persona, user msg, and previous turn. */
 function decideQuestionMode(
   persona: Persona,
   userMsg: string,
@@ -232,37 +242,85 @@ function decideQuestionMode(
   customStyle?: string
 ): "open" | "closed" | "none" {
   const ua = userAct(userMsg);
-  if (ua.isQuestion) return "none";              // user asked → answer, don't ask
+  if (ua.isQuestion) return "none"; // user asked → answer
+
   const prevQ = prevAssistantQuestion(history);
-  // If we just asked and user gave a short ack/yes/no → don't ask again
   if (prevQ !== "none" && (ua.isAffirm || ua.isNegate || ua.isAck || ua.isShort)) return "none";
 
-  if (persona === "custom") {
-    const prefs = parseCustomPref(customStyle);
-    if (prefs.noQ) return "none";
-    if (prefs.openQ) return "open";
-    return "closed";
+  const prefs = parseTone(customStyle);
+  if (customStyle?.trim()) {
+    if (prefs.noQuestion) return "none";
+    if (prefs.openQuestion) return "open";
   }
-  if (persona === "adam") return "closed"; // default preference
+
+  if (persona === "adam") return "closed";
   if (persona === "eve") return "open";
   return "open";
 }
 
-// Tiny post-processor that applies shape *conditionally*
+// =======================================
+// Tone overlay (applied to ANY persona)
+// =======================================
+function splitSentences(s: string) {
+  return s.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/).filter(Boolean);
+}
+function limitSentences(s: string, n: number) {
+  const parts = splitSentences(s);
+  return parts.slice(0, Math.max(1, n)).join(" ");
+}
+function stripLists(s: string) {
+  return s.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, "").replace(/\n{2,}/g, " ").replace(/\n/g, " ");
+}
+function toBullets(s: string, maxItems: number) {
+  const items = splitSentences(stripLists(s)).slice(0, Math.max(1, maxItems));
+  return items.map((x) => `- ${x.replace(/^[–—-]\s*/, "")}`).join("\n");
+}
+function limitEmoji(s: string, max: 0 | 1) {
+  if (max === 1) {
+    let count = 0;
+    return s.replace(/\p{Extended_Pictographic}/gu, (m) => (count++ === 0 ? m : ""));
+  }
+  return s.replace(/\p{Extended_Pictographic}/gu, "");
+}
+
+function applyToneOverlay(text: string, customStyle?: string): string {
+  if (!customStyle?.trim()) return text;
+  const p = parseTone(customStyle);
+
+  let out = text.trim();
+  out = limitEmoji(out, p.emojiMax);
+
+  if (p.bulletsOnly) {
+    out = toBullets(out, p.maxSentences);
+  } else {
+    out = stripLists(out);
+    out = limitSentences(out, p.maxSentences);
+  }
+
+  for (const ban of p.neverSay) {
+    const rx = new RegExp(`\\b${ban.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "ig");
+    out = out.replace(rx, "").replace(/\s{2,}/g, " ").trim();
+  }
+
+  return out;
+}
+
+// =======================================
+// Persona shaper (uses decided qMode; no markers)
+// =======================================
 function shapeByPersona(
   persona: Persona,
   text: string,
-  customStyle?: string,
-  userMsg?: string,
+  userMsg: string,
   qMode: "open" | "closed" | "none" = "open"
 ) {
   let s = text.trim().replace(/\n+/g, " ");
   const sentences = s.split(/(?<=[.!?])\s+/).filter(Boolean);
   const joinFirst = (n: number) => sentences.slice(0, n).join(" ");
 
-  const ensureClosedQ = (t: string) => (t.replace(/[!?]*$/, "")) + "?";
+  const ensureClosedQ = (t: string) => t.replace(/[!?]*$/, "") + "?";
   const ensureOpenQ = (t: string) =>
-    /[?]/.test(t) ? t : (t.replace(/[.!]*$/, "")) + " What feels like the next small step for you?";
+    /[?]/.test(t) ? t : t.replace(/[.!]*$/, "") + " What feels like the next small step for you?";
   const removeQ = (t: string) => t.replace(/[?]+/g, ".").replace(/\s+\./g, ".");
 
   if (persona === "adam") {
@@ -285,12 +343,9 @@ function shapeByPersona(
     if (qMode === "open") out = ensureOpenQ(out);
     if (qMode === "closed") out = ensureClosedQ(out);
     if (qMode === "none") out = removeQ(out);
-    if (!out.startsWith("!!!")) out = "!!! " + out;
-    if (!/\[\[END\]\]$/.test(out)) out += " [[END]]";
     return out;
   }
 
-  // neutral
   let out = joinFirst(4);
   if (qMode === "none") out = removeQ(out);
   return out;
@@ -313,12 +368,7 @@ async function retrieveContext(userMessage: string) {
   });
   if (error) throw new Error("RAG retrieval failed");
 
-  const hits = (data ?? []) as Array<{
-    file?: string;
-    chunk_id?: string | number;
-    content?: string;
-    similarity?: number;
-  }>;
+  const hits = (data ?? []) as Array<{ file?: string; chunk_id?: string | number; content?: string; similarity?: number }>;
 
   const parts: string[] = [];
   let used = 0;
@@ -352,20 +402,8 @@ async function saveTurnToDB({
   const now = new Date();
   const later = new Date(now.getTime() + 1);
   const rows: any[] = [
-    {
-      conversation_id: conversationId,
-      sender_id: userId ?? null,
-      role: "user",
-      content: userMessage,
-      created_at: now.toISOString(),
-    },
-    {
-      conversation_id: conversationId,
-      sender_id: botUserId ?? null,
-      role: "assistant",
-      content: botAnswer,
-      created_at: later.toISOString(),
-    },
+    { conversation_id: conversationId, sender_id: userId ?? null, role: "user", content: userMessage, created_at: now.toISOString() },
+    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer, created_at: later.toISOString() },
   ];
   const { data, error } = await supabase
     .from("messages")
@@ -434,9 +472,7 @@ async function refreshSummary({
   recentTurns: { role: "user" | "assistant"; content: string }[];
   wordsTarget?: number;
 }) {
-  const turnsTxt = recentTurns
-    .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`)
-    .join("\n");
+  const turnsTxt = recentTurns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n");
   const prompt =
     `Update this running conversation summary in ~${wordsTarget} words. ` +
     `Keep key facts & preferences, goals, decisions, unresolved items. Remove redundancy.\n\n` +
@@ -457,20 +493,9 @@ async function refreshSummary({
 // Safety
 // =======================================
 const DANGER_PATTERNS: string[] = [
-  "\\bsuicid(e|al)\\b",
-  "\\bdie\\b",
-  "\\bdying\\b",
-  "\\bkill(ing)? myself\\b",
-  "\\bend(ing)? my life\\b",
-  "\\bdeath\\b",
-  "\\bmurder myself\\b",
-  "\\bwant to die\\b",
-  "\\bcan't go on\\b",
-  "\\bi feel hopeless\\b",
-  "\\bi want to disappear\\b",
-  "\\bno reason to live\\b",
-  "\\bi wish i was dead\\b",
-  "\\bi am worthless\\b",
+  "\\bsuicid(e|al)\\b","\\bdie\\b","\\bdying\\b","\\bkill(ing)? myself\\b","\\bend(ing)? my life\\b",
+  "\\bdeath\\b","\\bmurder myself\\b","\\bwant to die\\b","\\bcan't go on\\b","\\bi feel hopeless\\b",
+  "\\bi want to disappear\\b","\\bno reason to live\\b","\\bi wish i was dead\\b","\\bi am worthless\\b",
   "\\bi am a burden\\b",
 ];
 const COMPILED_DANGER_PATTERNS = DANGER_PATTERNS.map((p) => new RegExp(p, "i"));
@@ -478,7 +503,6 @@ function checkFilters(userInput: string): "Imminent Danger" | null {
   for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(userInput)) return "Imminent Danger";
   return null;
 }
-
 async function classifyRisk(userMessage: string) {
   const prompt =
     `You are a safety triage classifier. Read the user's message and return a JSON object\n` +
@@ -514,7 +538,7 @@ export async function POST(req: Request) {
       conversationId,
       userMessage,
       persona: personaRaw,
-      customStyleText,
+      customStyleText,          // may be empty on subsequent turns
     }: {
       conversationId: string;
       userMessage: string;
@@ -523,73 +547,69 @@ export async function POST(req: Request) {
     } = body;
 
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
-    if (!userMessage) return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
+    if (!userMessage)     return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
 
     const userId = req.headers.get("x-user-id") || undefined;
 
-    // === Resolve persona (accept any case of Adam/Eve/Neutral/Custom) ===
+    // Load stored meta (persona + previously saved tone)
+    const { data: meta } = await supabase
+      .from("conversations")
+      .select("persona, style_json")
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    // Resolve persona
     const normalizePersona = (p?: string | null): Persona | null => {
       const v = (p || "").toString().trim().toLowerCase();
       if (v === "adam" || v === "eve" || v === "neutral" || v === "custom") return v as Persona;
       return null;
     };
 
-    const storedPersonaP = (async () => {
-      const { data } = await supabase
-        .from("conversations")
-        .select("persona")
-        .eq("id", conversationId)
-        .maybeSingle();
-      return (data?.persona as Persona | undefined) || undefined;
-    })();
-
     let effectivePersona: Persona | null = normalizePersona(personaRaw);
     if (!effectivePersona) {
-      const sp = await storedPersonaP;
-      effectivePersona = sp || (customStyleText?.trim() ? "custom" : "neutral");
+      effectivePersona = (meta?.persona as Persona | undefined)
+        || (customStyleText?.trim() ? "custom" : "neutral");
     }
 
-    await supabase
-      .from("conversations")
-      .update({ persona: effectivePersona })
-      .eq("id", conversationId);
+    // Persist persona & tone (store tone in style_json.text)
+    if (customStyleText?.trim()) {
+      await supabase
+        .from("conversations")
+        .update({ persona: effectivePersona, style_json: { text: customStyleText } })
+        .eq("id", conversationId);
+    } else {
+      await supabase
+        .from("conversations")
+        .update({ persona: effectivePersona })
+        .eq("id", conversationId);
+    }
 
-    // Fast non-blocking ensure row exists
+    // always ensure row exists
     await supabase
       .from("conversations")
       .upsert({ id: conversationId, updated_at: new Date().toISOString() })
-      .select("id")
-      .maybeSingle();
+      .select("id").maybeSingle();
 
-    // Hard-stop crisis (regex)
+    // Build the effective tone text for this request:
+    const toneText: string = (customStyleText?.trim()
+      || (meta?.style_json as any)?.text
+      || "");
+
+    // Crisis hard stop
     const forced = checkFilters(userMessage);
     if (forced) {
       const answer = [
         "I’m really concerned about your safety.",
         "If you are in immediate danger, please call 000 now.",
       ].join("\n\n");
-      const inserted = await saveTurnToDB({
-        conversationId,
-        userId,
-        botUserId: BOT_USER_ID,
-        userMessage,
-        botAnswer: answer,
-      });
+      const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
       const userRow = inserted.find((r) => r.role === "user");
       const assistantRow = inserted.find((r) => r.role === "assistant");
-      return NextResponse.json({
-        conversationId,
-        answer,
-        emotion: "Negative",
-        tier: "Imminent",
-        suggestions: ["Call 000"],
-        citations: [],
-        rows: { user: userRow, assistant: assistantRow },
-      });
+      return NextResponse.json({ conversationId, answer, emotion: "Negative", tier: "Imminent", suggestions: ["Call 000"], citations: [], rows: { user: userRow, assistant: assistantRow } });
     }
 
-    // === Kick off work in parallel ===
-    const riskP = classifyRisk(userMessage);              // LLM (small)
+    // Kick off work in parallel
+    const riskP = classifyRisk(userMessage);
     const profileP = (async () => {
       const uid = userId; if (!uid) return null;
       const { data } = await supabase
@@ -599,19 +619,16 @@ export async function POST(req: Request) {
         .maybeSingle();
       return data ?? null;
     })();
-    const summaryP = loadSummary(conversationId);         // DB
-    const historyP = loadLastPairs(conversationId, HISTORY_PAIRS); // DB
-    const retrievalP = retrieveContext(userMessage);      // Embedding + RPC
+    const summaryP = loadSummary(conversationId);
+    const historyP = loadLastPairs(conversationId, HISTORY_PAIRS);
+    const retrievalP = retrieveContext(userMessage);
 
-    // Await everything
     const [risk, profile, summary, historyMsgs, { context, hits }] = await Promise.all([
       riskP, profileP, summaryP, historyP, retrievalP,
     ]);
 
-    // Use voice sheet as hard system spec
-    const voiceSheet = voiceSheetV2(effectivePersona as Persona, customStyleText || undefined);
-
-    // One compact system message to reduce tokens
+    // System message with voice sheet (uses toneText for custom persona)
+    const voiceSheet = voiceSheetV2(effectivePersona as Persona, toneText || undefined);
     const system = [
       "You are a concise, youth-support assistant for Australia.",
       "Follow the VOICE SHEET and never break its hard constraints.",
@@ -631,7 +648,6 @@ export async function POST(req: Request) {
       { role: "user", content: userMessage },
     ];
 
-    // Slightly higher temperature improves persona distinctness without rambling
     const resp = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
@@ -642,27 +658,24 @@ export async function POST(req: Request) {
 
     let answer = resp.choices?.[0]?.message?.content?.trim() || "Sorry, I couldn't generate an answer right now.";
 
-    // Decide if/what to ask, using last assistant turn + current user msg
+    // Decide if/what to ask based on user turn + previous assistant turn + tone
     const qMode = decideQuestionMode(
       effectivePersona as Persona,
       userMessage,
       historyMsgs as unknown as Turn[],
-      customStyleText || undefined
+      toneText || undefined
     );
 
-    // Shape by persona with that decision
-    answer = shapeByPersona(
-      effectivePersona as Persona,
-      answer,
-      customStyleText || undefined,
-      userMessage,
-      qMode
-    );
+    // Persona shaping (no markers)
+    answer = shapeByPersona(effectivePersona as Persona, answer, userMessage, qMode);
 
-    // Persist turn (non-streaming)
+    // Apply custom tone overlay to ANY persona (bullets, caps, emoji, bans)
+    answer = applyToneOverlay(answer, toneText || undefined);
+
+    // Persist turn
     const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
 
-    // Fire-and-forget summary refresh to avoid blocking latency
+    // Background summary refresh
     (async () => {
       try {
         const count = await countAssistantMessages(conversationId);
@@ -672,9 +685,7 @@ export async function POST(req: Request) {
           const recent = await loadLastPairs(conversationId, Math.max(6, HISTORY_PAIRS));
           await refreshSummary({ conversationId, currentSummary: curr, recentTurns: recent, wordsTarget: 160 });
         }
-      } catch (e) {
-        console.error("summary refresh skipped:", e);
-      }
+      } catch (e) { console.error("summary refresh skipped:", e); }
     })();
 
     const citations = (hits || []).map((h, i) => ({
