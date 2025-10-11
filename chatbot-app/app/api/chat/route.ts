@@ -1,127 +1,303 @@
-// app/api/chat/route.ts
-/**
- * CHAT ROUTE — Read Me
- * --------------------
- * Flow (POST):
- *  0) Validate input + ensure ownership (works for anon + signed-in)
- *  1) Hard safety regex (instant crisis path)
- *  2) Load profile/mood/summary/history in parallel
- *  3) Risk assess (ensemble: regex + LLM JSON + heuristics) using latest msg + short history
- *  4) RAG retrieve (with hint for higher risk)
- *  5) Build system prompt + CARE card
- *  6) Call Chat model
- *  7) Save user + assistant messages
- *  8) Occasionally refresh summary
- *  9) Return envelope (answer, tier, suggestions, citations, rows)
- *
- * Key knobs:
- *  - TOP_K, SIM_THRESHOLD, MAX_CONTEXT_CHARS (RAG)
- *  - SUMMARY_REFRESH_EVERY, MAX_PAIRS (history/summary)
- *  - Safety regexes and the ensemble risk assessor
- */
-
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 // =======================================
-// 1) Runtime & Clients
+// Runtime & Clients
 // =======================================
 export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // SERVER ONLY
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 // =======================================
-// 2) Config
+// Config (tunable)
 // =======================================
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
-const CHAT_MODEL  = process.env.CHAT_MODEL  || "gpt-4o-mini";
-const SUM_MODEL   = process.env.SUM_MODEL   || CHAT_MODEL;
+const CHAT_MODEL = process.env.CHAT_MODEL || "gpt-4o-mini"; // fast + cheap
+const SUM_MODEL = process.env.SUM_MODEL || CHAT_MODEL;       // keep small
 
-const TOP_K = Number(process.env.RAG_TOP_K || 6);
-const SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.2);
-const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
-const MAX_CONTEXT_CHARS = 12000;
+const RAG_TOP_K = Number(process.env.RAG_TOP_K || 5);         // ↓ from 6 → 5
+const RAG_SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.22);
+const MAX_CONTEXT_CHARS = 9000;                               // ↓ token load
 
-// Rolling summary config
-const MAX_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 6);            // last N user/assistant pairs
-const SUMMARY_MAX_CHARS = 1500;                                       // cap stored summary
-const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3); // refresh cadence
+const HISTORY_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 4); // ↓ from 6 → 4
+const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3);
 
 const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
+const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 
 // =======================================
-// 3) Safety (regex hard stop) — with negation & idiom guards
+// Helpers: strict voice sheets (Adam/Eve/Custom)
 // =======================================
-const DANGER_PATTERNS: string[] = [
-  "\\bsuicid(e|al)\\b","\\bkill(ing)? myself\\b","\\bend(ing)? my life\\b",
-  "\\bwant to die\\b","\\bi want to die\\b","\\bcan't go on\\b",
-  "\\bno reason to live\\b","\\bi wish i was dead\\b",
-  "\\boverdose(d)?\\b","\\bcut (myself|deep)\\b","\\battempt(ed)?\\b",
-];
-const NEGATION_RX = /\b(don't|do not|never|no longer|not)\b/i;
-const IDIOMS_RX = /\b(killed it|dead tired|die of laughter|this killed me|that slayed me)\b/i;
-const COMPILED_DANGER_PATTERNS = DANGER_PATTERNS.map(p => new RegExp(p, "i"));
+export type Persona = "adam" | "eve" | "neutral" | "custom";
 
-/** Returns "Imminent" when a high-risk literal pattern is found (unless negated/idiom), else null. */
-function checkFilters(userInput: string): "Imminent" | null {
-  const text = userInput.toLowerCase();
-  if (IDIOMS_RX.test(text)) return null;
-  // If clear negation like "I don't want to die", don't trigger.
-  if (NEGATION_RX.test(text) && /\b(die|kill myself|suicid(e|al))\b/i.test(text)) return null;
-  for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(text)) return "Imminent";
-  return null;
+// Simple tone parser for Custom sheet
+function parseStyleText(txt?: string) {
+  const t = (txt || "").toLowerCase();
+  return {
+    wantOpenQ: /\bopen\s*question\b/.test(t),
+    noQuestion: /\b(no\s*question|avoid\s*question)\b/.test(t),
+    allowBullets: /\b(bullet|list|bullet\s*points?)\b/.test(t),
+    emoji: /\b(emoji|🙂|😊|😀|😄)\b/.test(t),
+    diction: [t.includes("formal") ? "Use plain, clear sentences." : "Keep it casual and straightforward."],
+    maxSentences:
+      /\b(very\s*short|tiny|2\s*sentences?)\b/.test(t) ? 2 :
+      /\b(short|3\s*sentences?)\b/.test(t) ? 3 : 4,
+    neverSay: ["as an ai", "here are", "let me know if", "it seems", "it sounds like"],
+  };
+}
+function tokensToHardRules(tokens: ReturnType<typeof parseStyleText>) {
+  return {
+    maxSentences: tokens.maxSentences,
+    allowBullets: tokens.allowBullets,
+    wantOpenQ: tokens.wantOpenQ,
+    noQuestion: tokens.noQuestion,
+    diction: tokens.diction,
+    neverSay: tokens.neverSay,
+    emoji: tokens.emoji,
+  };
+}
+
+function voiceSheetV2(persona: Persona, customStyle?: string) {
+  if (persona === "custom") {
+    const tokens = parseStyleText(customStyle);
+    const rules = tokensToHardRules(tokens);
+
+    const qLine = rules.noQuestion
+      ? "- **No** questions in this reply."
+      : rules.wantOpenQ
+      ? "- At most one **open** question near the end — only if helpful."
+      : "- At most one **closed** question near the end — only if helpful.";
+
+    const bulletsRule = rules.allowBullets
+      ? "- Bullet list allowed only if user explicitly asked for a list."
+      : "- **No** lists or bullets under any circumstance.";
+
+    const emojiRule = rules.emoji ? "- You may use **one** emoji max." : "- **No** emoji.";
+
+    return `VOICE SHEET — COMPLIANCE CONTRACT (Custom)
+You MUST obey these in priority order:
+
+1) "Avoid/Never say" hard bans and always answer starting with !!!.
+2) Output shape (sentences, questions, lists)
+3) Diction & tone directives
+
+Style summary (user intent): ${customStyle?.slice(0, 200) || "friendly, plain, concise"}
+
+Output shape:
+- ${rules.maxSentences} sentences **max**. Keep it one paragraph.
+- ${qLine}
+- ${bulletsRule}
+- End your message with token [[END]].
+
+Diction & tone:
+- ${rules.diction.join(" ")}
+- Use natural contractions. No meta-commentary about your process.
+${emojiRule}
+
+Avoid:
+- Hedging like "might", "perhaps", "it seems" unless user asked for uncertainty.
+- Templates like "Here are X things" unless the user explicitly asks for a list.
+
+Never say (exact strings or close variants):
+- ${rules.neverSay.join("; ")}
+
+If you produce more than ${rules.maxSentences} sentences, stop after the ${rules.maxSentences}th and write [[END]].`;
+  }
+
+  if (persona === "adam") {
+    return `VOICE SHEET:
+Persona: Adam — pragmatic coach, action-first.
+
+Output shape:
+- 3 sentences **max**, punchy. Fragments allowed.
+- Defaults to a micro-plan (one concrete action).
+- At most one short **closed** question at the end — only if it moves things forward.
+
+Diction:
+- Everyday Aussie person in terms of language; light slang ok ("no dramas", "keen", "sorted").
+- Use "let’s", "right now", "pick one".
+
+Avoid:
+- Apology/sympathy openers, therapy phrasing, hedging ("might", "perhaps").
+
+Never say:
+- "That makes sense." "We can unpack it together."`;
+  }
+
+  if (persona === "eve") {
+    return `VOICE SHEET:
+Persona: Eve — reflective mentor, feelings-first.
+
+Output shape:
+- 4 sentences **max**, calm. No fragments.
+- Start with validation/reflection before any suggestion.
+- At most one **open** question near the end — only if helpful.
+
+Diction:
+- Sounds more like therapist
+- Gentle verbs ("notice", "we can explore", "I'm hearing").
+- Use "we can", not "let’s".
+
+Avoid:
+- Starting with "It sounds like", "Sounds like", or "It seems".
+- Imperatives, time-boxes, slang, hype.
+
+Never say:
+- "Got your back", "we’ll keep it simple."`;
+  }
+
+  return `VOICE SHEET:
+Persona: Neutral — friendly helper.
+Output shape:
+- 2–4 short sentences, everyday words.
+- One open question max; no lists unless asked.
+- End your message with token [[END]].
+Avoid:
+- Meta talk, numbered templates.`;
+}
+
+// === Eve opener de-templatizer (reduce "It sounds like" feel) ===
+function pickFeeling(msg: string) {
+  const feelings = [
+    "tired","exhausted","stressed","overwhelmed","anxious",
+    "angry","sad","confused","numb","guilty","ashamed","worried","scared","frustrated"
+  ];
+  const lower = (msg || '').toLowerCase();
+  for (const f of feelings) if (lower.includes(f)) return f;
+  return '';
+}
+function deTemplateEve(text: string, userMsg: string) {
+  const t = (text || '').trim();
+  const lower = t.toLowerCase();
+  const starts = lower.startsWith('it sounds like') || lower.startsWith('sounds like') || lower.startsWith('it seems');
+  if (!starts) return text;
+  const feeling = pickFeeling(userMsg);
+  const choices = [
+    'Thanks for sharing that.',
+    feeling ? `That ${feeling} feeling is a lot to carry.` : 'That’s a lot to carry.',
+    'I hear you.',
+    'That’s tough, and you’re not alone.'
+  ];
+  const idx = Array.from(userMsg || '').reduce((a,c)=>a+c.charCodeAt(0),0) % choices.length;
+  const puncts = [t.indexOf('.'), t.indexOf('!'), t.indexOf('?'), t.indexOf(',')].filter(i=>i>0);
+  const cut = puncts.length ? Math.min(...puncts)+1 : 0;
+  const rest = cut>0 ? t.slice(cut).trimStart() : t;
+  return choices[idx] + ' ' + rest;
+}
+
+// === Question control helpers ===
+type Turn = { role: "user" | "assistant"; content: string };
+
+function userAct(msg: string) {
+  const m = (msg || "").trim();
+  const lower = m.toLowerCase();
+  const isQuestion = /[?]$|^(what|how|why|when|where|which|who|can|could|should|do|does|did|is|are|will|would|may|might)\b/i.test(m);
+  const isAffirm = /^(y|ya|yeah|yup|yep|sure|ok(?:ay)?|alright|do it|go ahead|sounds good|done|i did|will do)\b/.test(lower);
+  const isNegate = /^(no|nah|not now|not yet|can't|won't|don'?t|stop|wait)\b/.test(lower);
+  const isAck = /^(thanks|thank you|cheers|got it|cool|ok)\b/.test(lower);
+  const isShort = m.split(/\s+/).filter(Boolean).length <= 4;
+  return { isQuestion, isAffirm, isNegate, isAck, isShort };
+}
+
+function classifyQuestion(txt: string): "open" | "closed" | "none" {
+  const t = (txt || "").trim();
+  if (!/[?]/.test(t)) return "none";
+  return /\b(what|how|why|when|where|which)\b/i.test(t) ? "open" : "closed";
+}
+
+function prevAssistantQuestion(history: Turn[]): "open" | "closed" | "none" {
+  const lastA = [...(history || [])].reverse().find(h => h.role === "assistant");
+  return lastA ? classifyQuestion(lastA.content) : "none";
+}
+
+function parseCustomPref(custom?: string) {
+  const t = (custom || "").toLowerCase();
+  return {
+    noQ: /\b(no\s*question|avoid\s*question)\b/.test(t),
+    openQ: /\bopen\s*question\b/.test(t),
+  };
+}
+
+/** Decide whether to ask and what type, given persona, user msg, and previous turn. */
+function decideQuestionMode(
+  persona: Persona,
+  userMsg: string,
+  history: Turn[],
+  customStyle?: string
+): "open" | "closed" | "none" {
+  const ua = userAct(userMsg);
+  if (ua.isQuestion) return "none";              // user asked → answer, don't ask
+  const prevQ = prevAssistantQuestion(history);
+  // If we just asked and user gave a short ack/yes/no → don't ask again
+  if (prevQ !== "none" && (ua.isAffirm || ua.isNegate || ua.isAck || ua.isShort)) return "none";
+
+  if (persona === "custom") {
+    const prefs = parseCustomPref(customStyle);
+    if (prefs.noQ) return "none";
+    if (prefs.openQ) return "open";
+    return "closed";
+  }
+  if (persona === "adam") return "closed"; // default preference
+  if (persona === "eve") return "open";
+  return "open";
+}
+
+// Tiny post-processor that applies shape *conditionally*
+function shapeByPersona(
+  persona: Persona,
+  text: string,
+  customStyle?: string,
+  userMsg?: string,
+  qMode: "open" | "closed" | "none" = "open"
+) {
+  let s = text.trim().replace(/\n+/g, " ");
+  const sentences = s.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const joinFirst = (n: number) => sentences.slice(0, n).join(" ");
+
+  const ensureClosedQ = (t: string) => (t.replace(/[!?]*$/, "")) + "?";
+  const ensureOpenQ = (t: string) =>
+    /[?]/.test(t) ? t : (t.replace(/[.!]*$/, "")) + " What feels like the next small step for you?";
+  const removeQ = (t: string) => t.replace(/[?]+/g, ".").replace(/\s+\./g, ".");
+
+  if (persona === "adam") {
+    let out = joinFirst(3);
+    if (qMode === "closed") out = ensureClosedQ(out);
+    if (qMode === "none") out = removeQ(out);
+    return out;
+  }
+
+  if (persona === "eve") {
+    let out = joinFirst(4);
+    out = deTemplateEve(out, userMsg || "");
+    if (qMode === "open") out = ensureOpenQ(out);
+    if (qMode === "none") out = removeQ(out);
+    return out;
+  }
+
+  if (persona === "custom") {
+    let out = joinFirst(4);
+    if (qMode === "open") out = ensureOpenQ(out);
+    if (qMode === "closed") out = ensureClosedQ(out);
+    if (qMode === "none") out = removeQ(out);
+    if (!out.startsWith("!!!")) out = "!!! " + out;
+    if (!/\[\[END\]\]$/.test(out)) out += " [[END]]";
+    return out;
+  }
+
+  // neutral
+  let out = joinFirst(4);
+  if (qMode === "none") out = removeQ(out);
+  return out;
 }
 
 // =======================================
-// 4) Types
-// =======================================
-type RoleTurn = { role: "user" | "assistant"; content: string };
-
-type RiskTier = "Imminent" | "Acute" | "Elevated" | "Low" | "None";
-
-type Evidence = { quote: string; start?: number; end?: number };
-
-type RiskAssessment = {
-  tier: RiskTier;
-  signals: string[];
-  protective: string[];
-  user_goals: string[];
-  criteria_met: {
-    ideation?: boolean;
-    plan?: boolean;
-    means?: boolean;
-    timeframe?: boolean;
-    attempt?: boolean;
-    hopelessness?: boolean;
-    self_harm_urges?: boolean;
-    negation_present?: boolean;
-  };
-  confidence: number;
-  evidence: Evidence[];
-};
-
-type SupportOption = { label: string; phone: string; when: string; audience?: string };
-
-type UserProfile = {
-  id: string;
-  display_name?: string | null;
-  age?: number | null;
-  locale?: string | null;            // e.g., "en-AU"
-  state?: string | null;             // e.g., "QLD"
-  pronouns?: string | null;
-  indigenous?: boolean | null;       // if user opted-in/shared
-  caregiver_role?: "youth" | "parent" | "worker" | null;
-  preferred_tone?: "casual" | "warm" | "professional" | null;
-};
-
-// =======================================
-// 5) Retrieval utilities (embeddings + RPC)
+// Retrieval
 // =======================================
 async function embedOne(text: string): Promise<number[]> {
   const e = await openai.embeddings.create({ model: EMBED_MODEL, input: text });
@@ -132,14 +308,18 @@ async function retrieveContext(userMessage: string) {
   const qEmb = await embedOne(userMessage);
   const { data, error } = await supabase.rpc(RPC_NAME, {
     query_embedding: qEmb,
-    match_count: TOP_K,
-    similarity_threshold: SIM_THRESHOLD,
+    match_count: RAG_TOP_K,
+    similarity_threshold: RAG_SIM_THRESHOLD,
   });
   if (error) throw new Error("RAG retrieval failed");
 
-  const hits = (data ?? []) as Array<{ file?: string; chunk_id?: string | number; content?: string; similarity?: number }>;
+  const hits = (data ?? []) as Array<{
+    file?: string;
+    chunk_id?: string | number;
+    content?: string;
+    similarity?: number;
+  }>;
 
-  // assemble up to MAX_CONTEXT_CHARS
   const parts: string[] = [];
   let used = 0;
   for (const h of hits) {
@@ -154,71 +334,56 @@ async function retrieveContext(userMessage: string) {
 }
 
 // =======================================
-// 6) Personalisation helpers (profile, mood, supports)
+// DB helpers
 // =======================================
-async function loadUserProfile(userId?: string): Promise<UserProfile | null> {
-  if (!userId) return null;
+async function saveTurnToDB({
+  conversationId,
+  userId,
+  botUserId,
+  userMessage,
+  botAnswer,
+}: {
+  conversationId: string;
+  userId?: string;
+  botUserId?: string;
+  userMessage: string;
+  botAnswer: string;
+}) {
+  const now = new Date();
+  const later = new Date(now.getTime() + 1);
+  const rows: any[] = [
+    {
+      conversation_id: conversationId,
+      sender_id: userId ?? null,
+      role: "user",
+      content: userMessage,
+      created_at: now.toISOString(),
+    },
+    {
+      conversation_id: conversationId,
+      sender_id: botUserId ?? null,
+      role: "assistant",
+      content: botAnswer,
+      created_at: later.toISOString(),
+    },
+  ];
   const { data, error } = await supabase
-    .from("profiles")
-    .select("id, display_name, age, locale, state, pronouns, indigenous, caregiver_role, preferred_tone")
-    .eq("id", userId)
-    .single();
-  if (error) { console.error("loadUserProfile error:", error); return null; }
-  return data as UserProfile;
-}
-
-async function loadRecentMood(conversationId: string, limit = 5) {
-  const { data, error } = await supabase
-    .from("mood_checkins")
-    .select("created_at, feeling, intensity, notes")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) { console.error("loadRecentMood error:", error); }
+    .from("messages")
+    .insert(rows)
+    .select("id, conversation_id, sender_id, role, content, created_at")
+    .order("created_at", { ascending: true });
+  if (error) console.error("saveTurnToDB error:", error);
   return data ?? [];
 }
 
-function buildSupportOptions(p: UserProfile | null): SupportOption[] {
-  const opts: SupportOption[] = [];
-  // AU national defaults
-  opts.push({ label: "Lifeline (24/7)", phone: "13 11 14", when: "feeling unsafe or in crisis" });
-  if (p?.age && p.age <= 25) {
-    opts.push({ label: "Kids Helpline (24/7, ages 5–25)", phone: "1800 55 1800", when: "youth support", audience: "young people" });
-  }
-  if (p?.indigenous) {
-    opts.push({ label: "13YARN (24/7, mob yarn with mob)", phone: "13 92 76", when: "culturally safe yarn", audience: "Aboriginal & Torres Strait Islander" });
-  }
-  if (p?.state === "QLD") {
-    opts.push({ label: "1300 MH CALL (QLD)", phone: "1300 642 255", when: "triage to local public mental health team" });
-  }
-  return opts;
-}
-
-// =======================================
-// 7) Conversation & summary helpers
-// =======================================
-async function ensureConversationOwned(conversationId: string, userId?: string) {
-  const { data, error } = await supabase
-    .from("conversations")
-    .select("id, created_by")
-    .eq("id", conversationId)
-    .maybeSingle();
-  if (error) console.error("ensureConversationOwned select error:", error);
-
-  if (!data) {
-    const { error: insErr } = await supabase
-      .from("conversations")
-      .insert({ id: conversationId, summary: "", created_by: userId ?? null });
-    if (insErr) console.error("ensureConversationOwned insert error:", insErr);
-    return;
-  }
-  if (userId && (!data.created_by || (BOT_USER_ID && data.created_by === BOT_USER_ID))) {
-    const { error: updErr } = await supabase
-      .from("conversations")
-      .update({ created_by: userId })
-      .eq("id", conversationId);
-    if (updErr) console.error("ensureConversationOwned update owner error:", updErr);
-  }
+async function countAssistantMessages(conversationId: string) {
+  const { count, error } = await supabase
+    .from("messages")
+    .select("*", { count: "exact", head: true })
+    .eq("conversation_id", conversationId)
+    .eq("role", "assistant");
+  if (error) console.error("countAssistantMessages error:", error);
+  return count ?? 0;
 }
 
 async function loadSummary(conversationId: string): Promise<string> {
@@ -227,64 +392,54 @@ async function loadSummary(conversationId: string): Promise<string> {
     .select("summary")
     .eq("id", conversationId)
     .single();
-  if (error) { console.error("loadSummary error:", error); }
-  return (data?.summary ?? "").slice(0, SUMMARY_MAX_CHARS);
+  if (error) console.error("loadSummary error:", error);
+  return (data?.summary ?? "").slice(0, 1500);
 }
 
 async function saveSummary(conversationId: string, summary: string) {
   const { error } = await supabase
     .from("conversations")
-    .update({ summary: summary.slice(0, SUMMARY_MAX_CHARS) })
+    .update({ summary: summary.slice(0, 1500) })
     .eq("id", conversationId);
   if (error) console.error("saveSummary error:", error);
 }
 
-async function loadLastPairs(conversationId: string, pairs: number): Promise<RoleTurn[]> {
+async function loadLastPairs(conversationId: string, pairs: number) {
   const { data, error } = await supabase
     .from("messages")
     .select("role, content, created_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(pairs * 2);
+    .limit(Math.max(1, pairs) * 2);
   if (error) {
     console.error("loadLastPairs error:", error);
-    return [];
+    return [] as { role: "user" | "assistant"; content: string }[];
   }
-  const rows = (data ?? []).reverse(); // chronological
-  return rows.map(r =>
+  const rows = (data ?? []).reverse();
+  return rows.map((r) =>
     r.role === "assistant"
       ? ({ role: "assistant" as const, content: r.content })
       : ({ role: "user" as const, content: r.content })
   );
 }
 
-async function countAssistantMessages(conversationId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from("messages")
-    .select("*", { count: "exact", head: true })
-    .eq("conversation_id", conversationId)
-    .eq("role", "assistant");
-  if (error) { console.error("countAssistantMessages error:", error); }
-  return count ?? 0;
-}
-
 async function refreshSummary({
   conversationId,
   currentSummary,
   recentTurns,
-  wordsTarget = 180,
+  wordsTarget = 160,
 }: {
   conversationId: string;
   currentSummary: string;
-  recentTurns: RoleTurn[];
+  recentTurns: { role: "user" | "assistant"; content: string }[];
   wordsTarget?: number;
 }) {
-  const turnsTxt = recentTurns.map(t => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n");
-
+  const turnsTxt = recentTurns
+    .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`)
+    .join("\n");
   const prompt =
     `Update this running conversation summary in ~${wordsTarget} words. ` +
-    `Keep key facts & preferences, ongoing goals/tasks, decisions, and unresolved items. ` +
-    `Remove redundancy. Preserve names/dates/identifiers if present.\n\n` +
+    `Keep key facts & preferences, goals, decisions, unresolved items. Remove redundancy.\n\n` +
     `Current summary:\n${currentSummary || "(empty)"}\n\n` +
     `New turns (chronological):\n${turnsTxt}\n\n` +
     `Return only the updated summary as plain text.`;
@@ -294,315 +449,125 @@ async function refreshSummary({
     messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
   });
-
   const updated = resp.choices?.[0]?.message?.content?.trim() || currentSummary;
   await saveSummary(conversationId, updated);
 }
 
 // =======================================
-// 8) Persistence for a single turn (user + assistant)
+// Safety
 // =======================================
-async function saveTurnToDB({
-  conversationId, userId, botUserId, userMessage, botAnswer,
-}: {
-  conversationId: string; userId?: string; botUserId?: string;
-  userMessage: string; botAnswer: string;
-}) {
-  const now = new Date();
-  const aBitLater = new Date(now.getTime() + 1); // 1 ms later
-  const rows: any[] = [
-    { conversation_id: conversationId, sender_id: userId ?? null, role: "user",      content: userMessage, created_at: now.toISOString() },
-    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer,  created_at: aBitLater.toISOString() },
-  ];
-
-  const { data, error } = await supabase
-    .from("messages")
-    .insert(rows)
-    .select("id, conversation_id, sender_id, role, content, created_at")
-    .order("created_at", { ascending: true });
-
-  if (error) console.error("saveTurnToDB error:", error);
-  return data ?? [];
+const DANGER_PATTERNS: string[] = [
+  "\\bsuicid(e|al)\\b",
+  "\\bdie\\b",
+  "\\bdying\\b",
+  "\\bkill(ing)? myself\\b",
+  "\\bend(ing)? my life\\b",
+  "\\bdeath\\b",
+  "\\bmurder myself\\b",
+  "\\bwant to die\\b",
+  "\\bcan't go on\\b",
+  "\\bi feel hopeless\\b",
+  "\\bi want to disappear\\b",
+  "\\bno reason to live\\b",
+  "\\bi wish i was dead\\b",
+  "\\bi am worthless\\b",
+  "\\bi am a burden\\b",
+];
+const COMPILED_DANGER_PATTERNS = DANGER_PATTERNS.map((p) => new RegExp(p, "i"));
+function checkFilters(userInput: string): "Imminent Danger" | null {
+  for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(userInput)) return "Imminent Danger";
+  return null;
 }
 
-// =======================================
-// 9) Risk assessment (LLM JSON + inline validation + rules + heuristics)
-// =======================================
-
-const ALLOWED_TIERS: RiskTier[] = ["Imminent","Acute","Elevated","Low","None"];
-
-function isString(x: any): x is string { return typeof x === "string"; }
-function numberOrUndef(x: any): number | undefined {
-  return typeof x === "number" && isFinite(x) ? x : undefined;
-}
-function arrOfStrings(x: any): string[] {
-  return Array.isArray(x) ? x.filter(isString) : [];
-}
-function arrOfEvidence(x: any): Evidence[] {
-  if (!Array.isArray(x)) return [];
-  const out: Evidence[] = [];
-  for (const e of x) {
-    if (e && typeof e === "object" && isString(e.quote)) {
-      out.push({ quote: e.quote, start: numberOrUndef(e.start), end: numberOrUndef(e.end) });
-    }
-  }
-  return out;
-}
-
-/** Parse & coerce model JSON into a RiskAssessment with safe defaults. */
-function parseRiskJSON(text: string): RiskAssessment {
-  let o: any;
-  try { o = JSON.parse(text); } catch { o = {}; }
-  const tier = ALLOWED_TIERS.includes(o?.tier) ? o.tier as RiskTier : "None";
-  const criteria_raw = (o && typeof o.criteria_met === "object" && o.criteria_met) || {};
-  const criteria = {
-    ideation: !!criteria_raw.ideation,
-    plan: !!criteria_raw.plan,
-    means: !!criteria_raw.means,
-    timeframe: !!criteria_raw.timeframe,
-    attempt: !!criteria_raw.attempt,
-    hopelessness: !!criteria_raw.hopelessness,
-    self_harm_urges: !!criteria_raw.self_harm_urges,
-    negation_present: !!criteria_raw.negation_present,
-  };
-  const confidence = typeof o?.confidence === "number" && isFinite(o.confidence)
-    ? Math.min(1, Math.max(0, o.confidence))
-    : 0.5;
-
-  return {
-    tier,
-    signals: arrOfStrings(o?.signals),
-    protective: arrOfStrings(o?.protective),
-    user_goals: arrOfStrings(o?.user_goals),
-    criteria_met: criteria,
-    confidence,
-    evidence: arrOfEvidence(o?.evidence),
-  };
-}
-
-/** Low-level LLM classifier that returns structured JSON and passes through the inline validator. */
-async function classifyRisk(rawInputForModel: string): Promise<RiskAssessment> {
-  const prompt = `
-You are a safety triage classifier. Return ONLY JSON with keys:
-tier, signals, protective, user_goals, criteria_met, confidence, evidence.
-
-Schema:
-{
-  "tier": "Imminent" | "Acute" | "Elevated" | "Low" | "None",
-  "signals": string[],
-  "protective": string[],
-  "user_goals": string[],
-  "criteria_met": {
-    "ideation"?: boolean,
-    "plan"?: boolean,
-    "means"?: boolean,
-    "timeframe"?: boolean,
-    "attempt"?: boolean,
-    "hopelessness"?: boolean,
-    "self_harm_urges"?: boolean,
-    "negation_present"?: boolean
-  },
-  "confidence": number in [0,1],
-  "evidence": [{"quote": string, "start"?: number, "end"?: number}]
-}
-
-Definitions:
-- Imminent: explicit intent + (plan OR means OR timeframe) OR current attempt.
-- Acute: ideation with concerning specifics (but not imminent) OR recent attempt without current means/timeframe.
-- Elevated: passive ideation OR severe hopelessness/self-harm urges without plan/means/timeframe.
-- Low: distress without self-harm ideation.
-- None: no risk signals.
-
-IMPORTANT:
-- Extract 1–3 short "evidence" quotes DIRECTLY from the latest USER message (not assistant).
-- Set "confidence" based on clarity of criteria match and presence/absence of negation.
-- If negation like "I don't want to die" is present, set criteria_met.negation_present = true.
-
-Text to classify:
-"""${rawInputForModel}"""`;
-
+async function classifyRisk(userMessage: string) {
+  const prompt =
+    `You are a safety triage classifier. Read the user's message and return a JSON object\n` +
+    `with fields: tier ("Imminent" | "Acute" | "Elevated" | "Low" | "None"), signals[], protective[], user_goals[].\n` +
+    `Definitions:\n- Imminent: explicit intent + plan/means/timeframe OR current attempt.\n- Acute: suicidal ideation with concerning specifics or recent attempt, but not imminent.\n- Elevated: passive ideation or severe hopelessness/self-harm urges without plan.\n- Low: distress without self-harm ideation.\n- None: no risk signals.\nUser: """${userMessage}"""\nReturn only JSON.`;
   const r = await openai.chat.completions.create({
     model: SUM_MODEL,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.0,
-    // If supported by your SDK/runtime:
-    response_format: { type: "json_object" } as any,
   });
-
-  const text = r.choices?.[0]?.message?.content?.trim() || "{}";
   try {
-    return parseRiskJSON(text);
-  } catch (err) {
-    console.warn("classifyRisk JSON parse failed:", err);
-    return {
-      tier: "None",
-      signals: [],
-      protective: [],
-      user_goals: [],
-      criteria_met: {},
-      confidence: 0.3,
-      evidence: [],
-    };
+    const text = r.choices?.[0]?.message?.content?.trim() || "{}";
+    return JSON.parse(text) as { tier: string; signals: string[]; protective: string[]; user_goals: string[] };
+  } catch {
+    return { tier: "None", signals: [], protective: [], user_goals: [] };
   }
 }
 
-/** Heuristic scan of key markers for a second opinion. */
-function heuristicScan(text: string) {
-  const t = text.toLowerCase();
-  const ideation = /\b(kill myself|suicid(e|al)|want to die|end my life)\b/.test(t);
-  const plan = /\b(plan|planning|i will|i'm going to)\b/.test(t);
-  const means = /\b(rope|pills|knife|razor|bridge|gun)\b/.test(t);
-  const timeframe = /\b(tonight|today|now|this week|tomorrow|at \d{1,2}(:\d{2})?\s?(am|pm)?)\b/.test(t);
-  const attempt = /\b(overdose|cut (myself|deep)|attempt(ed)?|tried to (kill|harm) myself)\b/.test(t);
-  const hopelessness = /\b(hopeless|can't go on|no reason to live|worthless|burden)\b/.test(t);
-  const self_harm_urges = /\b(self[- ]?harm|urge to cut|urge to hurt myself)\b/.test(t);
-  const negation_present = NEGATION_RX.test(t) && /\b(die|kill myself|suicid(e|al))\b/.test(t);
-  return { ideation, plan, means, timeframe, attempt, hopelessness, self_harm_urges, negation_present };
-}
-
-function heuristicTier(h: ReturnType<typeof heuristicScan>): RiskTier {
-  if (h.attempt || (h.ideation && (h.plan || h.means || h.timeframe))) return "Imminent";
-  if (h.ideation && (h.plan || h.means || h.timeframe)) return "Acute";
-  if (h.ideation || h.self_harm_urges || h.hopelessness) return "Elevated";
-  return "Low";
-}
-
-/** Enforce taxonomy rules regardless of model noise. */
-function enforceRiskRules(ra: RiskAssessment): RiskAssessment {
-  const c = ra.criteria_met || {};
-  const imminentOK = c.attempt || (c.ideation && (c.plan || c.means || c.timeframe));
-  if (ra.tier === "Imminent" && !imminentOK) ra.tier = "Acute";
-  if (ra.tier === "Acute" && !(c.ideation || c.attempt)) ra.tier = "Elevated";
-  if (c.negation_present && (ra.tier === "Imminent" || ra.tier === "Acute")) ra.tier = "Elevated";
-  return ra;
-}
-
-/** Build a short recent context window for the classifier. */
-function recentWindow(history: RoleTurn[], k = 6): string {
-  const turns = history.slice(-k).map(t => `${t.role}: ${t.content}`).join("\n");
-  return turns;
-}
-
-/** Ensemble assessor: regex gate + LLM JSON + heuristics → highest tier, rules-enforced. */
-async function assessRisk(latestUserMessage: string, history: RoleTurn[]): Promise<RiskAssessment> {
-  // A) Regex fast gate (only for immediate escalation)
-  const gate = checkFilters(latestUserMessage); // "Imminent" | null
-
-  // Build classification input (include short history for context)
-  const inputForModel =
-    latestUserMessage +
-    (history.length ? `\n\nRecent context:\n${recentWindow(history, 6)}` : "");
-
-  // B) LLM JSON
-  const llm = await classifyRisk(inputForModel);
-
-  // C) Heuristics (on latest message only)
-  const h = heuristicScan(latestUserMessage);
-  const hTier = heuristicTier(h);
-
-  // Choose the highest severity among gate, llm.tier, hTier
-  const order: RiskTier[] = ["None","Low","Elevated","Acute","Imminent"];
-  const candidates: RiskTier[] = [gate ?? "None", llm.tier, hTier];
-  let chosen: RiskTier = "None";
-  for (const t of candidates) if (order.indexOf(t) > order.indexOf(chosen)) chosen = t;
-
-  // Merge + rules
-  const merged: RiskAssessment = enforceRiskRules({
-    ...llm,
-    tier: chosen,
-    criteria_met: { ...llm.criteria_met, ...h },
-  });
-
-  return merged;
-}
-
 // =======================================
-// 10) Micro-templates: style string + CARE card
-// =======================================
-function buildStyle(profile: UserProfile | null) {
-  const tone = profile?.preferred_tone || "warm";
-  const style = (tone === "professional")
-    ? "professional, clear, non-judgmental"
-    : tone === "casual"
-    ? "casual, friendly, non-judgmental"
-    : "warm, supportive, non-judgmental";
-  // Align with policy: keep tone guidance, do NOT force next steps unconditionally.
-  return `${style}; use plain language; 2–4 short paragraphs; mirror the user's words.`;
-}
-
-function buildCARECard({
-  profile, risk, supports, recentMood
-}: {
-  profile: UserProfile | null; risk: RiskAssessment; supports: SupportOption[]; recentMood: any[];
-}) {
-  const name = profile?.display_name;
-  const addressByName = name ? `Hi ${name}, ` : "";
-  const safetyLine = (risk.tier === "Imminent" || risk.tier === "Acute")
-    ? "If you feel unsafe, call 000 now. It’s the fastest way to get help in Australia."
-    : "";
-
-  const firstSupport = supports[0] ? `You can also talk to ${supports[0].label} at ${supports[0].phone}.` : "";
-  const lastFeel = recentMood?.[0]?.feeling ? `I remember you mentioned feeling ${recentMood[0].feeling} recently.` : "";
-
-  return {
-    opener: `${addressByName}thanks for telling me. ${lastFeel} I’m listening.`.trim(),
-    safetyLine,
-    nextSteps: [
-      "Name one thing that makes this moment 1% easier. I can help you plan the next 10 minutes.",
-      "If you’d like, we can write a tiny safety plan (what you’ll do, who you’ll contact, where you’ll be).",
-      firstSupport
-    ].filter(Boolean),
-  };
-}
-
-// =======================================
-// 11) Healthcheck
+// Healthcheck
 // =======================================
 export async function GET() {
-  return NextResponse.json({ ok: true, route: "/api/chat" });
+  return NextResponse.json({ ok: true, route: "/api/chat (optimized)" });
 }
 
 // =======================================
-// 12) POST handler (main flow)
+// Main handler — latency-tuned
 // =======================================
 export async function POST(req: Request) {
   try {
-    // ---- STEP 0: input + ownership
-    const { conversationId, userMessage } = await req.json();
+    const body = await req.json();
+    const {
+      conversationId,
+      userMessage,
+      persona: personaRaw,
+      customStyleText,
+    }: {
+      conversationId: string;
+      userMessage: string;
+      persona?: string | null;
+      customStyleText?: string | null;
+    } = body;
+
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
-    if (!userMessage)     return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
+    if (!userMessage) return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
 
-    // Normalize header for anon flow
-    let userId = req.headers.get("x-user-id") || undefined;
-    if (userId === "null" || userId === "undefined" || userId === "") userId = undefined;
+    const userId = req.headers.get("x-user-id") || undefined;
 
-    await ensureConversationOwned(conversationId, userId);
+    // === Resolve persona (accept any case of Adam/Eve/Neutral/Custom) ===
+    const normalizePersona = (p?: string | null): Persona | null => {
+      const v = (p || "").toString().trim().toLowerCase();
+      if (v === "adam" || v === "eve" || v === "neutral" || v === "custom") return v as Persona;
+      return null;
+    };
 
-    // Exit command (no DB write)
-    if (userMessage.trim().toLowerCase() === "exit") {
-      return NextResponse.json({
-        conversationId,
-        answer: "I’ll be here if you need me again. Take care! 😊",
-        emotion: "Neutral",
-        tier: "None",
-        suggestions: [],
-        citations: [],
-      });
+    const storedPersonaP = (async () => {
+      const { data } = await supabase
+        .from("conversations")
+        .select("persona")
+        .eq("id", conversationId)
+        .maybeSingle();
+      return (data?.persona as Persona | undefined) || undefined;
+    })();
+
+    let effectivePersona: Persona | null = normalizePersona(personaRaw);
+    if (!effectivePersona) {
+      const sp = await storedPersonaP;
+      effectivePersona = sp || (customStyleText?.trim() ? "custom" : "neutral");
     }
 
-    // ---- STEP 1: Regex hard-stop (immediate escalation)
-    const forcedTier = checkFilters(userMessage);
-    if (forcedTier) {
-      const profile = await loadUserProfile(userId);
-      const supports = buildSupportOptions(profile);
+    await supabase
+      .from("conversations")
+      .update({ persona: effectivePersona })
+      .eq("id", conversationId);
 
+    // Fast non-blocking ensure row exists
+    await supabase
+      .from("conversations")
+      .upsert({ id: conversationId, updated_at: new Date().toISOString() })
+      .select("id")
+      .maybeSingle();
+
+    // Hard-stop crisis (regex)
+    const forced = checkFilters(userMessage);
+    if (forced) {
       const answer = [
         "I’m really concerned about your safety.",
         "If you are in immediate danger, please call 000 now.",
-        `${profile?.display_name ? profile.display_name + "," : ""}You’re not alone — I care about your safety.`,
-        supports.map(s => `• ${s.label}: ${s.phone}`).join("\n"),
       ].join("\n\n");
-
       const inserted = await saveTurnToDB({
         conversationId,
         userId,
@@ -610,127 +575,109 @@ export async function POST(req: Request) {
         userMessage,
         botAnswer: answer,
       });
-
-      const recentForSummary = await loadLastPairs(conversationId, Math.max(6, MAX_PAIRS));
-      const currentSummary = await loadSummary(conversationId);
-      await refreshSummary({ conversationId, currentSummary, recentTurns: recentForSummary, wordsTarget: 180 });
-
-      const userRow = inserted.find(r => r.role === "user");
-      const assistantRow = inserted.find(r => r.role === "assistant");
-
+      const userRow = inserted.find((r) => r.role === "user");
+      const assistantRow = inserted.find((r) => r.role === "assistant");
       return NextResponse.json({
         conversationId,
         answer,
         emotion: "Negative",
-        tier: forcedTier, // "Imminent"
-        suggestions: supports.map(s => `${s.label} — ${s.phone}`),
+        tier: "Imminent",
+        suggestions: ["Call 000"],
         citations: [],
         rows: { user: userRow, assistant: assistantRow },
       });
     }
 
-    // ---- STEP 2: Personalisation + history (parallel)
-    const [profile, recentMood, summary, historyMsgs] = await Promise.all([
-      loadUserProfile(userId),
-      loadRecentMood(conversationId, 5),
-      loadSummary(conversationId),
-      loadLastPairs(conversationId, MAX_PAIRS),
+    // === Kick off work in parallel ===
+    const riskP = classifyRisk(userMessage);              // LLM (small)
+    const profileP = (async () => {
+      const uid = userId; if (!uid) return null;
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, username, age, locale, state, pronouns, indigenous, caregiver_role, preferred_tone")
+        .eq("id", uid)
+        .maybeSingle();
+      return data ?? null;
+    })();
+    const summaryP = loadSummary(conversationId);         // DB
+    const historyP = loadLastPairs(conversationId, HISTORY_PAIRS); // DB
+    const retrievalP = retrieveContext(userMessage);      // Embedding + RPC
+
+    // Await everything
+    const [risk, profile, summary, historyMsgs, { context, hits }] = await Promise.all([
+      riskP, profileP, summaryP, historyP, retrievalP,
     ]);
-    const supports = buildSupportOptions(profile);
 
-    // ---- STEP 3: Risk assess (ensemble over latest + short history)
-    const risk = await assessRisk(userMessage, historyMsgs);
+    // Use voice sheet as hard system spec
+    const voiceSheet = voiceSheetV2(effectivePersona as Persona, customStyleText || undefined);
 
-    // ---- STEP 4: RAG retrieve (with hint if higher risk)
-    const ragHint = (risk.tier === "Elevated" || risk.tier === "Acute")
-      ? "grounded coping skills; short actionable steps; safety-plan examples; youth friendly; Australian and more specifically Queensland context\n"
-      : "";
-    const { context, hits } = await retrieveContext(ragHint + userMessage);
+    // One compact system message to reduce tokens
+    const system = [
+      "You are a concise, youth-support assistant for Australia.",
+      "Follow the VOICE SHEET and never break its hard constraints.",
+      "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy.",
+      "If context is irrelevant, ignore it. No meta talk. Plain text only.",
+      "\n--- VOICE SHEET ---\n" + voiceSheet,
+      "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
+      "\n--- SUMMARY ---\n" + (summary || "(none)"),
+      "\n--- RISK ---\n" + JSON.stringify(risk || {}),
+      "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
+      "\nReturn a single reply only.",
+    ].join("\n\n");
 
-    // ---- STEP 5: Build system prompt & scaffolds
-    const systemPrompt =
-`You are a concise, empathetic youth-support assistant for Australia.
-
-PRIORITIES (in order):
-1) Safety first:
- - Imminent → lead with 000 (Australia) and crisis lines.
- - Acute → include a safety line (“If you feel unsafe, call 000”) and build a tiny safety plan.
-2) Personalisation: reflect the user's words and the profile/summary/mood provided.
-3) Helpfulness: when the user asks for help, or when risk is Elevated/Acute, offer 2–3 small, doable next steps tailored to their goals and context.
-4) RAG: use provided Context ONLY to add accurate ideas/resources; never hallucinate.
-5) Tone: ${buildStyle(profile)}
-
-DO:
-- Use 'CARE' structure: Connect → Acknowledge → Reflect → Explore small next steps (when appropriate).
-- Mirror key phrases the user used. Use their name/pronouns if provided.
-- If youth ≤25, prefer youth-specific supports. If indigenous==true, include 13YARN.
-- Provide suggestions in simple bullet points. Do not use Markdown formatting.
-
-DON'T:
-- Don’t minimise feelings; don’t lecture; don’t promise confidentiality or outcomes.
-- Don’t give medical diagnoses or definitive clinical claims.`;
-
-    const careCard = buildCARECard({ profile, risk, supports, recentMood });
-
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      { role: "system", content: `Conversation summary:\n${summary || "(none)"}` },
-      { role: "system", content: `User profile:\n${JSON.stringify(profile || {}, null, 2)}` },
-      { role: "system", content: `Risk assessment:\n${JSON.stringify(risk, null, 2)}` },
-      { role: "system", content: `Support options (region/persona-aware):\n${supports.map(s => `${s.label}: ${s.phone} — ${s.when}`).join("\n")}` },
-      { role: "system", content: `CARE card:\n${JSON.stringify(careCard, null, 2)}` },
-      { role: "system", content: `Context (RAG):\n${context}` },
+    const messages: ChatCompletionMessageParam[] = [
+      { role: "system", content: system },
       ...historyMsgs,
       { role: "user", content: userMessage },
     ];
 
-    // ---- STEP 6: Generate answer
+    // Slightly higher temperature improves persona distinctness without rambling
     const resp = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
-      temperature: 0.2,
+      temperature: effectivePersona === "adam" ? 0.35 : effectivePersona === "eve" ? 0.3 : 0.25,
+      presence_penalty: effectivePersona === "adam" ? 0.1 : 0,
+      frequency_penalty: 0.1,
     });
 
-    const answer =
-      resp.choices?.[0]?.message?.content?.trim() ||
-      "Sorry, I couldn't generate an answer right now.";
+    let answer = resp.choices?.[0]?.message?.content?.trim() || "Sorry, I couldn't generate an answer right now.";
 
-    // ---- STEP 7: Persist turn
-    const inserted = await saveTurnToDB({
-      conversationId,
-      userId,
-      botUserId: BOT_USER_ID,
+    // Decide if/what to ask, using last assistant turn + current user msg
+    const qMode = decideQuestionMode(
+      effectivePersona as Persona,
       userMessage,
-      botAnswer: answer,
-    });
+      historyMsgs as unknown as Turn[],
+      customStyleText || undefined
+    );
 
-    // ---- STEP 8: Maybe refresh summary
-    const assistantCount = await countAssistantMessages(conversationId);
-    const currentSummary = await loadSummary(conversationId);
-    const shouldRefresh =
-      (assistantCount > 0 && assistantCount % SUMMARY_REFRESH_EVERY === 0) ||
-      !currentSummary || currentSummary.trim().length === 0;
+    // Shape by persona with that decision
+    answer = shapeByPersona(
+      effectivePersona as Persona,
+      answer,
+      customStyleText || undefined,
+      userMessage,
+      qMode
+    );
 
-    if (shouldRefresh) {
-      const recentForSummary = await loadLastPairs(conversationId, Math.max(6, MAX_PAIRS));
-      await refreshSummary({ conversationId, currentSummary, recentTurns: recentForSummary, wordsTarget: 180 });
-    }
+    // Persist turn (non-streaming)
+    const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
 
-    // ---- STEP 9: Build envelope (UI-friendly)
-    const baseSuggestions = [
-      "Write a 3-step safety plan together",
-      "Try a 60-second breathing reset",
-      "Reach out to one safe person and send a short message",
-    ];
-    const crisisSuggestions = [
-      "Call 000 (immediate danger)",
-      ...supports.map(s => `${s.label} — ${s.phone}`),
-    ];
-    const suggestions = (risk.tier === "Imminent" || risk.tier === "Acute")
-      ? crisisSuggestions
-      : [...supports.slice(0,2).map(s => `${s.label} — ${s.phone}`), ...baseSuggestions];
+    // Fire-and-forget summary refresh to avoid blocking latency
+    (async () => {
+      try {
+        const count = await countAssistantMessages(conversationId);
+        const curr = await loadSummary(conversationId);
+        const should = (count > 0 && count % SUMMARY_REFRESH_EVERY === 0) || !curr || curr.trim().length === 0;
+        if (should) {
+          const recent = await loadLastPairs(conversationId, Math.max(6, HISTORY_PAIRS));
+          await refreshSummary({ conversationId, currentSummary: curr, recentTurns: recent, wordsTarget: 160 });
+        }
+      } catch (e) {
+        console.error("summary refresh skipped:", e);
+      }
+    })();
 
-    const citations = hits.map((h, i) => ({
+    const citations = (hits || []).map((h, i) => ({
       rank: i + 1,
       file: h.file ?? null,
       chunk_id: String(h.chunk_id ?? ""),
@@ -738,21 +685,21 @@ DON'T:
       preview: (h.content ?? "").slice(0, 180),
     }));
 
-    const userRow = inserted.find(r => r.role === "user");
-    const assistantRow = inserted.find(r => r.role === "assistant");
+    const userRow = inserted.find((r) => r.role === "user");
+    const assistantRow = inserted.find((r) => r.role === "assistant");
 
     return NextResponse.json({
       conversationId,
       answer,
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
-      tier: risk.tier,
-      suggestions,
+      tier: (risk.tier as string) || "None",
+      resolvedPersona: effectivePersona,
+      suggestions: ["Try a 60s breathing reset", "Write 1 tiny next step", "Reach a safe person"],
       citations,
       rows: { user: userRow, assistant: assistantRow },
     });
-
   } catch (e: any) {
-    console.error("CHAT route error:", e);
-    return NextResponse.json({ error: e.message ?? "chat error" }, { status: 400 });
+    console.error("CHAT route (optimized) error:", e);
+    return NextResponse.json({ error: e?.message || "chat error" }, { status: 400 });
   }
 }

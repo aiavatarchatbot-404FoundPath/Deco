@@ -241,6 +241,17 @@ export default function ClientAvatarChat() {
     persistMoodState(record);
     setShowEntryMoodCheckIn(false);
   };
+  type Persona = 'neutral' | 'adam' | 'eve' | 'custom';
+
+function personaToCompanion(p?: Persona) {
+  if (p === 'adam') return { name: 'Adam', url: COMPANIONS.ADAM.url } as const;
+  if (p === 'eve')  return { name: 'Eve',  url: COMPANIONS.EVE.url }  as const;
+  return null;
+}
+
+// NEW: conversation meta
+type ConvoMeta = { id: string; persona: Persona | null; style_tokens?: any | null };
+const [convoMeta, setConvoMeta] = useState<ConvoMeta | null>(null);
 
   const handleEntryMoodSkip = () => {
     const skippedRecord: MoodState = { skipped: true, timestamp: new Date() };
@@ -248,6 +259,51 @@ export default function ClientAvatarChat() {
     persistMoodState(skippedRecord);
     setShowEntryMoodCheckIn(false);
   };
+  useEffect(() => {
+  if (!conversationId) {
+    setConvoMeta(null);
+    return;
+  }
+  (async () => {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id, persona, style_tokens')
+      .eq('id', conversationId)
+      .single();
+    if (!error && data) {
+      setConvoMeta({
+        id: data.id,
+        persona: (data.persona ?? null) as Persona | null,
+        style_tokens: data.style_tokens ?? null,
+      });
+    }
+  })();
+}, [conversationId]);
+
+useEffect(() => {
+  if (!conversationId) return;
+  if (!convoMeta) return;
+  if (convoMeta.persona) return; // already set, do nothing
+
+  // Derive from URL if present, else from profile fallback, else default ADAM
+  const fromUrl = (companionNameFromParams || '').toUpperCase();
+  const derived: Persona =
+    fromUrl === 'EVE' ? 'eve'
+    : fromUrl === 'ADAM' ? 'adam'
+    : (profile?.rpm_companion_url === COMPANIONS.EVE.url ? 'eve'
+      : 'adam');
+
+  (async () => {
+    const { error } = await supabase
+      .from('conversations')
+      .update({ persona: derived })
+      .eq('id', conversationId);
+    if (!error) {
+      setConvoMeta((prev) => (prev ? { ...prev, persona: derived } : prev));
+    }
+  })();
+}, [conversationId, convoMeta, companionNameFromParams, profile?.rpm_companion_url]);
+
 
   /* ---------- Profile ---------- */
   useEffect(() => {
@@ -470,42 +526,48 @@ export default function ClientAvatarChat() {
 };
 
 
-  /* ---------- Avatars (normalize & validate .glb) ---------- */
-  type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
+ // ---------- Avatars (normalize & validate .glb) ----------
+type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
 
-  const rawUser = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
-  const userGlb = useValidatedRpmGlb(rawUser);
+const rawUser = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
+const userGlb = useValidatedRpmGlb(rawUser);
 
-  const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
-  const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
+// 1) If convo has persona, that wins
+const convPick = personaToCompanion(convoMeta?.persona ?? undefined);
 
-  // Respect explicit choice in URL (name or url) over stored profile
-  const namedCompanionUrl = companionNameFromParams ? (COMPANIONS[key]?.url ?? null) : null;
-  const rawComp =
-    companionUrlFromParams ||
-    namedCompanionUrl ||
-    profile?.rpm_companion_url ||
-    fallbackComp.url;
+// 2) else fall back to explicit URL param, then name param, then profile, then default
+const key = (companionNameFromParams || 'ADAM').toUpperCase() as 'ADAM' | 'EVE';
+const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
 
-  const compGlb = useValidatedRpmGlb(rawComp);
+const namedCompanionUrl = companionNameFromParams ? (COMPANIONS[key]?.url ?? null) : null;
 
-  const userAvatar: AvatarShape = {
-    name: profile?.username || 'You',
-    type: rawUser ? 'custom' : 'default',
-    url: userGlb,
-  };
+const rawComp =
+  convPick?.url ||                     // ← primary (per-conversation)
+  companionUrlFromParams ||
+  namedCompanionUrl ||
+  profile?.rpm_companion_url ||
+  fallbackComp.url;
 
-  const companionAvatar: AvatarShape = {
-    name: companionNameFromParams || (() => {
-      // Check if stored companion URL matches Adam or Eve
-      if (profile?.rpm_companion_url === COMPANIONS.ADAM.url) return 'Adam';
-      if (profile?.rpm_companion_url === COMPANIONS.EVE.url) return 'Eve';
-      // For any other stored companion or fallback, use the fallback name
-      return fallbackComp.name;
-    })(),
-    type: (companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
-    url: compGlb,
-  };
+const compGlb = useValidatedRpmGlb(rawComp);
+
+const userAvatar: AvatarShape = {
+  name: profile?.username || 'You',
+  type: rawUser ? 'custom' : 'default',
+  url: userGlb,
+};
+
+const companionAvatar: AvatarShape = {
+  name: convPick?.name ||
+        companionNameFromParams ||
+        (() => {
+          if (profile?.rpm_companion_url === COMPANIONS.ADAM.url) return 'Adam';
+          if (profile?.rpm_companion_url === COMPANIONS.EVE.url)  return 'Eve';
+          return fallbackComp.name;
+        })(),
+  type: (convPick?.url || companionUrlFromParams || profile?.rpm_companion_url) ? 'custom' : 'default',
+  url: compGlb,
+};
+
 
   // If the user logs in mid-chat and we have an explicit companionName in the URL,
   // sync that selection into their profile so it persists.
