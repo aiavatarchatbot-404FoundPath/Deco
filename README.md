@@ -4,7 +4,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-Backend-green)](https://supabase.com/)
 
-A sophisticated AI-powered chatbot platform featuring customizable 3D avatars, real-time conversations, and intelligent document processing through RAG (Retrieval-Augmented Generation).
+This is an AI-powered chatbot platform featuring customizable 3D avatars, real-time conversations and intelligent document processing through RAG (Retrieval-Augmented Generation).
 
 ## Features
 
@@ -20,7 +20,6 @@ A sophisticated AI-powered chatbot platform featuring customizable 3D avatars, r
 - Vector similarity search for relevant context retrieval
 - Conversation history management
 - Multi-document support
-- Voice input/output capabilities (planned)
 - Avatar emotion synchronization
 - Custom personality configuration
 
@@ -154,8 +153,7 @@ npm run type-check   # Run TypeScript compiler
 5. Open a Pull Request
 
 ## License
-
-TBD
+This repository and its documentation are for academic use only as part of a University of Queensland course DECO3801. Redistribution, reuse or adaptation of this codebase and materials outside of the original student team and assessment context is not permitted without written approval from the University and project authors.
 
 ## Acknowledgments
 
