@@ -99,6 +99,7 @@ export default function AvatarBuilderPage() {
       switch (screen) {
         case "settings": router.push("/settings"); break;
         case "profile":  router.push("/profile"); break;
+        case "login":    router.push("/login"); break;
         case "home":
         case "/":
         case "welcome":  router.push("/"); break;

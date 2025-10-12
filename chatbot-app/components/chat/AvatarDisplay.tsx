@@ -11,7 +11,7 @@ type Avatar = {
   url?: string | null;
 };
 
-export default function AvatarDisplay({
+const AvatarDisplay = React.memo(function AvatarDisplay({
   userAvatar,
   aiAvatar,
   assistantTalking = false, // pass isTyping here if you want AI mouth to move
@@ -81,4 +81,6 @@ export default function AvatarDisplay({
       </div>
     </div>
   );
-}
+});
+
+export default AvatarDisplay;
