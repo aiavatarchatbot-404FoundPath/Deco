@@ -641,7 +641,8 @@ export async function POST(req: Request) {
       "\n--- RISK ---\n" + JSON.stringify(risk || {}),
       "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
       "\nReturn a single reply only.",
-      "\nIf the user uses swear words (e.g. fuck, asshole, son of a bitch), tell the user to be respectful and to not use swear words." 
+      "\nIf the user uses swear words (e.g. fuck, asshole, son of a bitch), tell the user to be respectful and to not use swear words.",
+      "\nRespond appropriately to complex Gen-Z emojis based on context: 👍 = Sarcastic way of saying 'good job',  😭 = Finding something incredibly funny, cute, or overwhelmingly sweet, 💀 = Laughing hard, 🤡 = Foolishness directed at someone, ⌛ = Finding someone attractive or thicc, 🤰 = Someone is so attractive that it makes the sender feel pregnant, ✨ = Used for emphasis or sarcasm, 🔥 = Something is hot, stylish or sexy, 😅 = Everything is fine whilst being stressed, 😙 = Fondness or approval of something, 🥺 = Used to show how adorable something is, 🌚 = Michievousness or playfulness"
     ].join("\n\n");
 
     const messages: ChatCompletionMessageParam[] = [
