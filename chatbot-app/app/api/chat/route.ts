@@ -634,6 +634,7 @@ export async function POST(req: Request) {
       "Follow the VOICE SHEET and never break its hard constraints.",
       "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy.",
       "If context is irrelevant, ignore it. No meta talk. Plain text only.",
+      "Provide suggestions if and only if the user explicitly asks for help, advice or suggestions. Otherwise, empathize with the user.",
       "\n--- VOICE SHEET ---\n" + voiceSheet,
       "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
       "\n--- SUMMARY ---\n" + (summary || "(none)"),
