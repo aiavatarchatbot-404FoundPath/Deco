@@ -600,7 +600,7 @@ export async function POST(req: Request) {
     if (forced) {
       const answer = [
         "I’m really concerned about your safety.",
-        "If you are in immediate danger, please call 000 now.",
+        "Please reach out to Lifeline Australia on 13 11 14 for 24/7 support or call 000 if you are in immediate danger.",
       ].join("\n\n");
       const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
       const userRow = inserted.find((r) => r.role === "user");
@@ -629,7 +629,7 @@ export async function POST(req: Request) {
 
     // System message with voice sheet (uses toneText for custom persona)
     const voiceSheet = voiceSheetV2(effectivePersona as Persona, toneText || undefined);
-    const system = [
+    const system = [ 
       "You are a concise, youth-support assistant for Australia.",
       "Follow the VOICE SHEET and never break its hard constraints.",
       "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy.",
@@ -640,6 +640,7 @@ export async function POST(req: Request) {
       "\n--- RISK ---\n" + JSON.stringify(risk || {}),
       "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
       "\nReturn a single reply only.",
+      "\nIf the user uses swear words (e.g. fuck, asshole, son of a bitch), tell the user to be respectful and to not use swear words." 
     ].join("\n\n");
 
     const messages: ChatCompletionMessageParam[] = [
@@ -705,7 +706,7 @@ export async function POST(req: Request) {
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: (risk.tier as string) || "None",
       resolvedPersona: effectivePersona,
-      suggestions: ["Try a 60s breathing reset", "Write 1 tiny next step", "Reach a safe person"],
+      suggestions: ["Try a 60s breathing reset", "Write 1 tiny next step", "Reach out to a safe person"],
       citations,
       rows: { user: userRow, assistant: assistantRow },
     });
