@@ -1,3 +1,4 @@
+// app/api/chat/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
@@ -46,13 +47,13 @@ type TonePrefs = {
   emojiMax: 0 | 1;
   dictionHints: string[];
   neverSay: string[];
-  rawText: string;        // <-- exact user-provided tone text (trimmed)
-  normalizedText: string; // <-- lowercased version used for parsing
+  rawText: string;
+  normalizedText: string;
 };
 
 function parseTone(text?: string): TonePrefs {
   const raw = (text || "").trim();
-  const t   = raw.toLowerCase(); // normalized
+  const t   = raw.toLowerCase();
 
   // length cap
   let maxSentences = 4;
@@ -98,10 +99,8 @@ function parseTone(text?: string): TonePrefs {
   };
 }
 
-// ---- Voice sheets (no markers anywhere)
+// ---- Voice sheets
 function voiceSheetV2(persona: Persona, customStyle?: string) {
-      const p = parseTone(customStyle);
-  console.log(customStyle,persona,p)
   if (persona === "custom") {
     const p = parseTone(customStyle);
     const qLine = p.noQuestion
@@ -109,13 +108,11 @@ function voiceSheetV2(persona: Persona, customStyle?: string) {
       : p.openQuestion
       ? "- At most one **open** question near the end — only if helpful."
       : "- At most one **closed** question near the end — only if helpful.";
-
     const bulletsLine = p.bulletsOnly
       ? "- Write the main body **only as bullet points**."
       : p.allowBullets
       ? "- Bullets allowed only if the **user explicitly asked** for a list."
       : "- **No** bullets/lists.";
-
     const emojiLine = p.emojiMax === 1 ? "- Up to **one** emoji allowed." : "- **No** emoji.";
 
     return `VOICE SHEET — Custom
@@ -127,8 +124,7 @@ Output shape:
 - ${bulletsLine}
 
 Diction & tone:
-
-- follow ${customStyle}. make sure you always follow it unless it conflicts with safety or you have lack of info or helpfulness.
+- Follow: ${customStyle}.
 - ${p.dictionHints.join(" ")}
 ${emojiLine}
 
@@ -282,7 +278,6 @@ function limitEmoji(s: string, max: 0 | 1) {
   }
   return s.replace(/\p{Extended_Pictographic}/gu, "");
 }
-
 function applyToneOverlay(text: string, customStyle?: string): string {
   if (!customStyle?.trim()) return text;
   const p = parseTone(customStyle);
@@ -366,6 +361,7 @@ async function retrieveContext(userMessage: string) {
     match_count: RAG_TOP_K,
     similarity_threshold: RAG_SIM_THRESHOLD,
   });
+
   if (error) throw new Error("RAG retrieval failed");
 
   const hits = (data ?? []) as Array<{ file?: string; chunk_id?: string | number; content?: string; similarity?: number }>;
@@ -381,6 +377,60 @@ async function retrieveContext(userMessage: string) {
     used += sep.length + piece.length;
   }
   return { context: parts.join("\n---\n"), hits };
+}
+
+// =======================================
+// Title helpers (2–7 words from summary)
+// =======================================
+function sanitizeTitle(raw: string): string {
+  let t = (raw || "").trim();
+  t = t.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, "");
+  t = t.replace(
+    /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F900}-\u{1F9FF}]/gu,
+    ""
+  );
+  t = t.replace(/\s+/g, " ");
+  const words = t.split(" ").filter(Boolean).slice(0, 7);
+  t = words.join(" ").replace(/\s+[.,:;!?]+$/g, "");
+  return t.substring(0, 80).trim();
+}
+
+async function llmTitleFromSummary(summary: string): Promise<string> {
+  const r = await openai.chat.completions.create({
+    model: SUM_MODEL,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: 'Return JSON: {"title":"2–7 words, Title Case, no emoji"}' },
+      { role: "user", content: `Create a concise conversation title from this summary:\n"""${summary}"""` }
+    ],
+  });
+  const raw = r.choices?.[0]?.message?.content || "{}";
+  let title = "";
+  try { title = JSON.parse(raw).title ?? ""; } catch { title = raw; }
+  return sanitizeTitle(title) || sanitizeTitle(summary.split(/\s+/).slice(0, 7).join(" ")) || "Untitled Chat";
+}
+
+async function maybeUpdateTitleFromSummary(conversationId: string, summary: string) {
+  if (!summary?.trim()) return;
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("title")
+    .eq("id", conversationId)
+    .single();
+  if (error) return;
+
+  const current = (data?.title || "").trim();
+  // allow overwrite if empty OR placeholder
+  const placeholderRx = /^(untitled( chat)?|avatar builder|new chat|simple chat)$/i;
+  if (current && !placeholderRx.test(current)) return;
+
+  const newTitle = await llmTitleFromSummary(summary);
+  await supabase
+    .from("conversations")
+    .update({ title: newTitle, updated_at: new Date().toISOString() })
+    .eq("id", conversationId);
 }
 
 // =======================================
@@ -434,14 +484,6 @@ async function loadSummary(conversationId: string): Promise<string> {
   return (data?.summary ?? "").slice(0, 1500);
 }
 
-async function saveSummary(conversationId: string, summary: string) {
-  const { error } = await supabase
-    .from("conversations")
-    .update({ summary: summary.slice(0, 1500) })
-    .eq("id", conversationId);
-  if (error) console.error("saveSummary error:", error);
-}
-
 async function loadLastPairs(conversationId: string, pairs: number) {
   const { data, error } = await supabase
     .from("messages")
@@ -472,10 +514,13 @@ async function refreshSummary({
   recentTurns: { role: "user" | "assistant"; content: string }[];
   wordsTarget?: number;
 }) {
-  const turnsTxt = recentTurns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`).join("\n");
+  const turnsTxt = recentTurns.map(
+    (t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`
+  ).join("\n");
+
   const prompt =
     `Update this running conversation summary in ~${wordsTarget} words. ` +
-    `Keep key facts & preferences, goals, decisions, unresolved items. Remove redundancy.\n\n` +
+    `Keep key facts, goals, decisions, unresolved items; remove redundancy.\n\n` +
     `Current summary:\n${currentSummary || "(empty)"}\n\n` +
     `New turns (chronological):\n${turnsTxt}\n\n` +
     `Return only the updated summary as plain text.`;
@@ -485,8 +530,18 @@ async function refreshSummary({
     messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
   });
+
   const updated = resp.choices?.[0]?.message?.content?.trim() || currentSummary;
-  await saveSummary(conversationId, updated);
+
+  // Save summary and auto-title
+  await supabase
+    .from("conversations")
+    .update({ summary: updated.slice(0, 1500) })
+    .eq("id", conversationId);
+
+  await maybeUpdateTitleFromSummary(conversationId, updated);
+
+  return updated;
 }
 
 // =======================================
@@ -538,7 +593,7 @@ export async function POST(req: Request) {
       conversationId,
       userMessage,
       persona: personaRaw,
-      customStyleText,          // may be empty on subsequent turns
+      customStyleText,
     }: {
       conversationId: string;
       userMessage: string;
@@ -627,9 +682,14 @@ export async function POST(req: Request) {
       riskP, profileP, summaryP, historyP, retrievalP,
     ]);
 
+    // If a summary already exists, try to set a proper title now
+    if (summary?.trim()) {
+      await maybeUpdateTitleFromSummary(conversationId, summary);
+    }
+
     // System message with voice sheet (uses toneText for custom persona)
     const voiceSheet = voiceSheetV2(effectivePersona as Persona, toneText || undefined);
-    const system = [ 
+    const system = [
       "You are a concise, youth-support assistant for Australia.",
       "Follow the VOICE SHEET and never break its hard constraints.",
       "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy.",
@@ -641,7 +701,6 @@ export async function POST(req: Request) {
       "\n--- RISK ---\n" + JSON.stringify(risk || {}),
       "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
       "\nReturn a single reply only.",
-      "\nIf the user uses swear words (e.g. fuck, asshole, son of a bitch), tell the user to be respectful and to not use swear words." 
     ].join("\n\n");
 
     const messages: ChatCompletionMessageParam[] = [
@@ -671,13 +730,13 @@ export async function POST(req: Request) {
     // Persona shaping (no markers)
     answer = shapeByPersona(effectivePersona as Persona, answer, userMessage, qMode);
 
-    // Apply custom tone overlay to ANY persona (bullets, caps, emoji, bans)
+    // Apply custom tone overlay to ANY persona
     answer = applyToneOverlay(answer, toneText || undefined);
 
     // Persist turn
     const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
 
-    // Background summary refresh
+    // Background summary refresh (also auto-updates title)
     (async () => {
       try {
         const count = await countAssistantMessages(conversationId);
@@ -707,7 +766,7 @@ export async function POST(req: Request) {
       emotion: (risk.tier === "None" || risk.tier === "Low") ? "Neutral" : "Negative",
       tier: (risk.tier as string) || "None",
       resolvedPersona: effectivePersona,
-      suggestions: ["Try a 60s breathing reset", "Write 1 tiny next step", "Reach out to a safe person"],
+      suggestions: ["Try a 60s breathing reset", "Write 1 tiny next step", "Reach a safe person"],
       citations,
       rows: { user: userRow, assistant: assistantRow },
     });
