@@ -213,6 +213,7 @@ useEffect(() => {
       case "/": router.push("/"); break;
       case "profile": router.push("/profile"); break;
       case "settings": router.push("/settings"); break;
+      case "login": router.push("/login"); break;
       default: console.log(`Navigate to: ${screen}`);
     }
   };

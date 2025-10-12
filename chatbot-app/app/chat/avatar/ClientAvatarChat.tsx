@@ -136,6 +136,9 @@ export default function ClientAvatarChat() {
       case 'settings':
         router.push(`/settings?convo=${conversationId ?? ''}`);
         break;
+      case 'login':
+        router.push('/login');
+        break;
       default:
         console.log(`Navigate to: ${screen}`);
     }

@@ -11,6 +11,10 @@ import { createConversation } from '@/lib/conversations';
 import { getSessionUserId } from '@/lib/auth';
 import { Loading } from '../components/ui/loading';
 import { COMPANIONS } from '@/lib/companions';
+import dynamic from 'next/dynamic';
+
+// Dynamically import HomePageAvatarViewer to avoid SSR issues
+const HomePageAvatarViewer = dynamic(() => import('../components/HomePageAvatarViewer'), { ssr: false });
 
 import { 
   Shield, 
@@ -306,7 +310,7 @@ export default function HomePage() {
         )}
 
         {/* Safe Space Badge */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-16">
           <div className="inline-flex items-center space-x-2 bg-teal-100 px-4 py-2 rounded-full mb-6">
             <Shield className="h-4 w-4 text-teal-600" />
             <span className="text-sm font-medium text-teal-800">
@@ -317,25 +321,31 @@ export default function HomePage() {
 
         {/* Hero Section */}
         <div className="text-center mb-12 relative">
-          {/* Static Decorative Avatars */}
+          {/* Animated 3D Avatar Greetings */}
           <div className="hidden md:block absolute inset-0 pointer-events-none">
-      
-            <div className="absolute left-16 lg:left-55 -top-4">
-              <img
-                src={toThumbnail(COMPANIONS.ADAM.url) || ""}
-                alt="Adam"
-                className="w-24 h-24 lg:w-28 lg:h-28 object-cover"
-                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+            {/* Adam - Left Side */}
+            <div className="absolute left-8 lg:left-32 -top-50 w-40 h-72 lg:w-48 lg:h-80">
+              <HomePageAvatarViewer
+                avatarUrl={COMPANIONS.ADAM.url}
+                animationUrl="/mixamo/standing_greeting.fbx"
+                position={[0, 0.1, 0]}  // Slightly raised position
+                rotation={[-0.05, Math.PI / 6, 0]}  // Face slightly toward center
+                scale={0.75}  
+                cameraPosition={[0, 1.4, 3.5]}
+                cameraFov={30}
               />
             </div>
             
-            
-            <div className="absolute right-16 lg:right-55 -top-4">
-              <img
-                src={toThumbnail(COMPANIONS.EVE.url) || ""}
-                alt="Eve"
-                className="w-24 h-24 lg:w-28 lg:h-28 object-cover"
-                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+            {/* Eve - Right Side */}
+            <div className="absolute right-8 lg:right-32 -top-50 w-40 h-72 lg:w-48 lg:h-80">
+              <HomePageAvatarViewer
+                avatarUrl={COMPANIONS.EVE.url}
+                animationUrl="/mixamo/standing_greeting.fbx"
+                position={[0, 0.1, 0]}  // Slightly raised position
+                rotation={[-0.05, -Math.PI / 6, 0]}  // Face slightly toward center (mirrored)
+                scale={0.75}  
+                cameraPosition={[0, 1.4, 3.5]}
+                cameraFov={30}
               />
             </div>
           </div>

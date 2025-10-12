@@ -20,7 +20,13 @@ type Props = {
 
 const DEFAULT_LOOK_TARGET = new THREE.Vector3(0, 1.2, 2);
 
-export default function RpmViewer(props: Props) {
+const RpmViewer = React.memo(function RpmViewer(props: Props) {
+  console.log('[RpmViewer] Component rendering with props:', {
+    assistantTalking: props.assistantTalking,
+    talkOverride: props.talkOverride,
+    actor: props.actor
+  });
+  
   const userUrl = props.userUrl ?? null;
   const aiUrl   = props.aiUrl ?? null;
   const singleSrc = props.src ?? null;
@@ -34,8 +40,8 @@ export default function RpmViewer(props: Props) {
   const duoScale = 0.6;
   const singleScale = 0.68;
 
-  const userPosition: [number, number, number] = duo ? [-separationX, 0, 0] : [0, 0, 0];
-  const companionPosition: [number, number, number] = duo ? [separationX, 0, 0] : [0, 0, 0];
+  const userPosition: [number, number, number] = duo ? [-separationX, 0.1, 0] : [0, 0.1, 0];
+  const companionPosition: [number, number, number] = duo ? [separationX, 0.1, 0] : [0, 0.1, 0];
 
   // Yaw so both face each other (tweak signs if needed for your GLBs)
   const duoUserYaw = -Math.PI / 2;      // left avatar faces toward center
@@ -57,7 +63,7 @@ export default function RpmViewer(props: Props) {
 
   // talking states per avatar
   const userTalking = Boolean(props.talkOverride ?? false);
-  const aiTalking = Boolean(props.assistantTalking ?? false);
+  const aiTalking = Boolean(props.talkOverride ?? false);  // Both use talkOverride now
 
   // camera presets
   const camera = useMemo(
@@ -72,6 +78,19 @@ export default function RpmViewer(props: Props) {
   const idleFbx = '/mixamo/breathing_idle.fbx';
   const userTalkFbx = '/mixamo/Talking_user.fbx';
   const aiTalkFbx = '/mixamo/Talking_ai.fbx';
+
+  // Memoize animation URLs to prevent unnecessary re-renders
+  const userAnimUrl = useMemo(() => {
+    const url = userTalking ? userTalkFbx : idleFbx;
+    console.log('[RpmViewer] User animation URL changed:', { userTalking, url });
+    return url;
+  }, [userTalking]);
+  
+  const aiAnimUrl = useMemo(() => {
+    const url = aiTalking ? aiTalkFbx : idleFbx;
+    console.log('[RpmViewer] AI animation URL changed:', { aiTalking, url });
+    return url;
+  }, [aiTalking]);
 
   return (
     <Canvas
@@ -89,10 +108,10 @@ export default function RpmViewer(props: Props) {
           <>
             {/* USER (left) */}
             {userUrl && (
-              <group position={userPosition} rotation={[ -0.18, duoUserYaw + frontBias, 0 ]} scale={duoScale}>
+              <group position={userPosition} rotation={[ -0.08, duoUserYaw + frontBias, 0 ]} scale={duoScale}>
                 <RpmModel
                   avatarUrl={userUrl}
-                  animUrls={userTalking ? userTalkFbx : idleFbx}
+                  animUrls={userAnimUrl}
                   playing={true}
                   timeScale={1}
                   fadeSec={0.3}
@@ -104,10 +123,10 @@ export default function RpmViewer(props: Props) {
 
             {/* AI (right) */}
             {aiUrl && (
-              <group position={companionPosition} rotation={[ -0.18, duoCompanionYaw - frontBias, 0 ]} scale={duoScale}>
+              <group position={companionPosition} rotation={[ -0.08, duoCompanionYaw - frontBias, 0 ]} scale={duoScale}>
                 <RpmModel
                   avatarUrl={aiUrl}
-                  animUrls={aiTalking ? aiTalkFbx : idleFbx}
+                  animUrls={aiAnimUrl}
                   playing={true}
                   timeScale={1}
                   fadeSec={0.3}
@@ -120,10 +139,10 @@ export default function RpmViewer(props: Props) {
         ) : isSeparate ? (
           <>
             {hasUser && (
-              <group position={[0, 0, 0]} rotation={[ -0.18, leftFaceRightYaw + frontBias, 0 ]} scale={singleScale}>
+              <group position={[0, 0.1, 0]} rotation={[ -0.08, leftFaceRightYaw + frontBias, 0 ]} scale={singleScale}>
                 <RpmModel
                   avatarUrl={userUrl!}
-                  animUrls={userTalking ? userTalkFbx : idleFbx}
+                  animUrls={userAnimUrl}
                   playing={true}
                   timeScale={1}
                   fadeSec={0.3}
@@ -133,10 +152,10 @@ export default function RpmViewer(props: Props) {
               </group>
             )}
             {hasCompanion && (
-              <group position={[0, 0, 0]} rotation={[ -0.18, rightFaceLeftYaw - frontBias, 0 ]} scale={singleScale}>
+              <group position={[0, 0.1, 0]} rotation={[ -0.08, rightFaceLeftYaw - frontBias, 0 ]} scale={singleScale}>
                 <RpmModel
                   avatarUrl={aiUrl!}
-                  animUrls={aiTalking ? aiTalkFbx : idleFbx}
+                  animUrls={aiAnimUrl}
                   playing={true}
                   timeScale={1}
                   fadeSec={0.3}
@@ -148,13 +167,13 @@ export default function RpmViewer(props: Props) {
           </>
         ) : (
           // Single-preview fallback (src or either url)
-          <group position={[0, -0.2, 0]} rotation={[ -0.18, singleYaw, 0 ]} scale={singleScale}>
+          <group position={[0, 0.1, 0]} rotation={[ -0.08, singleYaw, 0 ]} scale={singleScale}>
             <RpmModel
               avatarUrl={(singleSrc ?? userUrl ?? aiUrl) as string}
               animUrls={
                 (props.actor ?? (userUrl ? 'user' : 'ai')) === 'user'
-                  ? (userTalking ? userTalkFbx : idleFbx)
-                  : (aiTalking ? aiTalkFbx : idleFbx)
+                  ? userAnimUrl
+                  : aiAnimUrl
               }
               playing={true}
               timeScale={1}
@@ -181,5 +200,18 @@ export default function RpmViewer(props: Props) {
       />
     </Canvas>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function for React.memo
+  return (
+    prevProps.src === nextProps.src &&
+    prevProps.userUrl === nextProps.userUrl &&
+    prevProps.aiUrl === nextProps.aiUrl &&
+    prevProps.talkOverride === nextProps.talkOverride &&
+    prevProps.singleYaw === nextProps.singleYaw &&
+    prevProps.actor === nextProps.actor &&
+    JSON.stringify(prevProps.singleLookAt) === JSON.stringify(nextProps.singleLookAt)
+  );
+});
+
+export default RpmViewer;
   

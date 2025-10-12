@@ -1,7 +1,7 @@
 // components/ChatInterfaceScreen.tsx
 "use client";
 
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AvatarDisplay from "./chat/AvatarDisplay";
 import ChatHeader from "./chat/ChatHeader";
@@ -136,7 +136,9 @@ export function ChatInterfaceScreen({
 }: ChatInterfaceScreenProps) {
   const [inputValue, setInputValue] = useState("");
   const [userTyping, setUserTyping] = useState(false);
+  const [aiTalking, setAiTalking] = useState(false);
   const userTypingTimer = useRef<number | null>(null);
+  const aiTalkingTimer = useRef<number | null>(null);
   const [uiOnlySystem, setUiOnlySystem] = useState<UIMsg[]>([]);
   const [showShareWarning, setShowShareWarning] = useState(false);
   const [showCrisisModal, setShowCrisisModal] = useState(false);
@@ -146,6 +148,39 @@ export function ChatInterfaceScreen({
 
   // Provide a safe mood object for all children (prevents .toLowerCase() crashes)
   const displayMood = useMemo(() => normalizeMood(currentMood), [currentMood]);
+
+  // Handle AI talking animation timing
+  useEffect(() => {
+    console.log('[ChatInterface] isTyping prop received:', isTyping);
+    console.log('[ChatInterface] AI talking state change:', { isTyping, aiTalking });
+    
+    if (isTyping) {
+      // AI starts talking when generating response
+      console.log('[ChatInterface] AI started talking');
+      setAiTalking(true);
+      // Clear any existing timer
+      if (aiTalkingTimer.current) {
+        clearTimeout(aiTalkingTimer.current);
+        aiTalkingTimer.current = null;
+      }
+    } else if (aiTalking) {
+      // AI stops talking 4 seconds after response is complete for better UX
+      console.log('[ChatInterface] AI will stop talking in 4s');
+      aiTalkingTimer.current = window.setTimeout(() => {
+        console.log('[ChatInterface] AI stopped talking');
+        setAiTalking(false);
+        aiTalkingTimer.current = null;
+      }, 4000);
+    }
+
+    // Cleanup function
+    return () => {
+      if (aiTalkingTimer.current) {
+        clearTimeout(aiTalkingTimer.current);
+        aiTalkingTimer.current = null;
+      }
+    };
+  }, [isTyping, aiTalking]);
 
   const uiFromDb: UIMsg[] = useMemo(
     () =>
@@ -265,18 +300,21 @@ export function ChatInterfaceScreen({
         {chatMode === "avatar" && (
           <div className="flex items-center justify-center w-[40%] border-r border-gray-200 bg-gradient-to-br from-purple-50 to-pink-50">
             {hasAnyModel ? (
-              <AvatarDisplay
-                userAvatar={{
-                  name: user?.avatar?.name ?? "User",
-                  url: user?.avatar?.url ?? undefined,
-                }}
-                aiAvatar={{
-                  name: companionAvatar?.name ?? "Adam",
-                  url: companionAvatar?.url ?? undefined,
-                }}
-                assistantTalking={isTyping}
-                userTalking={userTyping}
-              />
+              <>
+                {console.log('[ChatInterface] Passing to AvatarDisplay:', { aiTalking, userTyping })}
+                <AvatarDisplay
+                  userAvatar={{
+                    name: user?.avatar?.name ?? "User",
+                    url: user?.avatar?.url ?? undefined,
+                  }}
+                  aiAvatar={{
+                    name: companionAvatar?.name ?? "Adam",
+                    url: companionAvatar?.url ?? undefined,
+                  }}
+                  assistantTalking={aiTalking}
+                  userTalking={userTyping}
+                />
+              </>
             ) : (
               <div className="p-3 text-sm text-muted-foreground">
                 Avatar not found. Please select a new one in your Profile → 3D Avatars.
@@ -299,10 +337,10 @@ export function ChatInterfaceScreen({
             value={inputValue}
             onChange={(val) => {
               setInputValue(val);
-              // Toggle user talking while actively typing (debounced)
+              // User avatar talks while typing + 1.5s delay after stopping for natural feel
               setUserTyping(true);
               if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
-              userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 600);
+              userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 1500);
             }}
             onSendMessage={(text) => {
               const t = text.trim();
@@ -319,9 +357,9 @@ export function ChatInterfaceScreen({
               if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
             }}
             onBlur={() => {
-              // Graceful fade-out shortly after leaving the input
+              // Graceful fade-out after leaving the input (shorter delay)
               if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
-              userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 250);
+              userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 800);
             }}
           />
         </div>

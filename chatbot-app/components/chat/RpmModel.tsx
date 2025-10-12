@@ -68,14 +68,165 @@ export default function RpmModel({
     [avatarGltf.scene]
   );
 
-  // 2) Anim files (FBX or GLB)
-  const animUrlsArr = Array.isArray(animUrls) ? animUrls : [animUrls];
+  // 2) Anim files (FBX or GLB) - memoize to prevent constant re-loading
+  const animUrlsArr = useMemo(() => 
+    Array.isArray(animUrls) ? animUrls : [animUrls], 
+    [animUrls]
+  );
   const animSources = animUrlsArr.map((u) => useAnyAnim(u));
 
-  const sourceClips = useMemo(
-    () => animSources.flatMap((g) => g.animations || []),
-    [animSources]
-  );
+  const sourceClips = useMemo(() => {
+    console.log('[RpmModel] Processing animation sources:', animSources.length);
+    
+    const clips: THREE.AnimationClip[] = [];
+    animSources.forEach((src, index) => {
+      console.log(`[RpmModel] Animation source ${index}:`, {
+        hasAnimations: !!src.animations,
+        animationCount: src.animations?.length || 0,
+        sceneChildren: src.scene?.children?.length || 0
+      });
+      
+      if (src.animations?.length) {
+        src.animations.forEach((clip, clipIndex) => {
+          console.log(`[RpmModel] Clip ${clipIndex}:`, {
+            name: clip.name,
+            duration: clip.duration,
+            tracks: clip.tracks.length,
+            trackTypes: clip.tracks.map(t => t.constructor.name)
+          });
+        });
+        clips.push(...src.animations);
+      }
+    });
+    
+    // Filter out invalid clips (zero duration or no tracks)
+    const validClips = clips.filter(clip => {
+      const isValid = clip.duration > 0 && clip.tracks.length > 0;
+      if (!isValid) {
+        console.log('[RpmModel] Filtering out invalid clip:', {
+          name: clip.name,
+          duration: clip.duration,
+          tracks: clip.tracks.length
+        });
+      }
+      return isValid;
+    });
+    
+    console.log('[RpmModel] Total clips found:', clips.length, 'Valid clips:', validClips.length);
+    return validClips;
+  }, [animSources]);
+
+  // Helper function to create a manually mapped clip when auto-retargeting fails
+  const createManuallyMappedClip = (sourceClip: THREE.AnimationClip, targetMesh: THREE.SkinnedMesh): THREE.AnimationClip => {
+    console.log('[RpmModel] Creating manually mapped clip for:', sourceClip.name);
+    
+    // Get all bone names from the target skeleton
+    const targetBoneNames = new Set(targetMesh.skeleton.bones.map(bone => bone.name));
+    console.log('[RpmModel] Target bone names:', Array.from(targetBoneNames).slice(0, 10)); // Log first 10
+    
+    // Common bone name mappings between Mixamo and Ready Player Me
+    const boneMapping: Record<string, string> = {
+      'mixamorigHips': 'Hips',
+      'mixamorigSpine': 'Spine',
+      'mixamorigSpine1': 'Spine1',
+      'mixamorigSpine2': 'Spine2',
+      'mixamorigNeck': 'Neck',
+      'mixamorigHead': 'Head',
+      'mixamorigLeftShoulder': 'LeftShoulder',
+      'mixamorigLeftArm': 'LeftArm',
+      'mixamorigLeftForeArm': 'LeftForeArm',
+      'mixamorigLeftHand': 'LeftHand',
+      'mixamorigRightShoulder': 'RightShoulder',
+      'mixamorigRightArm': 'RightArm',
+      'mixamorigRightForeArm': 'RightForeArm',
+      'mixamorigRightHand': 'RightHand',
+      'mixamorigLeftUpLeg': 'LeftUpLeg',
+      'mixamorigLeftLeg': 'LeftLeg',
+      'mixamorigLeftFoot': 'LeftFoot',
+      'mixamorigRightUpLeg': 'RightUpLeg',
+      'mixamorigRightLeg': 'RightLeg',
+      'mixamorigRightFoot': 'RightFoot'
+    };
+    
+    // Create new tracks with mapped bone names
+    const newTracks: THREE.KeyframeTrack[] = [];
+    let mappedCount = 0;
+    
+    for (const track of sourceClip.tracks) {
+      const [boneName, property] = track.name.split('.');
+      const mappedBoneName = boneMapping[boneName];
+      
+      if (mappedBoneName && targetBoneNames.has(mappedBoneName)) {
+        // Skip hip position tracks to prevent avatar from moving away from origin
+        if (mappedBoneName === 'Hips' && property === 'position') {
+          console.log('[RpmModel] Skipping Hips.position track to keep avatar centered');
+          continue;
+        }
+        
+        // Skip foot movement during idle animations to keep feet planted
+        if ((mappedBoneName === 'LeftFoot' || mappedBoneName === 'RightFoot') && 
+            (sourceClip.name.toLowerCase().includes('idle') || sourceClip.name.toLowerCase().includes('breathing'))) {
+          console.log(`[RpmModel] Skipping ${mappedBoneName} movement during idle animation to keep feet planted`);
+          continue;
+        }
+        
+        // Also skip lower leg movement during idle to prevent knee bending
+        if ((mappedBoneName === 'LeftLeg' || mappedBoneName === 'RightLeg') && 
+            (sourceClip.name.toLowerCase().includes('idle') || sourceClip.name.toLowerCase().includes('breathing'))) {
+          console.log(`[RpmModel] Skipping ${mappedBoneName} movement during idle animation to prevent knee bending`);
+          continue;
+        }
+        
+        // Stronger hip rotation adjustment to make avatar stand straighter
+        if (mappedBoneName === 'Hips' && property === 'quaternion') {
+          console.log('[RpmModel] Making stronger hip adjustment for straighter posture');
+          const straightenedValues = [];
+          for (let i = 0; i < track.values.length; i += 4) {
+            // Get quaternion components (x, y, z, w)
+            const x = track.values[i] * 0.7;     // More reduction in X rotation (back lean)
+            const y = track.values[i + 1];       // Keep Y rotation unchanged
+            const z = track.values[i + 2];       // Keep Z rotation unchanged
+            const w = track.values[i + 3];       // Keep W component
+            
+            // Normalize the quaternion
+            const length = Math.sqrt(x*x + y*y + z*z + w*w);
+            straightenedValues.push(x/length, y/length, z/length, w/length);
+          }
+          
+          const newTrackName = `${mappedBoneName}.${property}`;
+          const NewTrackClass = (track.constructor as any);
+          const newTrack = new NewTrackClass(newTrackName, track.times, straightenedValues);
+          newTracks.push(newTrack);
+          mappedCount++;
+          continue;
+        }
+        
+        const newTrackName = `${mappedBoneName}.${property}`;
+        const NewTrackClass = (track.constructor as any);
+        
+        // Scale down position values for better compatibility (Mixamo uses cm, RPM uses different scale)
+        let values = track.values;
+        if (property === 'position' && mappedBoneName !== 'Hips') {
+          values = track.values.map((v: number) => v * 0.01); // Scale down by 100x
+        }
+        
+        const newTrack = new NewTrackClass(newTrackName, track.times, values);
+        newTracks.push(newTrack);
+        mappedCount++;
+      }
+    }
+    
+    console.log('[RpmModel] Mapped', mappedCount, 'tracks out of', sourceClip.tracks.length);
+    
+    if (newTracks.length === 0) {
+      console.warn('[RpmModel] No tracks could be mapped, returning original clip');
+      return sourceClip;
+    }
+    
+    const mappedClip = new THREE.AnimationClip(sourceClip.name + '_mapped', sourceClip.duration, newTracks);
+    console.log('[RpmModel] Created mapped clip with', newTracks.length, 'tracks');
+    return mappedClip;
+  };
 
   // 3) Find skeletons + mixer
   const targetSkinned = useMemo(() => findFirstSkinned(avatarScene), [avatarScene]);
@@ -86,54 +237,140 @@ export default function RpmModel({
 
   // 4) Retarget FBX/GLB clips → avatar skeleton
   const retargetedClips = useMemo(() => {
-    if (!targetSkinned) return [] as THREE.AnimationClip[];
+    console.log('[RpmModel] Starting retarget process:', {
+      hasTargetSkinned: !!targetSkinned,
+      animSourcesCount: animSources.length,
+      sourceClipsCount: sourceClips.length
+    });
+
+    if (!targetSkinned) {
+      console.log('[RpmModel] No target skinned mesh found');
+      return [] as THREE.AnimationClip[];
+    }
+
+    console.log('[RpmModel] Target skinned mesh:', {
+      name: targetSkinned.name,
+      visible: targetSkinned.visible,
+      boneCount: targetSkinned.skeleton.bones.length,
+      geometry: targetSkinned.geometry?.type
+    });
 
     // find a source skinned mesh from any loaded animation scene
     let sourceSkinned: THREE.SkinnedMesh | null = null;
     for (const src of animSources) {
       const s = findFirstSkinned(src.scene);
-      if (s) { sourceSkinned = s; break; }
+      if (s) { 
+        sourceSkinned = s; 
+        console.log('[RpmModel] Found source skinned mesh:', {
+          name: s.name,
+          boneCount: s.skeleton.bones.length
+        });
+        break; 
+      }
     }
-    if (!sourceSkinned) return [] as THREE.AnimationClip[];
+    if (!sourceSkinned) {
+      console.log('[RpmModel] No source skinned mesh found in animation sources');
+      return [] as THREE.AnimationClip[];
+    }
 
-    return sourceClips.map((c) => {
+    console.log('[RpmModel] Processing', sourceClips.length, 'source clips for retargeting');
+
+    const retargeted = sourceClips.map((c) => {
       try {
+        console.log('[RpmModel] Retargeting clip:', c.name, 'duration:', c.duration, 'tracks:', c.tracks.length);
+        
+        // Use the Three.js retargeting with proper bone mapping
         const r = (SkeletonUtils as any).retargetClip(
-          targetSkinned,        // target root/skeleton (RPM avatar)
-          sourceSkinned,        // source root/skeleton (Mixamo)
-          c,                    // AnimationClip from FBX/GLB
-          {
-            preserveBoneMatrix: false,
-            // Optional: compensate Mixamo (cm) → RPM (m):
-            // scale: 0.01,
-            // Optional: start from first-frame hip position
-            // useFirstFramePosition: true,
-          }
+          targetSkinned,        // target skeleton (RPM avatar)
+          sourceSkinned,        // source skeleton (Mixamo)
+          c,                    // AnimationClip from FBX
+          {}                    // Empty options - let Three.js auto-map
         ) as THREE.AnimationClip;
+        
         r.name = r.name || c.name || 'RetargetedClip';
+        
+        console.log('[RpmModel] Retargeted clip result:', {
+          originalName: c.name,
+          newName: r.name,
+          originalDuration: c.duration,
+          newDuration: r.duration,
+          originalTrackCount: c.tracks.length,
+          newTrackCount: r.tracks.length
+        });
+        
+        // If retargeting failed, try manual bone mapping as fallback
+        if (r.duration <= 0 || !r.tracks.length) {
+          console.warn('[RpmModel] Retargeting produced invalid clip, trying manual approach');
+          return createManuallyMappedClip(c, targetSkinned);
+        }
+        
         return r;
       } catch (e) {
-        console.warn('[RpmModel] retarget failed for clip', c?.name, e);
-        return null;
+        console.warn('[RpmModel] Retargeting failed for clip', c?.name, e);
+        console.log('[RpmModel] Trying manual bone mapping as fallback');
+        return createManuallyMappedClip(c, targetSkinned);
       }
     }).filter(Boolean) as THREE.AnimationClip[];
+
+    // Filter out any invalid retargeted clips
+    const validRetargeted = retargeted.filter(clip => {
+      const isValid = clip.duration > 0 && clip.tracks.length > 0;
+      if (!isValid) {
+        console.warn('[RpmModel] Filtering out invalid retargeted clip:', {
+          name: clip.name,
+          duration: clip.duration,
+          tracks: clip.tracks.length
+        });
+      }
+      return isValid;
+    });
+
+    // If retargeting completely failed, use original valid clips
+    if (validRetargeted.length === 0 && sourceClips.length > 0) {
+      console.warn('[RpmModel] All retargeting failed, falling back to original valid clips');
+      const validOriginals = sourceClips.filter(clip => clip.duration > 0 && clip.tracks.length > 0);
+      return validOriginals;
+    }
+
+    return validRetargeted;
   }, [animSources, sourceClips, targetSkinned]);
 
   // 5) Crossfade + play
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
 
   useEffect(() => {
-    if (!retargetedClips.length) return; // nothing to play yet
+    if (!retargetedClips.length) {
+      console.log('[RpmModel] No retargeted clips available yet');
+      return; // nothing to play yet
+    }
 
     const desired = (clip && retargetedClips.find((c) => c.name === clip)) || retargetedClips[0];
-    if (!desired) return;
+    if (!desired) {
+      console.log('[RpmModel] No desired clip found');
+      return;
+    }
 
+    console.log('[RpmModel] Setting up animation action for clip:', desired.name);
+    
     const action = mixer.clipAction(desired, targetSkinned ?? avatarScene);
     action.setLoop(loop, Number.isFinite(repetitions) ? repetitions : Infinity);
     action.timeScale = timeScale;
+    action.setEffectiveWeight(1);
+    action.enabled = true;
+
+    console.log('[RpmModel] Action configured:', {
+      clipName: desired.name,
+      loop,
+      repetitions,
+      timeScale,
+      weight: action.weight,
+      enabled: action.enabled,
+      paused: action.paused
+    });
 
     const prev = currentActionRef.current;
     if (prev && prev !== action) {
+      console.log('[RpmModel] Crossfading from previous action');
       prev.crossFadeTo(action, Math.max(0, fadeSec), false);
       action.play();
       // stop the previous after crossfade completes
@@ -141,27 +378,106 @@ export default function RpmModel({
       const prevRef = prev;
       setTimeout(() => prevRef.stop(), stopAfter);
     } else if (!prev) {
+      console.log('[RpmModel] Starting fresh action');
       action.reset().play();
     }
+    
+    console.log('[RpmModel] Action should now be playing:', {
+      time: action.time,
+      isRunning: action.isRunning(),
+      paused: action.paused
+    });
+    
     currentActionRef.current = action;
 
-    return () => { action.stop(); };
+    return () => { 
+      console.log('[RpmModel] Stopping action on cleanup');
+      action.stop(); 
+    };
   }, [mixer, retargetedClips, clip, loop, repetitions, timeScale, fadeSec, targetSkinned, avatarScene]);
 
   // 6) Play/pause
   useEffect(() => {
     const a = currentActionRef.current;
-    if (!a) return;
-    if (playing) { mixer.timeScale = timeScale; a.paused = false; }
-    else { a.paused = true; }
+    if (!a) {
+      console.log('[RpmModel] No current action available for play/pause');
+      return;
+    }
+    
+    console.log('[RpmModel] Updating play/pause state:', {
+      playing,
+      timeScale,
+      actionTime: a.time,
+      actionPaused: a.paused,
+      actionIsRunning: a.isRunning()
+    });
+    
+    if (playing) { 
+      mixer.timeScale = timeScale; 
+      a.paused = false;
+      console.log('[RpmModel] Action unpaused and should be playing');
+    } else { 
+      a.paused = true;
+      console.log('[RpmModel] Action paused');
+    }
   }, [playing, timeScale, mixer]);
 
   // 7) Advance mixer
-  useFrame((_, delta) => mixer.update(delta));
+  const frameCountRef = useRef(0);
+  
+  useFrame((_, delta) => {
+    mixer.update(delta);
+    
+    // Debug animation state every 60 frames (roughly once per second at 60fps)
+    frameCountRef.current = (frameCountRef.current || 0) + 1;
+    if (frameCountRef.current % 60 === 0) {
+      const action = currentActionRef.current;
+      if (action && targetSkinned) {
+        // Check if bones are actually moving
+        const firstBone = targetSkinned.skeleton.bones[0];
+        console.log('[RpmModel] Animation status update:', {
+          time: action.time.toFixed(2),
+          duration: action.getClip().duration.toFixed(2),
+          weight: action.weight,
+          enabled: action.enabled,
+          paused: action.paused,
+          isRunning: action.isRunning(),
+          mixerTime: mixer.time.toFixed(2),
+          targetVisible: targetSkinned.visible,
+          bonePosition: firstBone ? firstBone.position.toArray() : 'no bones',
+          boneRotation: firstBone ? firstBone.quaternion.toArray() : 'no bones'
+        });
+      }
+    }
+  });
 
   // 8) Mount avatar
   useEffect(() => {
     if (!groupRef.current) return;
+    
+    console.log('[RpmModel] Mounting avatar scene:', {
+      sceneName: avatarScene.name,
+      sceneChildren: avatarScene.children.length,
+      sceneVisible: avatarScene.visible,
+      sceneScale: avatarScene.scale.toArray(),
+      scenePosition: avatarScene.position.toArray()
+    });
+    
+    // Make sure the avatar is visible
+    avatarScene.visible = true;
+    avatarScene.traverse((child) => {
+      if (child.type === 'SkinnedMesh') {
+        child.frustumCulled = false; // Prevent culling issues
+        child.visible = true;
+        console.log('[RpmModel] Found SkinnedMesh child:', {
+          name: child.name,
+          visible: child.visible,
+          castShadow: child.castShadow,
+          receiveShadow: child.receiveShadow
+        });
+      }
+    });
+    
     groupRef.current.add(avatarScene);
     return () => { groupRef.current?.remove(avatarScene); };
   }, [avatarScene]);
