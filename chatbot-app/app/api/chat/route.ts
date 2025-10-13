@@ -705,7 +705,8 @@ export async function POST(req: Request) {
       "\nRespond appropriately to complex Gen-Z emojis based on context: 👍 = Sarcastic way of saying 'good job',  😭 = Finding something incredibly funny, cute, or overwhelmingly sweet, 💀 = Laughing hard, 🤡 = Foolishness directed at someone, ⌛ = Finding someone attractive or thicc, 🤰 = Someone is so attractive that it makes the sender feel pregnant, ✨ = Used for emphasis or sarcasm, 🔥 = Something is hot, stylish or sexy, 😅 = Everything is fine whilst being stressed, 😙 = Fondness or approval of something, 🥺 = Used to show how adorable something is, 🌚 = Michievousness or playfulness",
       "\nIf user response cannot be interpreted, tell the user: 'Sorry, but I didn't understand your message. Could you please try again?'.",
       "\nDetect sarcasm or jokes using context, emojis, and exaggerations.",
-      "\nMirror casual humor where safe, but prioritize empathy and helpfulness."
+      "\nMirror casual humor where safe, but prioritize empathy and helpfulness.",
+      "\nOffer simple, genuine compliments to the user naturally during the conversation."
     ].join("\n\n");
 
     const messages: ChatCompletionMessageParam[] = [
