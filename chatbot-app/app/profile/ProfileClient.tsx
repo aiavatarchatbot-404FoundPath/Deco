@@ -30,6 +30,82 @@ import {
 import { getSessionUserId } from '@/lib/auth';
 import { ReadyPlayerMeSelector } from './ReadyPlayerMeSelector';
 
+function normalizeMoodValue(raw: unknown): string | null {
+  if (!raw) return null;
+
+  // If Supabase returned a JSON object (json/jsonb)
+  if (typeof raw === "object") {
+    const anyRaw = raw as { feeling?: string; intensity?: number };
+    if (anyRaw && typeof anyRaw.feeling === "string") return anyRaw.feeling;
+    return null;
+  }
+
+  // If it’s a string, it might be plain text or a JSON string
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.feeling === "string") return parsed.feeling;
+    } catch {
+      // Not JSON → treat as a label
+      return raw;
+    }
+  }
+
+  return null;
+}
+
+function moodMeta(raw: unknown) {
+  const mood = normalizeMoodValue(raw);
+  if (!mood) return { emoji: "🟡", label: "No mood selected" };
+
+  const key = String(mood).toLowerCase();
+  const map: Record<string, { emoji: string; label: string }> = {
+    happy:       { emoji: "😀", label: "Happy" },
+    calm:        { emoji: "🙂", label: "Calm" },
+    neutral:     { emoji: "😐", label: "Neutral" },
+    anxious:     { emoji: "😟", label: "Anxious" },
+    sad:         { emoji: "😞", label: "Sad" },
+    angry:       { emoji: "😡", label: "Angry" },
+    overwhelmed: { emoji: "😵", label: "Overwhelmed" },
+    reflective:  { emoji: "🤔", label: "Reflective" },
+    frustrated:  { emoji: "😤", label: "Frustrated" }, // common value you mentioned
+  };
+
+  return map[key] ?? { emoji: "🙂", label: String(mood) };
+}
+
+function MoodPill({ mood }: { mood: unknown }) {
+  const m = moodMeta(mood);
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground bg-background">
+      <span>{m.emoji}</span>
+      <span>{m.label}</span>
+    </span>
+  );
+}
+
+function MoodTrajectory({
+  initial,
+  final,
+}: {
+  initial: unknown;
+  final: unknown;
+}) {
+  const i = moodMeta(initial);
+  const f = moodMeta(final);
+  const same =
+    i.label.toLowerCase() === f.label.toLowerCase() && i.label !== "No mood";
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <MoodPill mood={initial} />
+      <span className={same ? "opacity-40" : "opacity-70"}>→</span>
+      <MoodPill mood={final} />
+    </div>
+  );
+}
+
+
 type Tab = "conversations" | "avatars" | "saved" | "settings";
 
 type ConversationRow = {
@@ -210,7 +286,13 @@ export default function ProfileClient() {
   // your existing state — change the generic to use our Tab type
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
-  type SavedConvo = { id: string; title: string | null; updated_at: string };
+  type SavedConvo = {
+      id: string;
+      title: string | null;
+      updated_at: string;
+      initial_mood: unknown;
+      final_mood: unknown;
+    };
 
   const [savedConvos, setSavedConvos] = useState<SavedConvo[]>([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
@@ -235,9 +317,9 @@ export default function ProfileClient() {
           setLoadingSaved(true);
           const { data, error } = await supabase
             .from("conversations")
-            .select("id, title, updated_at")
+            .select("id, title, updated_at, initial_mood, final_mood")
             .eq("created_by", profile.id)
-            .eq("status", "saved")
+            .in("status", ["ongoing", "ended"])
             .order("updated_at", { ascending: false });
 
           if (error) throw error;
@@ -279,70 +361,13 @@ function ProfileConversationsTab() {
 
 }
 
-// ---- Load Saved (status = 'ended') ----
-useEffect(() => {
-  if (!profile?.id) return;
-  if (activeTab !== "saved") return;
 
-  let cancelled = false;
-
-  (async () => {
-    try {
-      setLoadingSaved(true);
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("id, title, updated_at")
-        .eq("created_by", profile.id)
-        .eq("status", "ended")              // 👈 CHANGED: show ended in Saved tab
-        .order("updated_at", { ascending: false });
-
-      if (error) throw error;
-      if (!cancelled) setSavedConvos(data ?? []);
-    } catch (e) {
-      console.error("load saved convos failed:", e);
-      if (!cancelled) setSavedConvos([]);
-    } finally {
-      if (!cancelled) setLoadingSaved(false);
-    }
-  })();
-
-  return () => { cancelled = true; };
-}, [profile?.id, activeTab]);
 type OngoingConvo = { id: string; title: string | null; updated_at: string };
 
 const [ongoingConvos, setOngoingConvos] = useState<OngoingConvo[]>([]);
 const [loadingOngoing, setLoadingOngoing] = useState(false);
 
 
-// ---- Load Conversations (status = 'ongoing') ----
-useEffect(() => {
-  if (!profile?.id) return;
-  if (activeTab !== "conversations") return;
-
-  let cancelled = false;
-
-  (async () => {
-    try {
-      setLoadingOngoing(true);
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("id, title, updated_at")
-        .eq("created_by", profile.id)
-        .eq("status", "ongoing")            // 👈 only ongoing in Conversations tab
-        .order("updated_at", { ascending: false });
-
-      if (error) throw error;
-      if (!cancelled) setOngoingConvos(data ?? []);
-    } catch (e) {
-      console.error("load ongoing convos failed:", e);
-      if (!cancelled) setOngoingConvos([]);
-    } finally {
-      if (!cancelled) setLoadingOngoing(false);
-    }
-  })();
-
-  return () => { cancelled = true; };
-}, [profile?.id, activeTab]);
 
 
 useEffect(() => {
@@ -705,6 +730,9 @@ useEffect(() => {
                       {savedConvos.map((c) => (
                         <Card key={c.id} className="trauma-safe calm-hover">
                           <CardContent className="p-4">
+                              <div className="w-full flex justify-center mb-3">
+                                <MoodTrajectory initial={c.initial_mood} final={c.final_mood} />
+                              </div>
                             <div className="flex items-center justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center space-x-3 mb-2">
@@ -714,7 +742,7 @@ useEffect(() => {
                                   </Badge>
                                 </div>
                               </div>
-                              <div className="flex flex-col items-end gap-2">
+                              <div className="flex flex-col items-center justify-center gap-2 min-w-[160px] text-center">
                                   <Button
                                     size="sm"
                                     onClick={() => router.push(`/chat/summary?convo=${c.id}`)}
@@ -730,6 +758,7 @@ useEffect(() => {
                                   >
                                     Delete
                                   </Button>
+
                                 </div>
                             </div>
                           </CardContent>

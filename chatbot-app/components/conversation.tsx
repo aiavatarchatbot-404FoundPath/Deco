@@ -10,6 +10,52 @@ import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Search } from 'lucide-react';
 
+function normalizeMoodValue(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw === "object") {
+    const anyRaw = raw as { feeling?: string };
+    if (anyRaw && typeof anyRaw.feeling === "string") return anyRaw.feeling;
+    return null;
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.feeling === "string") return parsed.feeling;
+    } catch {
+      return raw; // plain string label
+    }
+  }
+  return null;
+}
+
+function moodMeta(raw: unknown) {
+  const mood = normalizeMoodValue(raw);
+  if (!mood) return { emoji: "🟡", label: "No mood selected" };
+  const key = String(mood).toLowerCase();
+  const map: Record<string, { emoji: string; label: string }> = {
+    happy: { emoji: "😀", label: "Happy" },
+    calm: { emoji: "🙂", label: "Calm" },
+    neutral: { emoji: "😐", label: "Neutral" },
+    anxious: { emoji: "😟", label: "Anxious" },
+    sad: { emoji: "😞", label: "Sad" },
+    angry: { emoji: "😡", label: "Angry" },
+    overwhelmed: { emoji: "😵", label: "Overwhelmed" },
+    reflective: { emoji: "🤔", label: "Reflective" },
+    frustrated: { emoji: "😤", label: "Frustrated" },
+  };
+  return map[key] ?? { emoji: "🙂", label: String(mood) };
+}
+
+function MoodPill({ mood }: { mood: unknown }) {
+  const m = moodMeta(mood);
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground bg-background">
+      <span>{m.emoji}</span>
+      <span>{m.label}</span>
+    </span>
+  );
+}
+
 type ConversationRow = {
   id: string;
   title: string | null;
@@ -17,6 +63,7 @@ type ConversationRow = {
   updated_at: string;
   created_by: string;
   status: string;
+  initial_mood: unknown | null;
 };
 
 type MessagePreview = { conversation_id: string; content: string; created_at: string };
@@ -67,7 +114,7 @@ export default function ConversationList({
       if (mineOnly) {
         convosRes = await supabase
           .from('conversations')
-          .select('id, title, created_at, updated_at, created_by, status')
+          .select('id, title, created_at, updated_at, created_by, status, initial_mood')
           .eq('created_by', uid)
           .eq('status', 'ongoing')
           .order('updated_at', { ascending: false })
@@ -168,6 +215,10 @@ export default function ConversationList({
               onClick={() => onSelect(c.id)}
             >
               <CardContent className="p-4">
+              <div className="w-full flex justify-center mb-4">
+                <MoodPill mood={c.initial_mood} />
+              </div>
+              <div></div>
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-2">
@@ -180,16 +231,19 @@ export default function ConversationList({
                       Last message: {last[c.id]?.content ?? '—'}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelect(c.id);
-                    }}
-                    className="trauma-safe gentle-focus"
-                  >
-                    Continue
-                  </Button>
+                  <div className="flex flex-col items-center justify-center gap-2 min-w-[160px]">
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelect(c.id);
+                        }}
+                        className="trauma-safe gentle-focus "
+                      >
+                        Continue
+                      </Button>
+
+                    </div>
                 </div>
               </CardContent>
             </Card>
