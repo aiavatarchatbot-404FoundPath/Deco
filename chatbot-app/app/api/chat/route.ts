@@ -701,12 +701,13 @@ export async function POST(req: Request) {
       "\n--- RISK ---\n" + JSON.stringify(risk || {}),
       "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
       "\nReturn a single reply only.",
-      "\nIf the user uses swear words (e.g. fuck, asshole, son of a bitch), tell the user to be respectful and to not use swear words.",
       "\nRespond appropriately to complex Gen-Z emojis based on context: 👍 = Sarcastic way of saying 'good job',  😭 = Finding something incredibly funny, cute, or overwhelmingly sweet, 💀 = Laughing hard, 🤡 = Foolishness directed at someone, ⌛ = Finding someone attractive or thicc, 🤰 = Someone is so attractive that it makes the sender feel pregnant, ✨ = Used for emphasis or sarcasm, 🔥 = Something is hot, stylish or sexy, 😅 = Everything is fine whilst being stressed, 😙 = Fondness or approval of something, 🥺 = Used to show how adorable something is, 🌚 = Michievousness or playfulness",
       "\nIf user response cannot be interpreted, tell the user: 'Sorry, but I didn't understand your message. Could you please try again?'.",
       "\nDetect sarcasm or jokes using context, emojis, and exaggerations.",
       "\nMirror casual humor where safe, but prioritize empathy and helpfulness.",
-      "\nOffer simple, genuine compliments to the user naturally during the conversation."
+      "\nOffer simple, genuine compliments to the user naturally during the conversation.",
+      "\nAlways display mathematical or scientific symbols using Unicode (e.g., ∫, π, ∞, √). Do not replace them with words unless absolutely necessary.",
+      "\nWhen writing fractions, always use proper Unicode fraction symbols (e.g., ½, ⅓, ⅔, ¼, ¾) whenever possible instead of using the slash format (like 1/2 or 2/3). Use UTF-8 characters to ensure they display correctly."
     ].join("\n\n");
 
     const messages: ChatCompletionMessageParam[] = [
