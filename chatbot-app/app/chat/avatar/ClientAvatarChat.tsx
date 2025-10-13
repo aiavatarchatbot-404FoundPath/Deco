@@ -9,6 +9,7 @@ import AnonymousExitWarning from '../../../components/chat/AnonymousExitWarning'
 //import { sendUserMessage } from '@/lib/messages';
 import { useValidatedRpmGlb } from '@/lib/rpm';
 
+
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -105,6 +106,12 @@ export default function ClientAvatarChat() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
+  const [convStartedAt, setConvStartedAt] = useState<Date | null>(null);
+  const [convEndedAt, setConvEndedAt] = useState<Date | null>(null);
+  const [accumulatedSeconds, setAccumulatedSeconds] = useState(0);
+  const [activeSince, setActiveSince] = useState<Date | null>(null);
 
   // If we fetch a temp avatar, stash it here (for anonymous users)
   const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
@@ -113,11 +120,7 @@ export default function ClientAvatarChat() {
   const handleNavigation = (screen: string) => {
     if (screen === 'home' || screen === 'endchat') {
       if (!isAuthenticated) {
-        setShowAnonymousExitWarning
-        
-        
-        
-        (true);
+         setShowAnonymousExitWarning(true);
         return;
       }
       setShowExitMoodCheckIn(true);
@@ -159,22 +162,17 @@ export default function ClientAvatarChat() {
 
   const completeExit = async (finalMood?: MoodData) => {
     try {
-      if (conversationId) {
-        const patch: any = {
-          status: 'ended',
-          ended_at: new Date().toISOString(),
-        };
-        if (finalMood) patch.final_mood = finalMood;
-
-        const { error } = await supabase.from('conversations').update(patch).eq('id', conversationId);
-        if (error) console.error('Failed to update conversation on exit:', error);
-      }
-    } catch (e) {
-      console.error('Exit error:', e);
-    } finally {
-      sessionStorage.removeItem(MOOD_SESSION_KEY);
-      router.push('/');
-    }
+      await pauseTimer(); // finalize time first
+    if (conversationId) {
+      const patch: any = { status: 'ended', ended_at: new Date().toISOString() };
+      if (finalMood) patch.final_mood = finalMood;
+      await supabase.from('conversations').update(patch).eq('id', conversationId);}
+        } catch (e) {
+    console.error('Exit error:', e);
+  } finally {
+    sessionStorage.removeItem(MOOD_SESSION_KEY);
+    router.push('/');
+  }
   };
 
   const handleExitMoodComplete = (moodData: MoodData) => {
@@ -412,6 +410,91 @@ useEffect(() => {
     };
   }, [conversationId]);
 
+  /* ---------- Session time & message count ---------- */
+  // Fetch conversation timestamps
+  useEffect(() => {
+    if (!conversationId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('created_at, ended_at, accumulated_seconds, active_since')
+        .eq('id', conversationId)
+        .single();
+      if (!error && data) {
+        setConvStartedAt(new Date(data.created_at));
+        setConvEndedAt(data.ended_at ? new Date(data.ended_at) : null);
+        setAccumulatedSeconds(data.accumulated_seconds ?? 0);
+        setActiveSince(data.active_since ? new Date(data.active_since) : null);
+      }
+    })();
+  }, [conversationId]);
+
+   // Drive the live session timer
+  useEffect(() => { if (!convStartedAt) return;
+
+  const tick = () => {
+    const live = activeSince
+      ? Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000))
+      : 0;
+    setSessionSeconds(accumulatedSeconds + live);
+  };
+  tick();
+  const id = setInterval(tick, 1000);
+  return () => clearInterval(id);
+}, [convStartedAt, activeSince, accumulatedSeconds]);
+
+  useEffect(() => {
+  if (!conversationId) return;
+  // If currently paused, resume on mount
+  resumeTimer();
+
+  const onVis = () => {
+    if (document.hidden) pauseTimer();
+    else resumeTimer();
+  };
+  document.addEventListener('visibilitychange', onVis);
+
+  return () => {
+    document.removeEventListener('visibilitychange', onVis);
+    // ensure pause when navigating away/unmounting
+    pauseTimer();
+  };
+}, [conversationId, activeSince, accumulatedSeconds]);
+  async function resumeTimer() {
+  if (!conversationId) return;
+  // only resume if currently paused
+  if (activeSince) return;
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from('conversations')
+    .update({ active_since: nowIso })
+    .eq('id', conversationId);
+  if (!error) setActiveSince(new Date(nowIso));
+}
+
+async function pauseTimer() {
+  if (!conversationId) return;
+  if (!activeSince) return; // already paused
+  const deltaSec = Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000));
+  const nextAccum = accumulatedSeconds + deltaSec;
+
+  const { error } = await supabase
+    .from('conversations')
+    .update({ accumulated_seconds: nextAccum, active_since: null })
+    .eq('id', conversationId);
+
+  if (!error) {
+    setAccumulatedSeconds(nextAccum);
+    setActiveSince(null);
+  }
+}
+
+  // Keep message count synced with DB-backed messages (only user queries)
+  useEffect(() => {
+  const onlyUserMsgs = messages.filter((m) => m.role === "user").length;
+  setMessageCount(onlyUserMsgs);
+  }, [messages]);
+
   /* ---------- Anonymous/Temp avatar fallback ---------- */
   useEffect(() => {
     if (!conversationId || !sessionIdFromParams) return;
@@ -642,6 +725,7 @@ const companionAvatar: AvatarShape = {
         onSend={handleSend}
         messages={sortedMessages}
         isTyping={isTyping}
+        stats={{ sessionSeconds, messageCount }}
       />
     </div>
   );
