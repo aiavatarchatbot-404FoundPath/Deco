@@ -164,7 +164,7 @@ export default function ClientAvatarChat() {
           status: 'ended',
           ended_at: new Date().toISOString(),
         };
-        if (finalMood) patch.final_mood = { feeling: finalMood.feeling };
+        if (finalMood) patch.final_mood = finalMood;
 
         const { error } = await supabase.from('conversations').update(patch).eq('id', conversationId);
         if (error) console.error('Failed to update conversation on exit:', error);
@@ -243,21 +243,6 @@ export default function ClientAvatarChat() {
     setMood(record);
     persistMoodState(record);
     setShowEntryMoodCheckIn(false);
-
-    if (conversationId) {
-    (async () => {
-      try {
-        const { error } = await supabase
-          .from("conversations")
-          .update({ initial_mood: { feeling: moodData.feeling } })
-          .eq("id", conversationId);
-        if (error) console.error("Failed to persist initial_mood:", error);
-      } catch (e) {
-        console.error("initial_mood update error:", e);
-      }
-    })();
-  }
-
   };
   type Persona = 'neutral' | 'adam' | 'eve' | 'custom';
 

@@ -8,6 +8,7 @@ import type { DbMessage } from "../../../components/ChatInterfaceScreen";
 import MoodCheckIn from "../../../components/MoodCheckIn";
 import AnonymousExitWarning from "../../../components/chat/AnonymousExitWarning";
 import type { User as SupaUser } from "@supabase/supabase-js";
+import type { Route } from "next";
 
 type MsgStatus = "sending" | "sent" | "failed";
 
@@ -67,29 +68,44 @@ export default function ClientSimpleChat() {
 
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const cleanupFns = React.useRef<Array<() => void>>();
 
-  /* auth */
+  // timing
+  const [accumulatedSeconds, setAccumulatedSeconds] = useState(0);
+  const [activeSince, setActiveSince] = useState<Date | null>(null);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+
+  // auth (live)
+  const [authUser, setAuthUser] = useState<SupaUser | null>(null);
   useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setIsAuthenticated(!!user);
-    })();
+    let mounted = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!mounted) return;
+      setAuthUser(data.user ?? null);
+      setIsAuthenticated(!!data.user);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (!mounted) return;
+      setAuthUser(session?.user ?? null);
+      setIsAuthenticated(!!session?.user);
+    });
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
   }, []);
 
   /* conversation id: support ?convo=<id> to continue, ?new=1 to start fresh */
   useEffect(() => {
     if (typeof window === "undefined") return;
-
     const params = new URLSearchParams(window.location.search);
     const cidParam = params.get("convo");
     const startFresh = params.get("new") === "1";
-
     if (cidParam) {
       localStorage.setItem(LS_CONVO_KEY, cidParam);
       setConversationId(cidParam);
       return;
     }
-
     if (startFresh) {
       localStorage.removeItem(LS_CONVO_KEY);
       const cid = crypto.randomUUID();
@@ -97,7 +113,6 @@ export default function ClientSimpleChat() {
       setConversationId(cid);
       return;
     }
-
     let cid = localStorage.getItem(LS_CONVO_KEY);
     if (!cid) {
       cid = crypto.randomUUID();
@@ -106,50 +121,70 @@ export default function ClientSimpleChat() {
     setConversationId(cid);
   }, []);
 
-  // state (near your other useState calls)
-const [authUser, setAuthUser] = useState<SupaUser | null>(null);
-
-// replace your existing "auth" effect with this (so it updates live)
-useEffect(() => {
-  let mounted = true;
-
-  supabase.auth.getUser().then(({ data }) => {
-    if (!mounted) return;
-    setAuthUser(data.user ?? null);
-    setIsAuthenticated(!!data.user);
-  });
-
-  const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-    if (!mounted) return;
-    setAuthUser(session?.user ?? null);
-    setIsAuthenticated(!!session?.user);
-  });
-
-  return () => {
-    mounted = false;
-    sub?.subscription?.unsubscribe?.();
-  };
-}, []);
-
   /* ensure conversation exists (works for anon too because created_by is nullable) */
   useEffect(() => {
-    if (!conversationId) return;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      try {
-        await fetch("/api/conversations/ensure-ownership", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            ...(user?.id ? { "x-user-id": user.id } : {}),
-          },
-          body: JSON.stringify({ conversationId }),
-        });
-      } catch {}
-    })();
-  }, [conversationId]);
+  if (!conversationId) return;
+  let cancelled = false;
 
-  /* mark this conv as simple mode (only once) */
+  (async () => {
+    // 1) Ensure the conversation row exists (works for anon too)
+    const { data: { user } } = await supabase.auth.getUser();
+    try {
+      await fetch("/api/conversations/ensure-ownership", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(user?.id ? { "x-user-id": user.id } : {}),
+        },
+        body: JSON.stringify({ conversationId }),
+      });
+    } catch (e) {
+      console.warn("ensure-ownership failed (non-fatal):", e);
+    }
+    if (cancelled) return;
+
+    // 2) Load current timing from DB (do not clobber activeSince unless DB has a value)
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("accumulated_seconds, active_since")
+      .eq("id", conversationId)
+      .single();
+
+    if (!cancelled && !error && data) {
+      setAccumulatedSeconds(data.accumulated_seconds ?? 0);
+      if (data.active_since) setActiveSince(new Date(data.active_since));
+    }
+
+    if (cancelled) return;
+
+    // 3) Now resume the timer (row definitely exists)
+    await resumeTimer();
+
+    if (cancelled) return;
+
+    // 4) Visibility lifecycle after initial resume
+    const onVis = () => {
+      if (document.hidden) pauseTimer();
+      else resumeTimer();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    // store cleanup on the effect instance
+    (cleanupFns.current ||= []).push(() =>
+      document.removeEventListener("visibilitychange", onVis)
+    );
+  })();
+
+  return () => {
+    cancelled = true;
+    // run local cleanups and persist time
+    cleanupFns.current?.splice(0).forEach((fn) => fn());
+    pauseTimer();
+  };
+}, [conversationId]);
+
+
+  /* mark simple mode once */
   useEffect(() => {
     if (!conversationId) return;
     (async () => {
@@ -163,7 +198,7 @@ useEffect(() => {
     })();
   }, [conversationId]);
 
-  /* initial load + realtime — single messages table */
+  /* initial messages + realtime */
   useEffect(() => {
     if (!conversationId) return;
     let mounted = true;
@@ -176,12 +211,8 @@ useEffect(() => {
         .order("created_at", { ascending: true })
         .order("id", { ascending: true })
         .limit(200);
-
       if (!mounted) return;
-      if (error) {
-        console.error("Initial messages fetch failed:", error);
-        return;
-      }
+      if (error) { console.error("Initial messages fetch failed:", error); return; }
       setMessages(((data ?? []) as MessageRow[]).slice().sort(sortMsgs));
     })();
 
@@ -200,32 +231,153 @@ useEffect(() => {
     };
   }, [conversationId]);
 
-  /* navigation */
-  const handleNavigation = (screen: string) => {
+  /* load timing snapshot (do not clobber activeSince unless DB has a value) */
+  useEffect(() => {
+    if (!conversationId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("accumulated_seconds, active_since")
+        .eq("id", conversationId)
+        .single();
+      if (!error && data) {
+        setAccumulatedSeconds(data.accumulated_seconds ?? 0);
+        if (data.active_since) setActiveSince(new Date(data.active_since));
+      }
+    })();
+  }, [conversationId]);
+
+  /* live ticking from accumulated + (now - active_since) */
+  useEffect(() => {
+    const tick = () => {
+      const live = activeSince
+        ? Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000))
+        : 0;
+      setSessionSeconds(accumulatedSeconds + live);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [accumulatedSeconds, activeSince]);
+
+  /* verified resume/pause (retry after ensure-ownership if 0 rows updated) */
+  async function resumeTimer() {
+    if (!conversationId || activeSince) return;
+
+    const nowIso = new Date().toISOString();
+    const tryUpdate = async () =>
+      supabase
+        .from("conversations")
+        .update({ active_since: nowIso })
+        .eq("id", conversationId)
+        .select("id");
+
+    let { data, error } = await tryUpdate();
+    if (error) { console.error("resumeTimer failed:", error); return; }
+
+    if (!data || data.length === 0) {
+      try {
+        await fetch("/api/conversations/ensure-ownership", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ conversationId }),
+        });
+      } catch (e) {
+        console.warn("ensure-ownership during resume failed:", e);
+        return;
+      }
+      ({ data, error } = await tryUpdate());
+      if (error || !data || data.length === 0) {
+        console.warn("resumeTimer retry still matched 0 rows");
+        return;
+      }
+    }
+    setActiveSince(new Date(nowIso));
+  }
+
+  async function pauseTimer() {
+    if (!conversationId || !activeSince) return;
+
+    const deltaSec = Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000));
+    const nextAccum = accumulatedSeconds + deltaSec;
+
+    const tryUpdate = async () =>
+      supabase
+        .from("conversations")
+        .update({ accumulated_seconds: nextAccum, active_since: null })
+        .eq("id", conversationId)
+        .select("id, accumulated_seconds");
+
+    let { data, error } = await tryUpdate();
+    if (error) { console.error("pauseTimer failed:", error); return; }
+
+    if (!data || data.length === 0) {
+      try {
+        await fetch("/api/conversations/ensure-ownership", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ conversationId }),
+        });
+      } catch (e) {
+        console.warn("ensure-ownership during pause failed:", e);
+        return;
+      }
+      ({ data, error } = await tryUpdate());
+      if (error || !data || data.length === 0) {
+        console.warn("pauseTimer retry still matched 0 rows");
+        return;
+      }
+    }
+
+    setAccumulatedSeconds(nextAccum);
+    setActiveSince(null);
+  }
+
+  /* mount/visibility handling: resume on mount; pause when backgrounded */
+  useEffect(() => {
+    if (!conversationId) return;
+    resumeTimer();
+    const onVis = () => { if (document.hidden) pauseTimer(); else resumeTimer(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      pauseTimer();
+    };
+  }, [conversationId, activeSince, accumulatedSeconds]);
+
+  /* navigation: only End/Home shows MoodCheckIn; others just pause→push */
+  const handleNavigation = async (screen: string) => {
     if (screen === "home" || screen === "endchat") {
       setPendingNavigate("/");
       if (!isAuthenticated) { setShowAnonymousWarning(true); return; }
       setShowExitMoodCheck(true);
       return;
     }
+
+    // bank time but do NOT end
+    await pauseTimer();
+
     switch (screen) {
       case "summary": router.push("/chat/summary"); break;
       case "/": router.push("/"); break;
       case "profile": router.push("/profile"); break;
       case "settings": router.push("/settings"); break;
-      case "login": router.push("/login"); break;
       default: console.log(`Navigate to: ${screen}`);
     }
   };
 
-  /* mood handlers */
-  const handleMoodComplete = (moodData: MoodData) => { setEntryMood({ ...moodData, timestamp: new Date() }); setShowEntryMoodCheck(false); };
+  /* mood handlers (entry) */
+  const handleMoodComplete = (moodData: MoodData) => {
+    setEntryMood({ ...moodData, timestamp: new Date() });
+    setShowEntryMoodCheck(false);
+  };
   const handleSkip = () => { setEntryMood(null); setShowEntryMoodCheck(false); };
 
-  /* end chat */
+  /* end chat (only when MoodCheckIn confirm/skip) */
   const endConversation = async () => {
     if (!conversationId) return;
     try {
+      await pauseTimer(); // finalize time
       await supabase
         .from("conversations")
         .update({
@@ -240,18 +392,30 @@ useEffect(() => {
     if (typeof window !== "undefined") localStorage.removeItem(LS_CONVO_KEY);
   };
 
-  const handleExitMoodComplete = async () => { setShowExitMoodCheck(false); await endConversation(); router.push((pendingNavigate ?? "/") as any); setPendingNavigate(null); };
-  const handleExitSkip = async () => { setShowExitMoodCheck(false); await endConversation(); router.push((pendingNavigate ?? "/") as any); setPendingNavigate(null); };
+  const handleExitMoodComplete = async () => {
+    setShowExitMoodCheck(false);
+    await endConversation();
+    router.push((pendingNavigate ?? "/") as Route);
+    setPendingNavigate(null);
+  };
+  const handleExitSkip = async () => {
+    setShowExitMoodCheck(false);
+    await endConversation();
+    router.push((pendingNavigate ?? "/") as Route);
+    setPendingNavigate(null);
+  };
 
   const handleAnonymousContinue = () => { setShowAnonymousWarning(false); setShowExitMoodCheck(true); };
   const handleAnonymousClose = () => setShowAnonymousWarning(false);
   const handleAnonymousCreateAccount = () => {
     setShowAnonymousWarning(false);
-    const current = typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "/chat/simple";
-    router.push(`/login?redirect=${encodeURIComponent(current)}`);
+    const current = typeof window !== "undefined"
+      ? `${window.location.pathname}${window.location.search}`
+      : "/chat/simple";
+    router.push((`/login?redirect=${encodeURIComponent(current)}`) as Route);
   };
 
-  /* ------- SEND: optimistic user + consume API reply + realtime safety net ------- */
+  /* send flow */
   const handleSend = async (text: string) => {
     const t = text.trim();
     if (!t || !conversationId) return;
@@ -259,7 +423,6 @@ useEffect(() => {
     const { data: { user } } = await supabase.auth.getUser();
     const uid = user?.id || null;
 
-    // optimistic user bubble
     const tempId = `temp-${Date.now()}`;
     const nowIso = new Date().toISOString();
     const optimisticUser: MessageRow = {
@@ -306,7 +469,6 @@ useEffect(() => {
         if (savedAssistant) {
           out = upsertById(out, { ...savedAssistant, status: "sent" });
         } else {
-          // fallback: show assistant locally so anon users SEE the reply
           const localAssistant: MessageRow = {
             id: `local-assistant-${Date.now()}`,
             conversation_id: conversationId,
@@ -343,8 +505,8 @@ useEffect(() => {
     [sortedMessages]
   );
   const onlyUserCount = useMemo(
-    () => sortedMessages.filter((m) => m.role === "user").length,
-    [sortedMessages]
+    () => uiMessages.filter((m) => m.role === "user").length,
+    [uiMessages]
   );
 
   return (
@@ -369,27 +531,25 @@ useEffect(() => {
       )}
 
       <ChatInterfaceScreen
-  onNavigate={handleNavigation}
-  chatMode="standard"
-  // ⬇️ prevents any GLB loading in simple chat paths
-  companionAvatar={{ name: "Adam", type: "default", url: undefined }}
-  currentMood={entryMood}
-   user={
-    authUser
-      ? {
-          id: authUser.id,
-          username:
-            (authUser.user_metadata?.username as string) ||
-            (authUser.email ? authUser.email.split("@")[0] : "You"),
-          // avatar is optional; omit or fill if you have it
+        onNavigate={handleNavigation}
+        chatMode="standard"
+        companionAvatar={{ name: "Adam", type: "default", url: undefined }}
+        currentMood={entryMood}
+        user={
+          authUser
+            ? {
+                id: authUser.id,
+                username:
+                  (authUser.user_metadata?.username as string) ||
+                  (authUser.email ? authUser.email.split("@")[0] : "You"),
+              }
+            : undefined
         }
-      : undefined // will use the default anon until auth loads
-  }
-  onSend={handleSend}
-  messages={uiMessages}
-  isTyping={isTyping}
-  stats={{ sessionSeconds: 0, messageCount: onlyUserCount }}
-/>
+        onSend={handleSend}
+        messages={uiMessages}
+        isTyping={isTyping}
+        stats={{ sessionSeconds, messageCount: onlyUserCount }}
+      />
     </div>
   );
 }
