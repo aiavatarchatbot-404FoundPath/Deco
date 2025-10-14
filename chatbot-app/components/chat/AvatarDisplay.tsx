@@ -1,8 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { User, Bot } from 'lucide-react';
+import { Canvas } from '@react-three/fiber';
+import { Environment } from '@react-three/drei';
 
 const RpmViewer = dynamic(() => import('./RpmViewer'), { ssr: false });
 
@@ -14,7 +16,7 @@ type Avatar = {
 const AvatarDisplay = React.memo(function AvatarDisplay({
   userAvatar,
   aiAvatar,
-  assistantTalking = false, // pass isTyping here if you want AI mouth to move
+  assistantTalking = false,
   userTalking = false,
 }: {
   userAvatar: Avatar;
@@ -34,21 +36,32 @@ const AvatarDisplay = React.memo(function AvatarDisplay({
   return (
     <div className="w-full h-full flex flex-col gap-3 p-4">
       <div className="relative grid grid-cols-2 gap-3 w-full flex-1 min-h-[420px] rounded-xl overflow-hidden">
-        {/* Panel background */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              'radial-gradient(1200px 600px at 50% 0%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 60%), linear-gradient(180deg, #fde7f3 0%, #f3ecff 100%)',
-          }}
-        />
-        <div className="relative h-full overflow-hidden">
+        {/* Shared background room (single canvas behind both panels) */}
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <Canvas
+            frameloop="always"
+            camera={{ position: [0, 1.4, 6], fov: 30 }}
+            gl={{ antialias: true, alpha: false }}
+            style={{ width: '100%', height: '100%' }}
+          >
+            <Suspense fallback={null}>
+              {/* Fallback solid color in case HDRI fails */}
+              <color attach="background" args={["#e8eef6"]} />
+              {/* Room HDRI as the unified background */}
+              <Environment preset="lobby" background />
+            </Suspense>
+          </Canvas>
+        </div>
+        {/* Transparent panels over shared background */}
+        {/* Left panel (User) */}
+        <div className="relative z-10 h-full overflow-hidden rounded-xl ring-1 ring-black/10">
           {hasUser ? (
             <div className="absolute inset-0">
               <RpmViewer
                 src={userAvatar?.url ?? null}
-                singleYaw={Math.PI / 2}
-                singleLookAt={[2.2, 1.3, 0]}
+                // Face forward toward the camera
+                singleYaw={0}
+                singleLookAt={null}
                 talkOverride={userTalking}
                 actor={'user'}
               />
@@ -58,13 +71,15 @@ const AvatarDisplay = React.memo(function AvatarDisplay({
           )}
         </div>
 
-        <div className="relative h-full overflow-hidden">
+        {/* Right panel (Companion) */}
+        <div className="relative z-10 h-full overflow-hidden rounded-xl ring-1 ring-black/10">
           {hasCompanion ? (
             <div className="absolute inset-0">
               <RpmViewer
                 src={aiAvatar?.url ?? null}
-                singleYaw={-Math.PI / 2}
-                singleLookAt={[-2.2, 1.3, 0]}
+                // Face forward toward the camera
+                singleYaw={0}
+                singleLookAt={null}
                 talkOverride={assistantTalking}
                 actor={'ai'}
               />

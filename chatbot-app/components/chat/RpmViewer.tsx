@@ -3,7 +3,7 @@ import './reactInternalsPolyfill';
 import React, { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
-import { Environment, OrbitControls } from '@react-three/drei';
+import { Environment, OrbitControls, ContactShadows } from '@react-three/drei';
 import RpmModel from './RpmModel';
 
 
@@ -39,9 +39,10 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
   const separationX = 4;
   const duoScale = 0.6;
   const singleScale = 0.68;
+  const GROUND_Y = -0.12; // nudge up so shoes are clearly visible
 
-  const userPosition: [number, number, number] = duo ? [-separationX, 0.1, 0] : [0, 0.1, 0];
-  const companionPosition: [number, number, number] = duo ? [separationX, 0.1, 0] : [0, 0.1, 0];
+  const userPosition: [number, number, number] = duo ? [-separationX, GROUND_Y, 0] : [0, GROUND_Y, 0];
+  const companionPosition: [number, number, number] = duo ? [separationX, GROUND_Y, 0] : [0, GROUND_Y, 0];
 
   // Yaw so both face each other (tweak signs if needed for your GLBs)
   const duoUserYaw = -Math.PI / 2;      // left avatar faces toward center
@@ -139,7 +140,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
         ) : isSeparate ? (
           <>
             {hasUser && (
-              <group position={[0, 0.1, 0]} rotation={[ -0.08, leftFaceRightYaw + frontBias, 0 ]} scale={singleScale}>
+              <group position={[0, GROUND_Y, 0]} rotation={[ -0.08, leftFaceRightYaw + frontBias, 0 ]} scale={singleScale}>
                 <RpmModel
                   avatarUrl={userUrl!}
                   animUrls={userAnimUrl}
@@ -152,7 +153,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
               </group>
             )}
             {hasCompanion && (
-              <group position={[0, 0.1, 0]} rotation={[ -0.08, rightFaceLeftYaw - frontBias, 0 ]} scale={singleScale}>
+              <group position={[0, GROUND_Y, 0]} rotation={[ -0.08, rightFaceLeftYaw - frontBias, 0 ]} scale={singleScale}>
                 <RpmModel
                   avatarUrl={aiUrl!}
                   animUrls={aiAnimUrl}
@@ -167,7 +168,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
           </>
         ) : (
           // Single-preview fallback (src or either url)
-          <group position={[0, 0.1, 0]} rotation={[ -0.08, singleYaw, 0 ]} scale={singleScale}>
+          <group position={[0, GROUND_Y, 0]} rotation={[ -0.08, singleYaw, 0 ]} scale={singleScale}>
             <RpmModel
               avatarUrl={(singleSrc ?? userUrl ?? aiUrl) as string}
               animUrls={
@@ -184,7 +185,18 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
           </group>
         )}
 
-        <Environment preset="sunset" />
+        {/* Ground contact shadow to anchor feet visually */}
+        <ContactShadows
+          position={[0, GROUND_Y + 0.001, 0]}
+          scale={12}
+          opacity={0.45}
+          blur={2.2}
+          far={4}
+          frames={1}
+        />
+
+        {/* Room-like HDRI for image-based lighting only (no per-canvas background) */}
+        <Environment preset="lobby" />
       </Suspense>
 
       <OrbitControls
