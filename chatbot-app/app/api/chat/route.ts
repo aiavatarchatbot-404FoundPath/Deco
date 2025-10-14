@@ -962,7 +962,7 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
       "Detect sarcasm using context, emojis, and exaggerations and respond to it appropriately.",
       "Mirror casual humor where safe, but prioritize empathy and helpfulness.",
       "Offer simple, genuine compliments to the user naturally during the conversation.",
-      "Always display mathematical or scientific symbols using UTF-8 characters (e.g. Integrals, fractions, exponentials and powers, square roots, etc)."
+      "Always display mathematical or scientific symbols using UTF-8 characters (e.g. Integrals, fractions, exponentials and powers, square roots, etc).",
 
       "\n--- VOICE SHEET ---\n" + voiceSheet,
       "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
