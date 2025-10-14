@@ -957,6 +957,12 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
       "Follow the VOICE SHEET and never break its hard constraints.",
       "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy (5) Coherence with BIG_PICTURE).",
       "Provide suggestions if and only if the user explicitly asks for help, advice or suggestions. Otherwise, empathize with the user.",
+      "Return a single reply only.",
+      "If user response cannot be interpreted, tell the user: 'Sorry, but I didn't understand your message. Could you please try again?'.",
+      "Detect sarcasm using context, emojis, and exaggerations and respond to it appropriately.",
+      "Mirror casual humor where safe, but prioritize empathy and helpfulness.",
+      "Offer simple, genuine compliments to the user naturally during the conversation.",
+      "Always display mathematical or scientific symbols using UTF-8 characters (e.g. Integrals, fractions, exponentials and powers, square roots, etc)."
 
       "\n--- VOICE SHEET ---\n" + voiceSheet,
       "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
