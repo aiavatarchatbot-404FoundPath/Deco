@@ -354,7 +354,9 @@ export default function AvatarBuilderScreen({
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                   {/* NEW: RAG tone description */}
                   <p className="mt-2 text-sm text-gray-700">
-                    <span className="font-medium">RAG voice: Direct Coach.</span> Short, to-the-point answers with one clear next step. Minimal small talk; prefers bullet lists for actions.
+                    <span className="font-medium">RAG voice: Direct Coach ~ </span> 
+                    short, punchy answers with micro-plans, time-boxed actions, minimal chat.
+                   
                   </p>
                 </div>
                 {selectedAvatar === 'ready-adam' && (
@@ -397,7 +399,8 @@ export default function AvatarBuilderScreen({
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                   {/* NEW: RAG tone description */}
                   <p className="mt-2 text-sm text-gray-700">
-                    <span className="font-medium">RAG voice: Warm Guide.</span> Empathetic, reflective language with gentle questions. Collaboratively suggests next steps.
+                    <span className="font-medium">RAG voice: Warm Guide ~ </span> 
+                    Validating, reflective replies, gentle open question, Soft language
                   </p>
                 </div>
                 {selectedAvatar === 'ready-eve' && (

@@ -25,9 +25,10 @@ const SUM_MODEL   = process.env.SUM_MODEL   || CHAT_MODEL;
 const RAG_TOP_K = Number(process.env.RAG_TOP_K || 5);
 const RAG_SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.22);
 const MAX_CONTEXT_CHARS = 9000;
+const DEFLECT_SIM_THRESHOLD = Number(process.env.DEFLECT_SIM_THRESHOLD || 0.72);
 
 const HISTORY_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 4);
-const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 3);
+const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 2);
 
 const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
 const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
@@ -101,75 +102,107 @@ function parseTone(text?: string): TonePrefs {
 
 // ---- Voice sheets
 function voiceSheetV2(persona: Persona, customStyle?: string) {
-  if (persona === "custom") {
-    const p = parseTone(customStyle);
-    const qLine = p.noQuestion
-      ? "- **No** questions in this reply."
-      : p.openQuestion
-      ? "- At most one **open** question near the end — only if helpful."
-      : "- At most one **closed** question near the end — only if helpful.";
-    const bulletsLine = p.bulletsOnly
-      ? "- Write the main body **only as bullet points**."
-      : p.allowBullets
-      ? "- Bullets allowed only if the **user explicitly asked** for a list."
-      : "- **No** bullets/lists.";
-    const emojiLine = p.emojiMax === 1 ? "- Up to **one** emoji allowed." : "- **No** emoji.";
+ if (persona === "custom") {
+  const p = parseTone(customStyle);
+  const qLine = p.noQuestion
+    ? "- **No** questions in this reply."
+    : p.openQuestion
+    ? "- At most one **open** question near the end — only if helpful."
+    : "- At most one **closed** question near the end — only if helpful.";
+  const bulletsLine = p.bulletsOnly
+    ? "- Write the main body **only as bullet points**."
+    : p.allowBullets
+    ? "- Bullets allowed only if the **user explicitly asked** for a list."
+    : "- **No** bullets/lists.";
+  const emojiLine = p.emojiMax === 1 ? "- Up to **one** emoji allowed." : "- **No** emoji.";
+  const maxItems = Math.max(1, p.maxSentences);
 
-    return `VOICE SHEET — Custom
+  return `VOICE SHEET — Custom (User-Tuned)
 Follow these rules. If there is any conflict, these rules win.
 
 Output shape:
-- ${p.maxSentences} sentences/items **max**.
+- ${p.maxSentences} sentences/items **max**; be concise.
 - ${qLine}
 - ${bulletsLine}
+- Plain text only; keep replies under ~${p.maxSentences <= 3 ? "80" : "120"} words when possible.
 
 Diction & tone:
-- Follow: ${customStyle}.
+- Mirror this style exactly: ${customStyle || "(no extra style provided)"}.
 - ${p.dictionHints.join(" ")}
 ${emojiLine}
 
+Big-picture & detours:
+- Always keep **BIG_PICTURE.primary** in mind.
+- If **HINTS.off_track** is true: (1) briefly acknowledge the detour, (2) bridge back to BIG_PICTURE.primary, (3) offer **one tiny next step** aligned to it.
+- If **HINTS.insistent** is true: first give a **brief, safe answer** to the detour (≤2–3 sentences / ≤${maxItems} items), then **pivot back** with one tiny next step.
+- If the detour clearly supports the primary goal, continue; otherwise politely **park it**.
+
+Formatting:
+- No meta talk or boilerplate.
+- If listing, keep to ≤${maxItems} items, short lines.
+
 Avoid:
-- Hedging like "might", "perhaps" unless user asked for uncertainty.
+- Hedging like "might", "perhaps" unless the user asks for uncertainty.
 - Templated intros like "Here are X...".
 - Never say: ${p.neverSay.join("; ")}.`;
-  }
+}
 
-  if (persona === "adam") {
-    return `VOICE SHEET — Adam (Direct Coach)
+if (persona === "adam") {
+  return `VOICE SHEET — Adam (Direct Coach)
+
 Output shape:
-- 3 sentences **max**, punchy. Fragments allowed.
-- Defaults to a micro-plan (one concrete action).
-- At most one short **closed** question at the end — only if it moves things forward.
+- Max **3** sentences; blunt, kinetic. Fragments allowed.
+- **End with a micro-plan** (≤2 steps) or a one-line CTA: “Do X in 5 min.”
+- At most **one short closed** question — only if it triggers action.
 
 Diction:
-- Everyday Aussie; light slang ok ("no dramas", "keen", "sorted").
-- Use "let’s", "right now", "pick one".
+- Everyday Aussie person; crisp verbs: “book”, “text”, “ask”, “set a 5-min timer”.
+- Use “let’s”, “right now”, “pick one”. **No hedging**.
+
+Formatting:
+- If giving a plan, keep it inline: “1) … 2) …” (no bullets).
+- Prefer numbers/time-boxes (“2 texts”, “5-min”, “today”).
+
+Detours:
+- Acknowledge in ≤1 clause → **bridge back** to BIG_PICTURE.primary → give **one** tiny next step.
+- If user **insists**, give a **brief, safe answer** (≤2 sentences) **then** CTA back to the goal.
 
 Avoid:
-- Apology/sympathy openers, therapy phrasing, hedging ("might", "perhaps").
+- Therapy openers, long empathy preambles, option dumps without a recommendation.
+- Qualifiers (“maybe”, “might”), softeners, or hype.
 
 Never say:
-- "That makes sense." "We can unpack it together."`;
-  }
+- “That makes sense.” “We can unpack it together.”`;
+}
 
-  if (persona === "eve") {
-    return `VOICE SHEET — Eve (Warm Guide)
+if (persona === "eve") {
+  return `VOICE SHEET — Eve (Warm Guide)
+
 Output shape:
-- 4 sentences **max**, calm. No fragments.
-- Start with validation/reflection before any suggestion.
-- At most one **open** question near the end — only if helpful.
+- Up to **4** sentences, calm and steady. **No fragments.**
+- **Begin with validation/reflection**, then offer a gentle suggestion.
+- At most **one open** question, near the end.
 
-Diction:
-- Gentle verbs ("notice", "we can explore", "I'm hearing").
-- Use "we can", not "let’s".
+
+Diction & tone:
+- Gentle verbs: “notice”, “we can explore”, “it could help”, “if you’d like”.
+- Use “**we can**”, not “let’s”. Invite consent (“would you like…”).
+
+Formatting:
+- Offer exactly **one tiny step** framed as an **invitation** (not an order).
+- Name the value/need you’re supporting (e.g., safety, clarity, rest).
+
+Detours:
+- Acknowledge the new topic → **ask consent to park or answer briefly** → weave back to BIG_PICTURE.primary with a soft nudge.
+- If user **insists**, give a **brief, kind answer** (≤3 sentences), then **co-create** one gentle next step.
 
 Avoid:
-- Starting with "It sounds like", "Sounds like", or "It seems".
-- Imperatives, time-boxes, slang, hype.
+- Imperatives, time-boxing, slang, hype, or jokes when distressed.
+- Starting with “It sounds like” / “It seems”.
 
 Never say:
-- "Got your back", "we’ll keep it simple."`;
-  }
+- “Got your back”, “we’ll keep it simple.”`;
+}
 
   return `VOICE SHEET — Neutral
 Output shape:
@@ -208,8 +241,93 @@ function deTemplateEve(text: string, userMsg: string) {
 }
 
 // =======================================
-// Question control helpers
+// Question control helpers + big-picture utils
 // =======================================
+// How similar two user turns must be to count as "same detour"
+const SAME_TOPIC_SIM = Number(process.env.SAME_TOPIC_SIM || 0.72);
+
+function getLastNUserMsgs(history: {role:"user"|"assistant";content:string}[], n=2) {
+  const out: string[] = [];
+  for (let i = history.length - 1; i >= 0 && out.length < n; i--) {
+    if (history[i].role === "user") out.push(history[i].content);
+  }
+  return out;
+}
+
+async function computeInsistent(userMessage: string, summary: string, historyMsgs: Turn[]) {
+  const lastUsers = getLastNUserMsgs(historyMsgs, 2);
+  const { off: offNow } = await computeOffTrack(userMessage, summary);
+
+  let streak = 0;
+  for (const m of lastUsers) {
+    const { off } = await computeOffTrack(m, summary);
+    if (off) streak++;
+  }
+
+  // Same detour topic?
+  let sameTopic = false;
+  if (lastUsers[0]) {
+    const [a,b] = await Promise.all([embedOne(userMessage), embedOne(lastUsers[0])]);
+    sameTopic = cosineSim(a,b) >= SAME_TOPIC_SIM;
+  }
+
+  return { insistent: offNow && (streak > 0 || sameTopic) };
+}
+
+function cosineSim(a: number[], b: number[]) {
+  let dp = 0, na = 0, nb = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const x = a[i], y = b[i];
+    dp += x * y; na += x * x; nb += y * y;
+  }
+  return dp / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
+}
+
+async function extractAnchors(summary: string, risk?: { user_goals?: string[] }) {
+  const seedGoals = (risk?.user_goals ?? []).filter(Boolean).slice(0, 3);
+  if (!summary?.trim() && seedGoals.length === 0) return null;
+
+  if (seedGoals.length > 0) {
+    return {
+      primary: String(seedGoals[0]).slice(0, 160),
+      subgoals: seedGoals.slice(1).map(String),
+      nonnegotiables: [] as string[],
+    };
+  }
+
+  const r = await openai.chat.completions.create({
+    model: SUM_MODEL,
+    temperature: 0.1,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: 'Return JSON: {"primary":"...", "subgoals":["..."], "nonnegotiables":["..."]}' },
+      { role: "user", content: `From this running summary, extract the big picture.\nSummary:\n"""${summary.slice(0, 1500)}"""` }
+    ],
+  });
+
+  const raw = r.choices?.[0]?.message?.content ?? "{}";
+
+  let obj: any = {};
+  try { obj = JSON.parse(raw); } catch { obj = {}; }
+
+  const primary = String(obj.primary ?? "").slice(0, 160);
+  const subgoals = Array.isArray(obj.subgoals) ? obj.subgoals.map((x: any) => String(x)).slice(0, 3) : [];
+
+  const nnSrc =
+    obj.nonnegotiables ??
+    obj.non_negotiables ??
+    obj.nonNegotiables ??
+    obj.non_negs ??
+    obj.nn ??
+    [];
+  const nonnegotiables = Array.isArray(nnSrc) ? nnSrc.map((x: any) => String(x)).slice(0, 3) : [];
+
+  if (primary) return { primary, subgoals, nonnegotiables };
+
+  const firstSentence = (summary || "").match(/[^.!?]+[.!?]?/)?.[0] || summary.slice(0, 160);
+  return { primary: firstSentence, subgoals: [], nonnegotiables: [] as string[] };
+}
+
 type Turn = { role: "user" | "assistant"; content: string };
 
 function userAct(msg: string) {
@@ -238,8 +356,7 @@ function decideQuestionMode(
   customStyle?: string
 ): "open" | "closed" | "none" {
   const ua = userAct(userMsg);
-  if (ua.isQuestion) return "none"; // user asked → answer
-
+  if (ua.isQuestion) return "none";
   const prevQ = prevAssistantQuestion(history);
   if (prevQ !== "none" && (ua.isAffirm || ua.isNegate || ua.isAck || ua.isShort)) return "none";
 
@@ -379,6 +496,18 @@ async function retrieveContext(userMessage: string) {
   return { context: parts.join("\n---\n"), hits };
 }
 
+// 👉 Deflection detector (needs embedOne)
+async function computeOffTrack(userMessage: string, summary: string) {
+  if (!summary?.trim()) return { off: false, sim: 1 };
+  const [msgEmb, sumEmb] = await Promise.all([
+    embedOne(userMessage),
+    embedOne(summary.slice(0, 1000)),
+  ]);
+  const sim = cosineSim(msgEmb, sumEmb);
+  return { off: sim < DEFLECT_SIM_THRESHOLD, sim: Number(sim.toFixed(3)) };
+}
+
+
 // =======================================
 // Title helpers (2–7 words from summary)
 // =======================================
@@ -411,7 +540,11 @@ async function llmTitleFromSummary(summary: string): Promise<string> {
   return sanitizeTitle(title) || sanitizeTitle(summary.split(/\s+/).slice(0, 7).join(" ")) || "Untitled Chat";
 }
 
-async function maybeUpdateTitleFromSummary(conversationId: string, summary: string) {
+async function maybeUpdateTitleFromSummary(
+  conversationId: string,
+  summary: string,
+  mode: "always" | "placeholderOnly" = "placeholderOnly"
+) {
   if (!summary?.trim()) return;
 
   const { data, error } = await supabase
@@ -422,15 +555,27 @@ async function maybeUpdateTitleFromSummary(conversationId: string, summary: stri
   if (error) return;
 
   const current = (data?.title || "").trim();
-  // allow overwrite if empty OR placeholder
-  const placeholderRx = /^(untitled( chat)?|avatar builder|new chat|simple chat)$/i;
-  if (current && !placeholderRx.test(current)) return;
+
+  if (mode === "placeholderOnly") {
+    const placeholderRx = /^(untitled( chat)?|avatar builder|new chat|simple chat)$/i;
+    if (current && !placeholderRx.test(current)) return;
+  }
 
   const newTitle = await llmTitleFromSummary(summary);
+  if (!newTitle || newTitle === current) return;
+
   await supabase
     .from("conversations")
     .update({ title: newTitle, updated_at: new Date().toISOString() })
     .eq("id", conversationId);
+}
+
+async function saveSummary(conversationId: string, summary: string) {
+  const { error } = await supabase
+    .from("conversations")
+    .update({ summary: summary.slice(0, 1500) })
+    .eq("id", conversationId);
+  if (error) console.error("saveSummary error:", error);
 }
 
 // =======================================
@@ -520,7 +665,7 @@ async function refreshSummary({
 
   const prompt =
     `Update this running conversation summary in ~${wordsTarget} words. ` +
-    `Keep key facts, goals, decisions, unresolved items; remove redundancy.\n\n` +
+    `Keep key facts & preferences, goals, decisions, unresolved items. Remove redundancy.\n\n` +
     `Current summary:\n${currentSummary || "(empty)"}\n\n` +
     `New turns (chronological):\n${turnsTxt}\n\n` +
     `Return only the updated summary as plain text.`;
@@ -539,7 +684,8 @@ async function refreshSummary({
     .update({ summary: updated.slice(0, 1500) })
     .eq("id", conversationId);
 
-  await maybeUpdateTitleFromSummary(conversationId, updated);
+  // Force title refresh whenever rolling summary updates
+  await maybeUpdateTitleFromSummary(conversationId, updated, "always");
 
   return updated;
 }
@@ -687,27 +833,48 @@ export async function POST(req: Request) {
       await maybeUpdateTitleFromSummary(conversationId, summary);
     }
 
+    const anchors = await extractAnchors(summary, risk as any);
+    const { off: offTrack, sim: offSim } = await computeOffTrack(userMessage, summary);
+    const prevUserMsg = [...historyMsgs].reverse().find((m) => m.role === "user")?.content || "";
+const { off: prevOff } = await computeOffTrack(prevUserMsg, summary);
+const { insistent } = await computeInsistent(userMessage, summary, historyMsgs as any);
+
+
     // System message with voice sheet (uses toneText for custom persona)
     const voiceSheet = voiceSheetV2(effectivePersona as Persona, toneText || undefined);
     const system = [
       "You are a concise, youth-support assistant for Australia.",
       "Follow the VOICE SHEET and never break its hard constraints.",
-      "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy.",
-      "If context is irrelevant, ignore it. No meta talk. Plain text only.",
+      "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy (5) Coherence with BIG_PICTURE).",
       "Provide suggestions if and only if the user explicitly asks for help, advice or suggestions. Otherwise, empathize with the user.",
+
       "\n--- VOICE SHEET ---\n" + voiceSheet,
       "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
       "\n--- SUMMARY ---\n" + (summary || "(none)"),
+      "\n--- BIG_PICTURE ---\n" + JSON.stringify(anchors || {}),
+     "\n--- HINTS ---\n" + JSON.stringify({
+  off_track: offTrack,
+  insistent,
+  sim_to_summary: offSim,
+  deflect_threshold: DEFLECT_SIM_THRESHOLD
+}),
+
       "\n--- RISK ---\n" + JSON.stringify(risk || {}),
       "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
+
+     "\nGuidance:\n" +
+"- Keep BIG_PICTURE.primary in mind on every turn.\n" +
+"- If HINTS.off_track is true, do three moves: (1) briefly acknowledge the detour, (2) bridge back to BIG_PICTURE.primary in one sentence, (3) offer ONE tiny next step aligned to BIG_PICTURE.primary. Respect persona question rules.\n" +
+"- If HINTS.insistent is true, FIRST give a brief, safe answer to the detour (≤3 sentences, neutral, no refusal unless unsafe/illegal), THEN explicitly pivot back with ONE tiny next step on the primary goal (e.g., a single concrete action).\n" +
+"- Treat benign detours as allowed (e.g., everyday how-tos, definitions, simple tips, study/admin questions). Do not refuse benign requests; keep the mini-answer short and then return to the main goal.\n" +
+"- If the detour clearly supports the primary goal, continue; otherwise park it politely and propose the next step on the primary goal."+
+
+ "\nSafety:\n" +
+"- If RISK.tier is \"Imminent\" or \"Acute\", strongly urge the user to seek immediate in-person help, e.g. Lifeline 13 11 14 or emergency services 000.\n" +
+"- If RISK.tier is \"Elevated\", validate their feelings and encourage seeking support from trusted people or professionals.\n" +
+"- If RISK.tier is \"Low\" or \"None\", proceed normally but stay alert for future risk signals.\n" +
+"- Never say you are a crisis service or can provide emergency help.\n" +
       "\nReturn a single reply only.",
-      "\nRespond appropriately to complex Gen-Z emojis based on context: 👍 = Sarcastic way of saying 'good job',  😭 = Finding something incredibly funny, cute, or overwhelmingly sweet, 💀 = Laughing hard, 🤡 = Foolishness directed at someone, ⌛ = Finding someone attractive or thicc, 🤰 = Someone is so attractive that it makes the sender feel pregnant, ✨ = Used for emphasis or sarcasm, 🔥 = Something is hot, stylish or sexy, 😅 = Everything is fine whilst being stressed, 😙 = Fondness or approval of something, 🥺 = Used to show how adorable something is, 🌚 = Michievousness or playfulness",
-      "\nIf user response cannot be interpreted, tell the user: 'Sorry, but I didn't understand your message. Could you please try again?'.",
-      "\nDetect sarcasm or jokes using context, emojis, and exaggerations.",
-      "\nMirror casual humor where safe, but prioritize empathy and helpfulness.",
-      "\nOffer simple, genuine compliments to the user naturally during the conversation.",
-      "\nAlways display mathematical or scientific symbols using Unicode (e.g., ∫, π, ∞, √). Do not replace them with words unless absolutely necessary.",
-      "\nWhen writing fractions, always use proper Unicode fraction symbols (e.g., ½, ⅓, ⅔, ¼, ¾) whenever possible instead of using the slash format (like 1/2 or 2/3). Use UTF-8 characters to ensure they display correctly."
     ].join("\n\n");
 
     const messages: ChatCompletionMessageParam[] = [
