@@ -55,7 +55,7 @@ This is an AI-powered chatbot platform featuring customizable 3D avatars, real-t
 
 ### Prerequisites
 - Node.js 18+
-- pnpm (recommended) or npm
+- npm
 - Supabase account
 - OpenAI API key
 - Ready Player Me developer account
