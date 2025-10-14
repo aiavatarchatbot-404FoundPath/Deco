@@ -12,7 +12,8 @@ import Navbar from "./Navbar";
 import ShareLoginWarning from "./chat/ShareLoginWarning";
 import CrisisSupportModal from "./chat/CrisisSupportModal";
 import CounselorModal from "./chat/CounselorModal";
-import CounselorResourcesModal from "./chat/CounselorResourcesModal";
+import CounselorResourcesModal, { type CounselorResource } from "./chat/CounselorResourcesModal";
+import ShareConfirmModal from "./chat/ShareConfirmModal";
 
 export type DbMessage = {
   id: string;
@@ -144,6 +145,8 @@ export function ChatInterfaceScreen({
   const [showCrisisModal, setShowCrisisModal] = useState(false);
   const [showCounselorModal, setShowCounselorModal] = useState(false);
   const [showCounselorResources, setShowCounselorResources] = useState(false);
+  const [savedResources, setSavedResources] = useState<CounselorResource[] | null>(null);
+  const [showShareConfirm, setShowShareConfirm] = useState(false);
   const router = useRouter();
 
   // Provide a safe mood object for all children (prevents .toLowerCase() crashes)
@@ -235,19 +238,18 @@ export function ChatInterfaceScreen({
     setShowCounselorResources(true);
   };
   const handleCounselorResourcesClose = () => setShowCounselorResources(false);
-  const handleCounselorResourcesConfirm = () => {
-    setUiOnlySystem((prev) => [
-      ...prev,
-      {
-        id: `resources_${Date.now()}`,
-        sender: "ai",
-        content:
-          "Here are a few counselor resources you can explore: Headspace (1800 650 890), Kids Helpline (1800 55 1800), Beyond Blue (1300 22 4636).",
-        timestamp: new Date(),
-        type: "escalation",
-      },
-    ]);
+  const handleCounselorResourcesConfirm = (resources: CounselorResource[]) => {
+    // Save selected resources to show in Sidebar instead of injecting a chat message
+    setSavedResources(resources);
     setShowCounselorResources(false);
+  };
+
+  const handleShareConfirmOpen = () => setShowShareConfirm(true);
+  const handleShareConfirmCancel = () => setShowShareConfirm(false);
+  const handleShareConfirmAccept = () => {
+    setShowShareConfirm(false);
+    // Ask parent to end the conversation and then show summary
+    onNavigate('end-and-summary');
   };
 
   const injectSystemMessage = (content: string) => {
@@ -284,6 +286,13 @@ export function ChatInterfaceScreen({
         />
       )}
 
+      {showShareConfirm && (
+        <ShareConfirmModal
+          onCancel={handleShareConfirmCancel}
+          onConfirm={handleShareConfirmAccept}
+        />
+      )}
+
       <Navbar onNavigate={onNavigate} isLoggedIn={isLoggedInUser} />
 
       <div className="flex-1 flex overflow-hidden min-h-0">
@@ -295,6 +304,8 @@ export function ChatInterfaceScreen({
           onShareRequiresLogin={handleShareRequiresLogin}
           onCrisisSupport={handleCrisisOpen}
           onCounselorRequest={handleCounselorOpen}
+          savedResources={savedResources ?? undefined}
+          onShareConfirm={handleShareConfirmOpen}
         />
 
         {chatMode === "avatar" && (

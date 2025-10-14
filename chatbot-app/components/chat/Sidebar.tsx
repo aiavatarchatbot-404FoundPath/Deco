@@ -9,14 +9,18 @@ import SafetyIndicator from "./SafetyIndicator";
 import { Toaster, toast } from "sonner";
 import { Phone, User, Settings, FileText, LogOut, Heart } from "lucide-react";
 
+import type { CounselorResource } from "./CounselorResourcesModal";
+
 interface SidebarProps {
   onNavigate: (screen: string) => void;
   onInjectMessage?: (content: string) => void;
   isLoggedIn?: boolean;
   onShareRequiresLogin?: () => void;
+  onShareConfirm?: () => void;
   onCrisisSupport?: () => void;
   onCounselorRequest?: () => void;
   stats?: { sessionSeconds: number; messageCount: number };
+  savedResources?: CounselorResource[];
 }
 
 export default function Sidebar({
@@ -24,9 +28,11 @@ export default function Sidebar({
   onInjectMessage,
   isLoggedIn = false,
   onShareRequiresLogin,
+  onShareConfirm,
   onCrisisSupport,
   onCounselorRequest,
   stats,
+  savedResources,
   
 }: SidebarProps) {
   // --- Support actions ---
@@ -47,10 +53,15 @@ export default function Sidebar({
       onShareRequiresLogin?.();
       return;
     }
-    toast("Opening summary", {
-      description: "Preparing your conversation summary…",
-    });
-    setTimeout(() => onNavigate("summary"), 600);
+    // Ask parent to show confirmation modal; fall back to old behavior if not provided
+    if (onShareConfirm) {
+      onShareConfirm();
+    } else {
+      toast("Opening summary", {
+        description: "Preparing your conversation summary…",
+      });
+      setTimeout(() => onNavigate("summary"), 600);
+    }
   };
 
   const handleEndChat = () => {
@@ -65,8 +76,8 @@ export default function Sidebar({
   const msgLabel = String(stats?.messageCount ?? 0);
 
   return (
-    <aside className="w-80 shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col">
-      <div className="p-5 space-y-6">
+    <aside className="w-80 shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col min-h-0">
+      <div className="p-5 space-y-6 flex-1 overflow-y-auto min-h-0">
         {/* Safety block */}
         <SafetyIndicator/>
 
@@ -125,7 +136,8 @@ export default function Sidebar({
           </Button>
         </div>
 
-        {/* tiny session stats */}
+        {/* tiny session stats */
+        }
         <div className="border-t border-gray-200 pt-4 space-y-2 text-xs text-gray-600">
           <div className="flex items-center justify-between py-1">
             <span>Session time:</span>
@@ -140,6 +152,32 @@ export default function Sidebar({
             <span className="text-green-600">Secure</span>
           </div>
         </div>
+
+        {/* Saved counselor resources */}
+        {savedResources && savedResources.length > 0 && (
+          <div className="mt-4 space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-800 font-semibold">Saved resources</span>
+            </div>
+            <div className="space-y-2">
+              {savedResources.map((r) => (
+                <div key={r.name} className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                  <p className="text-emerald-800 font-medium">{r.name}</p>
+                  <p className="text-gray-700 mt-0.5">{r.description}</p>
+                  <p className="text-emerald-700 mt-1 font-semibold">{r.contact}</p>
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    Visit website
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mount sonner toasts (you can move this to app/layout.tsx if you prefer global) */}

@@ -358,6 +358,14 @@ export default function ClientSimpleChat() {
     await pauseTimer();
 
     switch (screen) {
+      case "end-and-summary": {
+        // End conversation immediately and go to summary (skip mood check)
+        const cid = conversationId;
+        await endConversation();
+        if (cid) router.push(`/chat/summary?convo=${cid}` as Route);
+        else router.push("/chat/summary" as Route);
+        break;
+      }
       case "summary": router.push("/chat/summary"); break;
       case "/": router.push("/"); break;
       case "profile": router.push("/profile"); break;

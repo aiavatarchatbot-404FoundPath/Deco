@@ -127,6 +127,25 @@ export default function ClientAvatarChat() {
       return;
     }
     switch (screen) {
+      case 'end-and-summary':
+        (async () => {
+          try {
+            await pauseTimer();
+            if (conversationId) {
+              await supabase
+                .from('conversations')
+                .update({ status: 'ended', ended_at: new Date().toISOString() })
+                .eq('id', conversationId);
+              router.push(`/chat/summary?convo=${conversationId}`);
+            } else {
+              router.push('/chat/summary');
+            }
+          } catch (e) {
+            console.error('Failed to end-and-summary:', e);
+            router.push('/chat/summary');
+          }
+        })();
+        break;
       case 'summary':
         router.push('/chat/summary');
         break;

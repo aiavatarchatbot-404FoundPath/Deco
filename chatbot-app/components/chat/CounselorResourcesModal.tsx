@@ -5,12 +5,19 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { BookOpen } from 'lucide-react';
 
-type Props = {
-  onClose: () => void;
-  onConfirm: () => void;
+export type CounselorResource = {
+  name: string;
+  description: string;
+  contact: string;
+  url: string;
 };
 
-const RESOURCES = [
+type Props = {
+  onClose: () => void;
+  onConfirm: (resources: CounselorResource[]) => void;
+};
+
+export const COUNSELOR_RESOURCES: CounselorResource[] = [
   {
     name: 'Headspace',
     description: 'Youth mental health support with online and in-person counsellors.',
@@ -46,7 +53,7 @@ export default function CounselorResourcesModal({ onClose, onConfirm }: Props) {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-4 text-left">
-            {RESOURCES.map((resource) => (
+            {COUNSELOR_RESOURCES.map((resource) => (
               <div key={resource.name} className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
                 <p className="font-semibold text-emerald-800">{resource.name}</p>
                 <p className="text-sm text-emerald-900 mt-1">{resource.description}</p>
@@ -66,12 +73,12 @@ export default function CounselorResourcesModal({ onClose, onConfirm }: Props) {
           <div className="flex flex-col sm:flex-row gap-3">
             <Button
               onClick={() => {
-                onConfirm();
+                onConfirm(COUNSELOR_RESOURCES);
                 onClose();
               }}
               className="flex-1 bg-emerald-500 text-white hover:bg-emerald-600"
             >
-              Save these to chat history
+              Save these to sidebar
             </Button>
             <Button variant="ghost" onClick={onClose} className="flex-1">
               Close
