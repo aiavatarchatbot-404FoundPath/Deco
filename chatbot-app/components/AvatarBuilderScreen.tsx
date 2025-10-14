@@ -319,7 +319,7 @@ export default function AvatarBuilderScreen({
               Select Your AI Companion
             </h2>
             <p className="text-sm text-gray-600">
-              Choose who you'd like to chat with — your selection will appear in the chat. The tone affects <em>how</em> answers read, not the facts.
+              Pick your perfect chat companion! Each one has their own unique style of helping you, and they're both incredibly smart and caring.
             </p>
           </div>
           
@@ -354,9 +354,7 @@ export default function AvatarBuilderScreen({
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                   {/* NEW: RAG tone description */}
                   <p className="mt-2 text-sm text-gray-700">
-                    <span className="font-medium">RAG voice: Direct Coach ~ </span> 
-                    short, punchy answers with micro-plans, time-boxed actions, minimal chat.
-                   
+                    <span className="font-medium">Clear and helpful.</span> Gives you straight answers and practical next steps.
                   </p>
                 </div>
                 {selectedAvatar === 'ready-adam' && (
@@ -399,8 +397,7 @@ export default function AvatarBuilderScreen({
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
                   {/* NEW: RAG tone description */}
                   <p className="mt-2 text-sm text-gray-700">
-                    <span className="font-medium">RAG voice: Warm Guide ~ </span> 
-                    Validating, reflective replies, gentle open question, Soft language
+                    <span className="font-medium">Warm and gentle.</span> Listens carefully and offers thoughtful, caring support.
                   </p>
                 </div>
                 {selectedAvatar === 'ready-eve' && (
