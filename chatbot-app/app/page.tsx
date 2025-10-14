@@ -540,7 +540,7 @@ export default function HomePage() {
                   </h3>
                   
                   <p className="text-gray-600 mb-6 leading-relaxed text-sm">
-                    Enjoy a distraction-free chat experience built for focus. Clean design, effortless flow, better conversations
+                    Enjoy a distraction-free chat experience built for focus, effortless flow, and better conversations! 
                   </p>
                   
                   <div className="space-y-3 mb-6 text-sm">
@@ -566,6 +566,7 @@ export default function HomePage() {
                       </span>
                     </div>
                     <p className="text-xs text-purple-700">
+                      Start chatting instantly – no setup needed
                     </p>
                   </div>
 

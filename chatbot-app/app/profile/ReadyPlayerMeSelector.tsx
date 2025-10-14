@@ -418,7 +418,7 @@ export function ReadyPlayerMeSelector({
               <div className="border-t pt-6">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">
-                    Select Adam or Eve as your chat companion. No custom companions are available - these two options provide the best supportive conversations.
+                    Choose between Adam or Eve as your chat companion. Both are specially designed to provide caring, supportive conversations tailored to your needs.
                   </p>
                 </div>
               </div>
