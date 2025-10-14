@@ -113,7 +113,7 @@ function buildCareCard(tier: CareTier): CareCard {
 
 function careText(card: CareCard) {
   const lines = [
-    `**${card.headline}**`,
+    `${card.headline}`,
     card.body,
     card.steps.map((s, i) => `${i + 1}) ${s}`).join("\n"),
     "Helplines:",
