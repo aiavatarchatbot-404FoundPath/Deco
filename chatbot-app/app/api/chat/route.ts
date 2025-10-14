@@ -52,6 +52,77 @@ type TonePrefs = {
   normalizedText: string;
 };
 
+// ---- CARE card helpers ----
+type CareTier = "Imminent" | "Acute" | "Elevated";
+type CareCard = {
+  tier: CareTier;
+  headline: string;
+  body: string;
+  steps: string[];
+  helplines: { name: string; phone: string; when: string }[];
+};
+
+function buildCareCard(tier: CareTier): CareCard {
+  const helplines = [
+    { name: "Emergency",   phone: "000",         when: "Immediate danger" },
+    { name: "Lifeline",    phone: "13 11 14",    when: "24/7 crisis support" },
+    { name: "Beyond Blue", phone: "1300 22 4636",when: "Anxiety & depression" },
+    { name: "Kids Helpline", phone: "1800 55 1800", when: "Age 5–25" },
+  ];
+
+  if (tier === "Imminent") {
+    return {
+      tier,
+      headline: "Your safety matters right now.",
+      body: "I’m really concerned about your safety.",
+      steps: [
+        "If you’re in danger, call 000 now.",
+        "If you can, contact someone you trust nearby.",
+        "You can also call Lifeline 13 11 14 (24/7).",
+      ],
+      helplines,
+    };
+  }
+
+  if (tier === "Acute") {
+    return {
+      tier,
+      headline: "Thanks for telling me. Let’s keep you safe.",
+      body: "What you’re feeling is heavy, and you’re not alone.",
+      steps: [
+        "Consider talking to someone you trust today.",
+        "A counsellor can help: Lifeline 13 11 14 (24/7).",
+        "If risk increases, call 000.",
+      ],
+      helplines,
+    };
+  }
+
+  // Elevated
+  return {
+    tier,
+    headline: "I hear you. Let’s add support.",
+    body: "You deserve support while you work through this.",
+    steps: [
+      "Small step: write one thing that could help tonight.",
+      "Reach out to a friend or a support line if it gets heavier.",
+    ],
+    helplines,
+  };
+}
+
+function careText(card: CareCard) {
+  const lines = [
+    `${card.headline}`,
+    card.body,
+    card.steps.map((s, i) => `${i + 1}) ${s}`).join("\n"),
+    "Helplines:",
+    card.helplines.map((h) => `- ${h.name}: ${h.phone} — ${h.when}`).join("\n"),
+  ];
+  return lines.filter(Boolean).join("\n\n");
+}
+
+
 function parseTone(text?: string): TonePrefs {
   const raw = (text || "").trim();
   const t   = raw.toLowerCase();
@@ -796,18 +867,33 @@ export async function POST(req: Request) {
       || (meta?.style_json as any)?.text
       || "");
 
-    // Crisis hard stop
-    const forced = checkFilters(userMessage);
-    if (forced) {
-      const answer = [
-        "I’m really concerned about your safety.",
-        "Please reach out to Lifeline Australia on 13 11 14 for 24/7 support or call 000 if you are in immediate danger.",
-      ].join("\n\n");
-      const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
-      const userRow = inserted.find((r) => r.role === "user");
-      const assistantRow = inserted.find((r) => r.role === "assistant");
-      return NextResponse.json({ conversationId, answer, emotion: "Negative", tier: "Imminent", suggestions: ["Call 000"], citations: [], rows: { user: userRow, assistant: assistantRow } });
-    }
+    // Crisis hard stop (regex) → Imminent CARE card
+const forced = checkFilters(userMessage);
+if (forced) {
+  const card = buildCareCard("Imminent");
+  const answer = careText(card);
+  const inserted = await saveTurnToDB({
+    conversationId,
+    userId,
+    botUserId: BOT_USER_ID,
+    userMessage,
+    botAnswer: answer,
+  });
+  const userRow = inserted.find((r) => r.role === "user");
+  const assistantRow = inserted.find((r) => r.role === "assistant");
+  return NextResponse.json({
+    conversationId,
+    answer,
+    tier: "Imminent",
+    care_card: card,
+    emotion: "Negative",
+    citations: [],
+    rows: { user: userRow, assistant: assistantRow },
+  });
+}
+
+
+
 
     // Kick off work in parallel
     const riskP = classifyRisk(userMessage);
@@ -827,6 +913,30 @@ export async function POST(req: Request) {
     const [risk, profile, summary, historyMsgs, { context, hits }] = await Promise.all([
       riskP, profileP, summaryP, historyP, retrievalP,
     ]);
+    // Deterministic CARE path for Imminent/Acute (LLM classifier)
+const riskTier = (risk?.tier as string) || "None";
+if (riskTier === "Imminent" || riskTier === "Acute") {
+  const card = buildCareCard(riskTier as CareTier);
+  const answer = careText(card);
+  const inserted = await saveTurnToDB({
+    conversationId,
+    userId,
+    botUserId: BOT_USER_ID,
+    userMessage,
+    botAnswer: answer,
+  });
+  const userRow = inserted.find((r) => r.role === "user");
+  const assistantRow = inserted.find((r) => r.role === "assistant");
+  return NextResponse.json({
+    conversationId,
+    answer,
+    tier: riskTier,
+    care_card: card,
+    emotion: "Negative",
+    citations: [],
+    rows: { user: userRow, assistant: assistantRow },
+  });
+}
 
     // If a summary already exists, try to set a proper title now
     if (summary?.trim()) {
@@ -847,6 +957,12 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
       "Follow the VOICE SHEET and never break its hard constraints.",
       "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy (5) Coherence with BIG_PICTURE).",
       "Provide suggestions if and only if the user explicitly asks for help, advice or suggestions. Otherwise, empathize with the user.",
+      "Return a single reply only.",
+      "If user response cannot be interpreted, tell the user: 'Sorry, but I didn't understand your message. Could you please try again?'.",
+      "Detect sarcasm using context, emojis, and exaggerations and respond to it appropriately.",
+      "Mirror casual humor where safe, but prioritize empathy and helpfulness.",
+      "Offer simple, genuine compliments to the user naturally during the conversation.",
+      "Always display mathematical or scientific symbols using UTF-8 characters (e.g. Integrals, fractions, exponentials and powers, square roots, etc).",
 
       "\n--- VOICE SHEET ---\n" + voiceSheet,
       "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
@@ -906,6 +1022,10 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
 
     // Apply custom tone overlay to ANY persona
     answer = applyToneOverlay(answer, toneText || undefined);
+    if (riskTier === "Elevated") {
+  const footer = "\n\nIf it gets heavier, you can call Lifeline (13 11 14, 24/7). If you’re in danger, call 000.";
+  answer += footer;
+}
 
     // Persist turn
     const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
