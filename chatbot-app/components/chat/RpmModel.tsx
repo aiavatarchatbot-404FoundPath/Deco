@@ -177,25 +177,31 @@ export default function RpmModel({
           continue;
         }
         
-        // Stronger hip rotation adjustment to make avatar stand straighter
+        // Hip rotation adjustment: damp yaw during idle to avoid side-to-side sway
         if (mappedBoneName === 'Hips' && property === 'quaternion') {
-          console.log('[RpmModel] Making stronger hip adjustment for straighter posture');
-          const straightenedValues = [];
+          const isIdle = sourceClip.name.toLowerCase().includes('idle') || sourceClip.name.toLowerCase().includes('breathing');
+          const adjustedValues: number[] = [];
           for (let i = 0; i < track.values.length; i += 4) {
-            // Get quaternion components (x, y, z, w)
-            const x = track.values[i] * 0.7;     // More reduction in X rotation (back lean)
-            const y = track.values[i + 1];       // Keep Y rotation unchanged
-            const z = track.values[i + 2];       // Keep Z rotation unchanged
-            const w = track.values[i + 3];       // Keep W component
-            
-            // Normalize the quaternion
-            const length = Math.sqrt(x*x + y*y + z*z + w*w);
-            straightenedValues.push(x/length, y/length, z/length, w/length);
+            const q = new THREE.Quaternion(
+              track.values[i],
+              track.values[i + 1],
+              track.values[i + 2],
+              track.values[i + 3]
+            ).normalize();
+            const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+            // Reduce back/forward lean slightly and strongly damp yaw when idle
+            const yawScale = isIdle ? 0.15 : 1.0;    // side-to-side
+            const pitchScale = 0.7;                  // back/forward
+            const rollScale = 1.0;
+            e.y *= yawScale;
+            e.x *= pitchScale;
+            e.z *= rollScale;
+            const out = new THREE.Quaternion().setFromEuler(e);
+            adjustedValues.push(out.x, out.y, out.z, out.w);
           }
-          
           const newTrackName = `${mappedBoneName}.${property}`;
           const NewTrackClass = (track.constructor as any);
-          const newTrack = new NewTrackClass(newTrackName, track.times, straightenedValues);
+          const newTrack = new NewTrackClass(newTrackName, track.times, adjustedValues);
           newTracks.push(newTrack);
           mappedCount++;
           continue;
@@ -280,7 +286,7 @@ export default function RpmModel({
         console.log('[RpmModel] Retargeting clip:', c.name, 'duration:', c.duration, 'tracks:', c.tracks.length);
         
         // Use the Three.js retargeting with proper bone mapping
-        const r = (SkeletonUtils as any).retargetClip(
+        let r = (SkeletonUtils as any).retargetClip(
           targetSkinned,        // target skeleton (RPM avatar)
           sourceSkinned,        // source skeleton (Mixamo)
           c,                    // AnimationClip from FBX
@@ -297,6 +303,51 @@ export default function RpmModel({
           originalTrackCount: c.tracks.length,
           newTrackCount: r.tracks.length
         });
+        
+        // Stabilize idle/breathing clips: remove hip translation and damp hip/spine yaw
+        const isIdle = (c.name || r.name || '').toLowerCase().includes('idle') || (c.name || r.name || '').toLowerCase().includes('breathing');
+        if (isIdle) {
+          const stabilizedTracks: THREE.KeyframeTrack[] = [];
+          for (const t of r.tracks) {
+            const [node, prop] = t.name.split('.');
+            // Drop root translation to keep body centered
+            if (node === 'Hips' && prop === 'position') {
+              console.log('[RpmModel] Removing Hips.position from idle clip to prevent lateral shift');
+              continue;
+            }
+            if (node === 'Hips' && prop === 'quaternion') {
+              const values = (t as any).values as Float32Array | number[];
+              const out: number[] = [];
+              for (let i = 0; i < values.length; i += 4) {
+                const q = new THREE.Quaternion(values[i], values[i+1], values[i+2], values[i+3]).normalize();
+                const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+                e.y *= 0.15; // strongly damp yaw (side sway)
+                const qOut = new THREE.Quaternion().setFromEuler(e);
+                out.push(qOut.x, qOut.y, qOut.z, qOut.w);
+              }
+              const NewTrackClass = (t.constructor as any);
+              stabilizedTracks.push(new NewTrackClass(t.name, (t as any).times, out));
+              continue;
+            }
+            if ((node === 'Spine' || node === 'Spine1' || node === 'Spine2' || node === 'Chest' || node === 'UpperChest') && prop === 'quaternion') {
+              const values = (t as any).values as Float32Array | number[];
+              const out: number[] = [];
+              for (let i = 0; i < values.length; i += 4) {
+                const q = new THREE.Quaternion(values[i], values[i+1], values[i+2], values[i+3]).normalize();
+                const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+                e.y *= 0.5; // mild damping so upper body can breathe
+                const qOut = new THREE.Quaternion().setFromEuler(e);
+                out.push(qOut.x, qOut.y, qOut.z, qOut.w);
+              }
+              const NewTrackClass = (t.constructor as any);
+              stabilizedTracks.push(new NewTrackClass(t.name, (t as any).times, out));
+              continue;
+            }
+            stabilizedTracks.push(t);
+          }
+          r = new THREE.AnimationClip((r.name || 'Clip') + '_stabilized', r.duration, stabilizedTracks);
+          console.log('[RpmModel] Stabilized idle clip:', { name: r.name, tracks: r.tracks.length });
+        }
         
         // If retargeting failed, try manual bone mapping as fallback
         if (r.duration <= 0 || !r.tracks.length) {

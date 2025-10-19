@@ -236,11 +236,22 @@ export default function ClientAvatarChat() {
 }, [conversationId]);
 
 
-  const handleEntryMoodComplete = (moodData: MoodData) => {
+  const handleEntryMoodComplete = async (moodData: MoodData) => {
     const record: MoodState = { ...moodData, timestamp: new Date() };
     setMood(record);
     persistMoodState(record);
     setShowEntryMoodCheckIn(false);
+    // Persist initial mood to the conversation (if we have an id)
+    try {
+      if (conversationId) {
+        await supabase
+          .from('conversations')
+          .update({ initial_mood: moodData })
+          .eq('id', conversationId);
+      }
+    } catch (e) {
+      console.warn('initial_mood update failed (non-fatal):', e);
+    }
   };
   type Persona = 'neutral' | 'adam' | 'eve' | 'custom';
 

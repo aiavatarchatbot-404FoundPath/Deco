@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ArrowRight, User, RefreshCw } from 'lucide-react';
+import { ArrowRight, User, RefreshCw, Sparkles, CheckCircle2, MessageSquare, ListChecks, HeartHandshake } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { toast } from 'sonner';
@@ -319,7 +319,7 @@ export default function AvatarBuilderScreen({
               Select Your AI Companion
             </h2>
             <p className="text-sm text-gray-600">
-              Choose who you'd like to chat with — your selection will appear in the chat. The tone affects <em>how</em> answers read, not the facts.
+              Choose who you'd like to chat with. Your selection will appear in the chat. The tone affects <em>how</em> answers read, not the facts.
             </p>
           </div>
           
@@ -334,28 +334,40 @@ export default function AvatarBuilderScreen({
               }`}
             >
               <div className="space-y-3">
-                <div className="w-32 h-32 mx-auto bg-gradient-to-br from-blue-300 to-indigo-400 rounded-full overflow-hidden flex items-center justify-center">
-                  <img 
-                    src={toThumbnail(readyPlayerMeAvatars.adam) || ""}
-                    alt="Adam Avatar"
-                    className="w-full h-full object-cover rounded-full"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
-                      if (nextElement) {
-                        nextElement.style.display = 'block';
-                      }
-                    }}
-                  />
-                  <User className="w-12 h-12 text-blue-700 hidden" />
+                {/* Avatar circle with gradient ring */}
+                <div className="w-36 h-36 mx-auto rounded-full p-[3px] bg-gradient-to-br from-blue-300 via-indigo-300 to-purple-300">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-indigo-200 to-blue-300 flex items-center justify-center">
+                    <img 
+                      src={toThumbnail(readyPlayerMeAvatars.adam) || ""}
+                      alt="Adam Avatar"
+                      className="w-full h-full object-cover rounded-full"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        const next = (e.currentTarget.nextElementSibling as HTMLElement);
+                        if (next) next.style.display = 'flex';
+                      }}
+                    />
+                    <User className="w-12 h-12 text-blue-700 hidden" />
+                  </div>
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Adam</h3>
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
-                  {/* NEW: RAG tone description */}
-                  <p className="mt-2 text-sm text-gray-700">
-                    <span className="font-medium">RAG voice: Direct Coach.</span> Short, to-the-point answers with one clear next step. Minimal small talk; prefers bullet lists for actions.
-                  </p>
+                  {/* Graphic tone summary */}
+                  <div className="mt-3 flex flex-wrap gap-2 justify-center">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs">
+                      <Sparkles className="w-3.5 h-3.5" /> Direct Coach
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Clear next step
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-50 text-slate-700 text-xs">
+                      <MessageSquare className="w-3.5 h-3.5" /> Minimal small talk
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 text-xs">
+                      <ListChecks className="w-3.5 h-3.5" /> Bullet lists
+                    </span>
+                  </div>
                 </div>
                 {selectedAvatar === 'ready-adam' && (
                   <div className="mt-2">
@@ -377,28 +389,40 @@ export default function AvatarBuilderScreen({
               }`}
             >
               <div className="space-y-3">
-                <div className="w-32 h-32 mx-auto bg-gradient-to-br from-pink-300 to-purple-400 rounded-full overflow-hidden flex items-center justify-center">
-                  <img 
-                    src={toThumbnail(readyPlayerMeAvatars.eve) || ""}
-                    alt="Eve Avatar"
-                    className="w-full h-full object-cover rounded-full"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
-                      if (nextElement) {
-                        nextElement.style.display = 'block';
-                      }
-                    }}
-                  />
-                  <User className="w-12 h-12 text-pink-700 hidden" />
+                {/* Avatar circle with gradient ring */}
+                <div className="w-36 h-36 mx-auto rounded-full p-[3px] bg-gradient-to-br from-pink-300 via-rose-300 to-purple-300">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-pink-200 to-purple-300 flex items-center justify-center">
+                    <img 
+                      src={toThumbnail(readyPlayerMeAvatars.eve) || ""}
+                      alt="Eve Avatar"
+                      className="w-full h-full object-cover rounded-full"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        const next = (e.currentTarget.nextElementSibling as HTMLElement);
+                        if (next) next.style.display = 'block';
+                      }}
+                    />
+                    <User className="w-12 h-12 text-pink-700 hidden" />
+                  </div>
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">Eve</h3>
                   <p className="text-xs text-gray-500">Ready Player Me Avatar</p>
-                  {/* NEW: RAG tone description */}
-                  <p className="mt-2 text-sm text-gray-700">
-                    <span className="font-medium">RAG voice: Warm Guide.</span> Empathetic, reflective language with gentle questions. Collaboratively suggests next steps.
-                  </p>
+                  {/* Graphic tone summary */}
+                  <div className="mt-3 flex flex-wrap gap-2 justify-center">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-pink-50 text-pink-700 text-xs">
+                      <HeartHandshake className="w-3.5 h-3.5" /> Warm Guide
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 text-xs">
+                      <MessageSquare className="w-3.5 h-3.5" /> Gentle questions
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Supportive
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-50 text-slate-700 text-xs">
+                      <ListChecks className="w-3.5 h-3.5" /> Next steps
+                    </span>
+                  </div>
                 </div>
                 {selectedAvatar === 'ready-eve' && (
                   <div className="mt-2">
@@ -415,7 +439,32 @@ export default function AvatarBuilderScreen({
           <div className="mt-2 max-w-2xl mx-auto rounded-xl border p-4 bg-white/80 text-left">
             <label className="block text-sm font-medium mb-2">
               Prefer a custom tone? <span className="text-gray-500 font-normal">(optional)</span>
+              <span className="ml-1 text-gray-400 align-super">*</span>
             </label>
+            {/* Quick tone chips for a more visual picker */}
+            <div className="flex flex-wrap gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => { const t = 'warm, empathetic tone with gentle questions'; setCustomText(t); setPersona('custom'); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border bg-pink-50 text-pink-700 hover:bg-pink-100"
+              >
+                <HeartHandshake className="w-3.5 h-3.5" /> Warm
+              </button>
+              <button
+                type="button"
+                onClick={() => { const t = 'very clear, easy to understand explanations'; setCustomText(t); setPersona('custom'); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => { const t = 'direct and concise responses with one clear next step'; setCustomText(t); setPersona('custom'); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Direct
+              </button>
+            </div>
             <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 placeholder={`e.g., "very clear and understanding, simple words, one action step"`}
@@ -439,6 +488,7 @@ export default function AvatarBuilderScreen({
             </div>
             <p className="mt-2 text-xs text-gray-500">
               We’ll compile your description into safe style settings (clarity, warmth, directness, etc.). Retrieval & safety rules stay the same.
+              <span className="ml-1 text-gray-400">*</span> Future feature — coming soon
             </p>
           </div>
         </div>
