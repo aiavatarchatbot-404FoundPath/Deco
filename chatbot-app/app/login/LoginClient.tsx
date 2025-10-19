@@ -164,30 +164,71 @@ export default function LoginClient() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      <div className="max-w-md mx-auto px-4 py-8">
+  return (<div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
+      <div className="mx-auto max-w-5xl px-4 py-8">
         <Button onClick={handleBack} variant="ghost" className="mb-6 trauma-safe gentle-focus">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Home
         </Button>
 
-        <Card className="trauma-safe">
-          <CardHeader className="text-center">
-            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-              {isSignUp ? <UserPlus className="h-8 w-8 text-white" /> : <User className="h-8 w-8 text-white" />}
-            </div>
-            <CardTitle className="text-2xl">
-              {isSignUp ? "Create Account" : "Welcome Back"}
-            </CardTitle>
-            <p className="text-muted-foreground">
-              {isSignUp
-                ? "Create an account to save your avatar and preferences"
-                : "Login to access your saved avatars and continue your journey"}
-            </p>
-          </CardHeader>
+        {/* Desktop: two-column layout; Mobile: stacks */}
+        <div className="grid md:grid-cols-2 gap-8 items-start">
+          {/* Left visual/benefits panel (hidden on mobile to keep things simple) */}
+          <div className="hidden md:block">
+            <div className="relative overflow-hidden rounded-2xl border border-white/70 bg-white/60 shadow-sm p-8">
+              {/* soft blobs */}
+              <div className="pointer-events-none absolute -top-16 -left-16 h-56 w-56 rounded-full bg-purple-300/30 blur-2xl" />
+              <div className="pointer-events-none absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-blue-300/30 blur-2xl" />
 
-          <CardContent className="space-y-6">
+              <div className="relative">
+                <div className="w-16 h-16 mb-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <User className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-3xl font-semibold text-gray-900 mb-2">Sign in to save your stuff</h2>
+                <p className="text-gray-600 mb-6 max-w-md">
+                  Save and customize your avatar, keep preferences across sessions, and pick up chats where you left off. Private by default.
+                </p>
+
+                {/* trust/benefit chips */}
+                <div className="flex flex-wrap gap-2 mb-8">
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-50 text-yellow-900 ring-1 ring-yellow-200/60 text-sm">
+                    <Shield className="h-4 w-4 text-yellow-700" /> Private
+                  </span>
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 text-blue-900 ring-1 ring-blue-200/60 text-sm">
+                    <User className="h-4 w-4 text-blue-700" /> Built for Youth
+                  </span>
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200/60 text-sm">
+                    <Lock className="h-4 w-4 text-emerald-700" /> Optional account
+                  </span>
+                </div>
+
+                {/* quick bullets */}
+                <ul className="space-y-2 text-sm text-gray-700">
+                  <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-gray-600" /> Save and customize your avatar</li>
+                  <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-gray-600" /> Keep preferences across sessions</li>
+                  <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-gray-600" /> Optional conversation history (with consent)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Right auth card */}
+          <Card className="trauma-safe">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                {isSignUp ? <UserPlus className="h-8 w-8 text-white" /> : <User className="h-8 w-8 text-white" />}
+              </div>
+              <CardTitle className="text-2xl">
+                {isSignUp ? "Create Account" : "Welcome Back"}
+              </CardTitle>
+              <p className="text-muted-foreground">
+                {isSignUp
+                  ? "Create an account to save your avatar and preferences"
+                  : "Login to access your saved avatars and continue your journey"}
+              </p>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-start space-x-3">
                 <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
@@ -335,5 +376,6 @@ export default function LoginClient() {
         </Card>
       </div>
     </div>
+  </div> 
   );
 }

@@ -7,6 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Navbar from '../components/Navbar'; 
+import MeshGradientBackground from '../components/MeshGradientBackground';
 import { createConversation } from '@/lib/conversations'; 
 import { getSessionUserId } from '@/lib/auth';
 import { Loading } from '../components/ui/loading';
@@ -254,7 +255,7 @@ export default function HomePage() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
       {/* Use Navbar Component with correct props */}
       <Navbar 
         onNavigate={handleNavigation}
@@ -262,6 +263,15 @@ export default function HomePage() {
         currentPage="home"
         isLoading={isLoading}
       />
+      {/* Decorative background blobs and subtle grid for a more gamified feel */}
+      <div className="pointer-events-none absolute inset-0 -z-10">
+        <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-purple-300/30 blur-3xl" />
+        <div className="absolute top-1/3 -right-24 h-96 w-96 rounded-full bg-blue-300/30 blur-3xl" />
+        <div className="absolute bottom-[-4rem] left-1/2 -translate-x-1/2 h-72 w-[70%] rounded-full bg-pink-200/25 blur-3xl" />
+        <div className="absolute inset-0 opacity-40 [background-image:radial-gradient(rgba(255,255,255,0.35)_1px,transparent_1px)] [background-size:18px_18px]" />
+      </div>
+      {/* Moving mesh gradient background (soft, palette-matched) */}
+      <MeshGradientBackground className="-z-20 opacity-70" colors={["#f3e8ff","#ffe4e6","#dbeafe","#e9d5ff","#fecdd3","#bfdbfe"]} pointCount={6} speed={0.25} />
       
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         
@@ -367,18 +377,18 @@ export default function HomePage() {
           </div>
         
 
-          {/* Trust Indicators */}
-          <div className="flex flex-wrap justify-center gap-4 mb-10">
-            <Badge className="px-4 py-2 text-sm bg-yellow-100 text-yellow-800 border-yellow-200">
-              Private & Secure
-            </Badge>
-            <Badge className="px-4 py-2 text-sm bg-green-100 text-green-800 border-green-200">
-              Trauma-informed
-            </Badge>
-            <Badge className="px-4 py-2 text-sm bg-blue-100 text-blue-800 border-blue-200">
-              Youth-Focused
-            </Badge>
+          {/* Trust Indicators (short, non-interactive chips) */}
+          <div className="flex flex-wrap justify-center gap-3 mb-10">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-50 text-yellow-900 ring-1 ring-yellow-200/60">
+              <Shield className="h-4 w-4 text-yellow-700" />
+              <span className="text-sm font-medium">Private</span>
+            </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 text-blue-900 ring-1 ring-blue-200/60">
+              <Users className="h-4 w-4 text-blue-700" />
+              <span className="text-sm font-medium">Built for Youth</span>
+            </div>
           </div>
+          {/* No additional keyframes needed (mesh gradient uses canvas) */}
 
           {/* Privacy Reminder */}
         <div className="max-w-2xl mx-auto mb-16">
@@ -423,26 +433,31 @@ export default function HomePage() {
                     <span className="text-3xl">🎭</span>
                   </div>
                   
-                  <h3 className="text-xl font-semibold mb-3 text-gray-900">
-                    Avatar Chat Mode
+                  <h3 className="text-xl font-semibold mb-2 text-gray-900">
+                    Avatar Chat
                   </h3>
-                  
-                  <p className="text-gray-600 mb-6 leading-relaxed text-sm">
-                    Create your own avatar and chat with Adam or Eve in a visual, more engaging and personalized!
+
+                  <p className="text-gray-600 mb-4 leading-relaxed text-sm">
+                    Visual chat with 3D companions.
                   </p>
-                  
-                  <div className="space-y-3 mb-6 text-sm">
-                    <div className="flex items-center justify-start space-x-2">
-                      <span className="text-yellow-500">✨</span>
-                      <span>Visual avatar interaction</span>
+
+                  {/* standardized features block for alignment */}
+                  <div className="min-h-[112px] flex flex-col items-center justify-center gap-3 mb-6">
+                    {/* concise feature chips */}
+                    <div className="flex flex-wrap justify-center gap-2 text-xs">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-200" title="Chat with 3D characters">🎭 3D Avatars</span>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200" title="Pick an avatar that feels like you">🧡 Personalized</span>
                     </div>
-                    <div className="flex items-center justify-start space-x-2">
-                      <span className="text-orange-500">🧡</span>
-                      <span>Personalized companion</span>
-                    </div>
-                    <div className="flex items-center justify-start space-x-2">
-                      <span className="text-blue-500">⚡</span>
-                      <span>No downloads needed</span>
+                    {/* characters row */}
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full ring-1 ring-blue-200 bg-blue-50">
+                        <img src={toThumbnail(COMPANIONS.ADAM.url) || ''} alt="Adam" className="w-5 h-5 rounded-full object-cover" />
+                        <span className="text-xs text-blue-700">Adam</span>
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full ring-1 ring-pink-200 bg-pink-50">
+                        <img src={toThumbnail(COMPANIONS.EVE.url) || ''} alt="Eve" className="w-5 h-5 rounded-full object-cover" />
+                        <span className="text-xs text-pink-700">Eve</span>
+                      </div>
                     </div>
                   </div>
 
@@ -535,27 +550,23 @@ export default function HomePage() {
                     <span className="text-3xl">💬</span>
                   </div>
                   
-                  <h3 className="text-xl font-semibold mb-3 text-gray-900">
-                    Simple Chat Mode
+                  <h3 className="text-xl font-semibold mb-2 text-gray-900">
+                    Text Chat
                   </h3>
-                  
-                  <p className="text-gray-600 mb-6 leading-relaxed text-sm">
-                    Enjoy a distraction-free chat experience built for focus, effortless flow, and better conversations! 
+
+                  <p className="text-gray-600 mb-4 leading-relaxed text-sm">
+                    Clean, fast text chat.
                   </p>
-                  
-                  <div className="space-y-3 mb-6 text-sm">
-                    <div className="flex items-center justify-start space-x-2">
-                      <span className="text-yellow-500">✨</span>
-                      <span>Clean, minimal interface</span>
+
+                  {/* standardized features block for alignment */}
+                  <div className="min-h-[112px] flex flex-col items-center justify-center mb-6">
+                    <div className="flex flex-wrap justify-center gap-2 text-xs">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-200" title="Clean, distraction‑free chat">✨ Simple</span>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200">⚡ Fast</span>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-50 text-slate-700 ring-1 ring-slate-200" title="Same AI personality as avatar chat">🤖 Same AI</span>
                     </div>
-                    <div className="flex items-center justify-start space-x-2">
-                      <span className="text-yellow-500">⚡</span>
-                      <span>Fast and lightweight</span>
-                    </div>
-                    <div className="flex items-center justify-start space-x-2">
-                      <span className="text-yellow-500">🤖</span>
-                      <span>Same supportive Adam</span>
-                    </div>
+                    {/* spacer to match avatar characters row height */}
+                    <div className="h-7" />
                   </div>
 
                   <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">

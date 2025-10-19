@@ -1,10 +1,9 @@
 'use client';
 
-import React, { Suspense } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
 import { User, Bot } from 'lucide-react';
-import { Canvas } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+// No local Canvas here; each avatar uses its own Canvas in RpmViewer.
 
 const RpmViewer = dynamic(() => import('./RpmViewer'), { ssr: false });
 
@@ -36,21 +35,14 @@ const AvatarDisplay = React.memo(function AvatarDisplay({
   return (
     <div className="w-full h-full flex flex-col gap-3 p-4">
       <div className="relative grid grid-cols-2 gap-3 w-full flex-1 min-h-[420px] rounded-xl overflow-hidden">
-        {/* Shared background room (single canvas behind both panels) */}
+        {/* Background image behind both panels */}
         <div className="absolute inset-0 z-0 pointer-events-none">
-          <Canvas
-            frameloop="always"
-            camera={{ position: [0, 1.4, 6], fov: 30 }}
-            gl={{ antialias: true, alpha: false }}
-            style={{ width: '100%', height: '100%' }}
-          >
-            <Suspense fallback={null}>
-              {/* Fallback solid color in case HDRI fails */}
-              <color attach="background" args={["#e8eef6"]} />
-              {/* Room HDRI as the unified background */}
-              <Environment preset="lobby" background />
-            </Suspense>
-          </Canvas>
+          <img
+            src="/background/room.jpg"
+            alt=""
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
         </div>
         {/* Transparent panels over shared background */}
         {/* Left panel (User) */}

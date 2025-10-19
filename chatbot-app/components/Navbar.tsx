@@ -16,7 +16,7 @@ export default function Navbar({ onNavigate, isLoggedIn = false, currentPage, is
   return (
     <nav className="flex items-center justify-between px-8 py-2 bg-white/80 backdrop-blur-sm border-b border-gray-100">
       <div className="flex items-center space-x-1">
-        <span className="font-medium text-gray-700">Your Safe Chat Space</span>
+        <span className="font-medium text-gray-700">Avatar Companion</span>
       </div>
       
       <div className="flex items-center space-x-2">

@@ -375,9 +375,20 @@ export default function ClientSimpleChat() {
   };
 
   /* mood handlers (entry) */
-  const handleMoodComplete = (moodData: MoodData) => {
+  const handleMoodComplete = async (moodData: MoodData) => {
     setEntryMood({ ...moodData, timestamp: new Date() });
     setShowEntryMoodCheck(false);
+    // Persist initial mood to the conversation
+    try {
+      if (conversationId) {
+        await supabase
+          .from('conversations')
+          .update({ initial_mood: moodData })
+          .eq('id', conversationId);
+      }
+    } catch (e) {
+      console.warn('initial_mood update failed (non-fatal):', e);
+    }
   };
   const handleSkip = () => { setEntryMood(null); setShowEntryMoodCheck(false); };
 
@@ -400,8 +411,19 @@ export default function ClientSimpleChat() {
     if (typeof window !== "undefined") localStorage.removeItem(LS_CONVO_KEY);
   };
 
-  const handleExitMoodComplete = async () => {
+  const handleExitMoodComplete = async (moodData: MoodData) => {
     setShowExitMoodCheck(false);
+    // Save final mood
+    try {
+      if (conversationId) {
+        await supabase
+          .from('conversations')
+          .update({ final_mood: moodData, status: 'ended', ended_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq('id', conversationId);
+      }
+    } catch (e) {
+      console.warn('final_mood update failed (non-fatal):', e);
+    }
     await endConversation();
     router.push((pendingNavigate ?? "/") as Route);
     setPendingNavigate(null);

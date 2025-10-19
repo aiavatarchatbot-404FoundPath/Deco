@@ -99,6 +99,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
       camera={camera}
       shadows
       gl={{ antialias: true, alpha: true }}
+      dpr={[1, 2]}
       style={{ background: 'transparent', width: '100%', height: '100%' }}
     >
       <ambientLight intensity={0.6} />
