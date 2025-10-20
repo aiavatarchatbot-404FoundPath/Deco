@@ -4,15 +4,11 @@ import React, { useEffect, useRef } from 'react';
 
 type Props = {
   className?: string;
-  colors?: string[];   // any CSS color: #fff, #112233, rgb(...), hsl(...), names
+  colors?: string[];   // any CSS colors: #fff, #112233, rgb(...), hsl(...), 'rebeccapurple', etc.
   pointCount?: number;
-  speed?: number;      // px per frame @60fps (scaled by dpr)
-  opacity?: number;    // 0..1
+  speed?: number;      // px per frame at 60fps (scaled by dpr internally)
+  opacity?: number;    // 0..1 overall opacity (uses globalAlpha)
 };
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.min(hi, Math.max(lo, n));
-}
 
 export default function MeshGradientBackground({
   className = '',
@@ -24,52 +20,46 @@ export default function MeshGradientBackground({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    // bail in non-browser (defensive)
-    if (typeof window === 'undefined') return;
+    const c = canvasRef.current;
+    if (!c) return;
 
-    const node = canvasRef.current;
-    if (!node) return;
-
-    const maybe = node.getContext('2d', { alpha: true }) as CanvasRenderingContext2D | null;
+    const maybe = c.getContext('2d', { alpha: true }) as CanvasRenderingContext2D | null;
     if (!maybe) return;
-    const ctx: CanvasRenderingContext2D = maybe; // non-nullable for closures
+    const ctx: CanvasRenderingContext2D = maybe; // non-nullable alias for closures
 
-    // state
     let raf = 0;
     let stopped = false;
     let width = 1;
     let height = 1;
-    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
     type Point = { x: number; y: number; r: number; vx: number; vy: number; color: string };
     let points: Point[] = [];
 
-    // palette (never empty)
-    const palette = (Array.isArray(colors) && colors.length > 0 ? colors : ['#a78bfa']).map(String);
-    const safePalette = palette.length ? palette : ['#a78bfa'];
+    // normalize color list; ensure we have at least one valid string
+    const palette: string[] = (Array.isArray(colors) && colors.length > 0 ? colors : ['#a78bfa']).map(String);
+    const safePalette: string[] = palette.length ? palette : ['#a78bfa'];
 
     function resetPoints() {
-      const c = canvasRef.current;
-      if (!c) return;
+      const node = canvasRef.current;
+      if (!node) return;
 
-      const rect = c.parentElement?.getBoundingClientRect();
-      const w = rect?.width ?? window.innerWidth;
-      const h = rect?.height ?? window.innerHeight;
-      width = Math.max(1, Math.floor(isFinite(w) ? w : 1));
-      height = Math.max(1, Math.floor(isFinite(h) ? h : 1));
+      const rect = node.parentElement?.getBoundingClientRect();
+      width  = Math.max(1, Math.floor(rect?.width  ?? (typeof window !== 'undefined' ? window.innerWidth  : 1)));
+      height = Math.max(1, Math.floor(rect?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 1)));
 
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-      c.width = Math.floor(width * dpr);
-      c.height = Math.floor(height * dpr);
-      c.style.width = `${width}px`;
-      c.style.height = `${height}px`;
+      dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+      node.width = Math.floor(width * dpr);
+      node.height = Math.floor(height * dpr);
+      node.style.width = `${width}px`;
+      node.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const count = Math.max(3, pointCount);
       points = Array.from({ length: count }).map((_, i) => {
         const color = safePalette[i % safePalette.length];
         const base = Math.min(width, height);
-        const radius = clamp(base * (0.28 + Math.random() * 0.22), 180, 480);
+        const radius = Math.max(180, Math.min(480, base * (0.28 + Math.random() * 0.22)));
         const s = speed * (0.5 + Math.random());
         const dir = Math.random() * Math.PI * 2;
         return {
@@ -86,58 +76,43 @@ export default function MeshGradientBackground({
     function tick() {
       if (stopped) return;
 
-      try {
-        ctx.clearRect(0, 0, width, height);
-        ctx.globalAlpha = clamp(opacity, 0, 1);
-        ctx.globalCompositeOperation = 'lighter';
+      ctx.clearRect(0, 0, width, height);
+      ctx.globalAlpha = opacity;
+      ctx.globalCompositeOperation = 'lighter';
 
-        for (const p of points) {
-          // move
-          p.x += p.vx; p.y += p.vy;
+      for (const p of points) {
+        // move
+        p.x += p.vx; p.y += p.vy;
 
-          // soft bounce
-          if (p.x < -p.r * 0.2 || p.x > width  + p.r * 0.2) p.vx *= -1;
-          if (p.y < -p.r * 0.2 || p.y > height + p.r * 0.2) p.vy *= -1;
+        // soft bounce
+        if (p.x < -p.r * 0.2 || p.x > width  + p.r * 0.2) p.vx *= -1;
+        if (p.y < -p.r * 0.2 || p.y > height + p.r * 0.2) p.vy *= -1;
 
-          const r = Math.max(1, p.r); // radius must be > 0
-          // gradient: center → color, edge → transparent
-          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-          g.addColorStop(0, p.color);
-          g.addColorStop(1, 'transparent');
+        // gradient: center uses the CSS color, edge fades to transparent
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+        g.addColorStop(0, p.color);
+        g.addColorStop(1, 'transparent');
 
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.globalCompositeOperation = 'source-over';
-      } catch (err) {
-        // don’t crash the whole app if a frame blows up
-        console.error('MeshGradientBackground tick error:', err);
-        stopped = true;
-        return;
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
       }
 
-      raf = window.requestAnimationFrame(tick);
+      ctx.globalCompositeOperation = 'source-over';
+      raf = requestAnimationFrame(tick);
     }
 
-    const onResize = () => {
-      try { resetPoints(); } catch (e) { console.error('resetPoints error:', e); }
-    };
+    const onResize = () => resetPoints();
 
-    try {
-      resetPoints();
-      raf = window.requestAnimationFrame(tick);
-      window.addEventListener('resize', onResize);
-    } catch (e) {
-      console.error('MeshGradientBackground init error:', e);
-    }
+    resetPoints();
+    raf = requestAnimationFrame(tick);
+    if (typeof window !== 'undefined') window.addEventListener('resize', onResize);
 
     return () => {
       stopped = true;
-      try { if (raf) cancelAnimationFrame(raf); } catch {}
-      try { window.removeEventListener('resize', onResize); } catch {}
+      cancelAnimationFrame(raf);
+      if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
     };
   }, [colors, pointCount, speed, opacity]);
 

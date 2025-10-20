@@ -337,7 +337,7 @@ export default function HomePage() {
             <div className="absolute left-8 lg:left-32 -top-50 w-40 h-72 lg:w-48 lg:h-80">
               <HomePageAvatarViewer
                 avatarUrl={COMPANIONS.ADAM.url}
-                animationUrl="/mixamo/standing_greeting.fbx"
+                animationUrl="/mixamo/Standing_Greeting.fbx"
                 position={[0, 0.1, 0]}  // Slightly raised position
                 rotation={[-0.05, Math.PI / 6, 0]}  // Face slightly toward center
                 scale={0.75}  
@@ -350,7 +350,7 @@ export default function HomePage() {
             <div className="absolute right-8 lg:right-32 -top-50 w-40 h-72 lg:w-48 lg:h-80">
               <HomePageAvatarViewer
                 avatarUrl={COMPANIONS.EVE.url}
-                animationUrl="/mixamo/standing_greeting.fbx"
+                animationUrl="/mixamo/Standing_Greeting.fbx"
                 position={[0, 0.1, 0]}  // Slightly raised position
                 rotation={[-0.05, -Math.PI / 6, 0]}  // Face slightly toward center (mirrored)
                 scale={0.75}  

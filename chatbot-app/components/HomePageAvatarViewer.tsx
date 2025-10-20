@@ -17,7 +17,7 @@ type Props = {
 
 export default function HomePageAvatarViewer({
   avatarUrl,
-  animationUrl = '/mixamo/standing_greeting.fbx',
+  animationUrl = '/mixamo/Standing_Greeting.fbx',
   position = [0, 0, 0],
   rotation = [0, 0, 0],
   scale = 0.8,
