@@ -50,6 +50,7 @@ The system prioritises **trauma-informed design**, **youth-friendly UX**, and **
 - **Security:** JWT Auth, RLS policies, HTTPS/TLS encryption  
 
 ---
+
 ## Setup 
 **1. Clone Repository**
 ```
