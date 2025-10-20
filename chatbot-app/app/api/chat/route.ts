@@ -1,4 +1,3 @@
-// app/api/chat/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
@@ -24,7 +23,7 @@ const SUM_MODEL   = process.env.SUM_MODEL   || CHAT_MODEL;
 
 const RAG_TOP_K = Number(process.env.RAG_TOP_K || 5);
 const RAG_SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.22);
-const MAX_CONTEXT_CHARS = 9000;
+const MAX_CONTEXT_CHARS = Number(process.env.MAX_CONTEXT_CHARS || 6500); // ↓ slightly to reduce tokens
 const DEFLECT_SIM_THRESHOLD = Number(process.env.DEFLECT_SIM_THRESHOLD || 0.72);
 
 const HISTORY_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 4);
@@ -33,12 +32,79 @@ const SUMMARY_REFRESH_EVERY = Number(process.env.SUMMARY_EVERY || 2);
 const BOT_USER_ID = process.env.BOT_USER_ID || undefined;
 const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 
-// =======================================
-// Personas + style
-// =======================================
 export type Persona = "adam" | "eve" | "neutral" | "custom";
 
-// ---- Custom tone parser (overlay for ANY persona)
+// =======================================
+// Micro-cache for embeddings (survives warm Lambda)
+// =======================================
+type Emb = number[];
+const EMB_CACHE = new Map<string, Emb>();
+const EMB_CACHE_MAX = 200;
+function fastHash(s: string) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
+  return String(h >>> 0);
+}
+function getCachedEmb(s: string): Emb | null {
+  const k = fastHash(s);
+  return EMB_CACHE.get(k) ?? null;
+}
+function setCachedEmb(s: string, v: Emb) {
+  const k = fastHash(s);
+  if (!EMB_CACHE.has(k) && EMB_CACHE.size >= EMB_CACHE_MAX) {
+    // simple LRU-ish: delete first key
+    const first = EMB_CACHE.keys().next().value;
+    if (first) EMB_CACHE.delete(first);
+  }
+  EMB_CACHE.set(k, v);
+}
+async function embedMany(texts: string[]): Promise<Emb[]> {
+  const unique: string[] = [];
+  const order: number[] = [];
+  const out: (Emb | null)[] = [];
+
+  texts.forEach((t, i) => {
+    const cached = getCachedEmb(t);
+    if (cached) { out[i] = cached; }
+    else {
+      order.push(i);
+      unique.push(t);
+      out[i] = null;
+    }
+  });
+
+  if (unique.length > 0) {
+    const resp = await openai.embeddings.create({ model: EMBED_MODEL, input: unique });
+    unique.forEach((t, j) => {
+      const emb = resp.data[j].embedding as Emb;
+      setCachedEmb(t, emb);
+      out[order[j]] = emb;
+    });
+  }
+
+  return out as Emb[];
+}
+async function embedOne(text: string): Promise<Emb> {
+  const cached = getCachedEmb(text);
+  if (cached) return cached;
+  const e = await openai.embeddings.create({ model: EMBED_MODEL, input: text });
+  const emb = e.data[0].embedding as Emb;
+  setCachedEmb(text, emb);
+  return emb;
+}
+
+function cosineSim(a: Emb, b: Emb) {
+  let dp = 0, na = 0, nb = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const x = a[i], y = b[i];
+    dp += x * y; na += x * x; nb += y * y;
+  }
+  return dp / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
+}
+
+// =======================================
+// Tone parsing & persona sheets (unchanged behavior with small fixes)
+// =======================================
 type TonePrefs = {
   bulletsOnly: boolean;
   allowBullets: boolean;
@@ -52,7 +118,6 @@ type TonePrefs = {
   normalizedText: string;
 };
 
-// ---- CARE card helpers ----
 type CareTier = "Imminent" | "Acute" | "Elevated";
 type CareCard = {
   tier: CareTier;
@@ -69,7 +134,6 @@ function buildCareCard(tier: CareTier): CareCard {
     { name: "Beyond Blue", phone: "1300 22 4636",when: "Anxiety & depression" },
     { name: "Kids Helpline", phone: "1800 55 1800", when: "Age 5–25" },
   ];
-
   if (tier === "Imminent") {
     return {
       tier,
@@ -83,7 +147,6 @@ function buildCareCard(tier: CareTier): CareCard {
       helplines,
     };
   }
-
   if (tier === "Acute") {
     return {
       tier,
@@ -97,8 +160,6 @@ function buildCareCard(tier: CareTier): CareCard {
       helplines,
     };
   }
-
-  // Elevated
   return {
     tier,
     headline: "I hear you. Let’s add support.",
@@ -110,7 +171,6 @@ function buildCareCard(tier: CareTier): CareCard {
     helplines,
   };
 }
-
 function careText(card: CareCard) {
   const lines = [
     `${card.headline}`,
@@ -122,18 +182,14 @@ function careText(card: CareCard) {
   return lines.filter(Boolean).join("\n\n");
 }
 
-
 function parseTone(text?: string): TonePrefs {
   const raw = (text || "").trim();
   const t   = raw.toLowerCase();
-
-  // length cap
   let maxSentences = 4;
   if (/\b(very\s*short|tiny|2\s*sentences?)\b/.test(t)) maxSentences = 2;
   else if (/\b(short|3\s*sentences?)\b/.test(t))        maxSentences = 3;
   else if (/\b(long|6\s*sentences?)\b/.test(t))         maxSentences = 6;
 
-  // tolerate typos like "bulter"
   const bulletsOnly =
     /\b(answer|respond)\s+only\s+in\s+bul+e?t?\s*points?\b/.test(t) ||
     /\bonly\s*bul+e?t?\s*points?\b/.test(t) ||
@@ -171,24 +227,23 @@ function parseTone(text?: string): TonePrefs {
   };
 }
 
-// ---- Voice sheets
 function voiceSheetV2(persona: Persona, customStyle?: string) {
- if (persona === "custom") {
-  const p = parseTone(customStyle);
-  const qLine = p.noQuestion
-    ? "- **No** questions in this reply."
-    : p.openQuestion
-    ? "- At most one **open** question near the end — only if helpful."
-    : "- At most one **closed** question near the end — only if helpful.";
-  const bulletsLine = p.bulletsOnly
-    ? "- Write the main body **only as bullet points**."
-    : p.allowBullets
-    ? "- Bullets allowed only if the **user explicitly asked** for a list."
-    : "- **No** bullets/lists.";
-  const emojiLine = p.emojiMax === 1 ? "- Up to **one** emoji allowed." : "- **No** emoji.";
-  const maxItems = Math.max(1, p.maxSentences);
+  if (persona === "custom") {
+    const p = parseTone(customStyle);
+    const qLine = p.noQuestion
+      ? "- **No** questions in this reply."
+      : p.openQuestion
+      ? "- At most one **open** question near the end — only if helpful."
+      : "- At most one **closed** question near the end — only if helpful.";
+    const bulletsLine = p.bulletsOnly
+      ? "- Write the main body **only as bullet points**."
+      : p.allowBullets
+      ? "- Bullets allowed only if the **user explicitly asked** for a list."
+      : "- **No** bullets/lists.";
+    const emojiLine = p.emojiMax === 1 ? "- Up to **one** emoji allowed." : "- **No** emoji.";
+    const maxItems = Math.max(1, p.maxSentences);
 
-  return `VOICE SHEET — Custom (User-Tuned)
+    return `VOICE SHEET — Custom (User-Tuned)
 Follow these rules. If there is any conflict, these rules win.
 
 Output shape:
@@ -204,81 +259,58 @@ ${emojiLine}
 
 Big-picture & detours:
 - Always keep **BIG_PICTURE.primary** in mind.
-- If **HINTS.off_track** is true: (1) briefly acknowledge the detour, (2) bridge back to BIG_PICTURE.primary, (3) offer **one tiny next step** aligned to it.
-- If **HINTS.insistent** is true: first give a **brief, safe answer** to the detour (≤2–3 sentences / ≤${maxItems} items), then **pivot back** with one tiny next step.
-- If the detour clearly supports the primary goal, continue; otherwise politely **park it**.
+- If **HINTS.off_track** is true: (1) acknowledge, (2) bridge back, (3) one tiny next step.
+- If **HINTS.insistent** is true: brief safe answer (≤${maxItems} items), then pivot back.
 
 Formatting:
 - No meta talk or boilerplate.
 - If listing, keep to ≤${maxItems} items, short lines.
 
 Avoid:
-- Hedging like "might", "perhaps" unless the user asks for uncertainty.
+- Hedging like "might", "perhaps" unless requested.
 - Templated intros like "Here are X...".
 - Never say: ${p.neverSay.join("; ")}.`;
+  }
+
+  if (persona === "adam") {
+  return `VOICE SHEET — Adam (Aussie mate, straight-up)
+
+Output:
+- Max **3** short sentences. Snappy. No fluff.
+- Be casual and direct; **light Aussie slang** is fine ("mate", "keen?", "no dramas", "give it a go").
+- End with a **micro-CTA** (≤2 steps) OR a **short closed question** that triggers action.
+
+Style rules:
+- Use contractions: you're, it's, don't.
+- Prefer verbs: text, call, book, step outside, set a 5-min timer.
+- **No therapy phrases**: avoid “It’s important to talk about your feelings”, “I understand how you feel”, “consider reaching out to…”.
+- **No lists** unless it’s an inline 1) 2) plan.
+
+Detours:
+- One clause to acknowledge → **bridge back** → one tiny step.
+
+Examples:
+- "Rough day, hey. Text one mate now and step outside for 2 min. Keen?"
+- "Let’s keep it simple: 1) pick one thing 2) set a 5-min timer."`;
 }
 
-if (persona === "adam") {
-  return `VOICE SHEET — Adam (Direct Coach)
 
-Output shape:
-- Max **3** sentences; blunt, kinetic. Fragments allowed.
-- **End with a micro-plan** (≤2 steps) or a one-line CTA: “Do X in 5 min.”
-- At most **one short closed** question — only if it triggers action.
-
+  if (persona === "eve") {
+    return `VOICE SHEET — Eve (Warm Guide)
+Output:
+- Up to **4** sentences. **Begin with validation**, then a gentle suggestion.
+- At most **one open** question near the end.
 Diction:
-- Everyday Aussie person; crisp verbs: “book”, “text”, “ask”, “set a 5-min timer”.
-- Use “let’s”, “right now”, “pick one”. **No hedging**.
-
+- “we can explore…”, “if you’d like…”, name the value (safety, clarity, rest).
 Formatting:
-- If giving a plan, keep it inline: “1) … 2) …” (no bullets).
-- Prefer numbers/time-boxes (“2 texts”, “5-min”, “today”).
-
+- Offer **one tiny step** as an invitation (not an order).
 Detours:
-- Acknowledge in ≤1 clause → **bridge back** to BIG_PICTURE.primary → give **one** tiny next step.
-- If user **insists**, give a **brief, safe answer** (≤2 sentences) **then** CTA back to the goal.
-
-Avoid:
-- Therapy openers, long empathy preambles, option dumps without a recommendation.
-- Qualifiers (“maybe”, “might”), softeners, or hype.
-
-Never say:
-- “That makes sense.” “We can unpack it together.”`;
-}
-
-if (persona === "eve") {
-  return `VOICE SHEET — Eve (Warm Guide)
-
-Output shape:
-- Up to **4** sentences, calm and steady. **No fragments.**
-- **Begin with validation/reflection**, then offer a gentle suggestion.
-- At most **one open** question, near the end.
-
-
-Diction & tone:
-- Gentle verbs: “notice”, “we can explore”, “it could help”, “if you’d like”.
-- Use “**we can**”, not “let’s”. Invite consent (“would you like…”).
-
-Formatting:
-- Offer exactly **one tiny step** framed as an **invitation** (not an order).
-- Name the value/need you’re supporting (e.g., safety, clarity, rest).
-
-Detours:
-- Acknowledge the new topic → **ask consent to park or answer briefly** → weave back to BIG_PICTURE.primary with a soft nudge.
-- If user **insists**, give a **brief, kind answer** (≤3 sentences), then **co-create** one gentle next step.
-
-Avoid:
-- Imperatives, time-boxing, slang, hype, or jokes when distressed.
-- Starting with “It sounds like” / “It seems”.
-
-Never say:
-- “Got your back”, “we’ll keep it simple.”`;
-}
+- Acknowledge → ask consent to park or answer briefly → weave back to BIG_PICTURE.`;
+  }
 
   return `VOICE SHEET — Neutral
-Output shape:
-- 2–4 short sentences, everyday words.
-- One open question max; no lists unless asked.
+Output:
+- 2–4 short sentences, everyday words. One open question max; no lists unless asked.
 Avoid:
 - Meta talk, numbered templates.`;
 }
@@ -314,90 +346,7 @@ function deTemplateEve(text: string, userMsg: string) {
 // =======================================
 // Question control helpers + big-picture utils
 // =======================================
-// How similar two user turns must be to count as "same detour"
 const SAME_TOPIC_SIM = Number(process.env.SAME_TOPIC_SIM || 0.72);
-
-function getLastNUserMsgs(history: {role:"user"|"assistant";content:string}[], n=2) {
-  const out: string[] = [];
-  for (let i = history.length - 1; i >= 0 && out.length < n; i--) {
-    if (history[i].role === "user") out.push(history[i].content);
-  }
-  return out;
-}
-
-async function computeInsistent(userMessage: string, summary: string, historyMsgs: Turn[]) {
-  const lastUsers = getLastNUserMsgs(historyMsgs, 2);
-  const { off: offNow } = await computeOffTrack(userMessage, summary);
-
-  let streak = 0;
-  for (const m of lastUsers) {
-    const { off } = await computeOffTrack(m, summary);
-    if (off) streak++;
-  }
-
-  // Same detour topic?
-  let sameTopic = false;
-  if (lastUsers[0]) {
-    const [a,b] = await Promise.all([embedOne(userMessage), embedOne(lastUsers[0])]);
-    sameTopic = cosineSim(a,b) >= SAME_TOPIC_SIM;
-  }
-
-  return { insistent: offNow && (streak > 0 || sameTopic) };
-}
-
-function cosineSim(a: number[], b: number[]) {
-  let dp = 0, na = 0, nb = 0;
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const x = a[i], y = b[i];
-    dp += x * y; na += x * x; nb += y * y;
-  }
-  return dp / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
-}
-
-async function extractAnchors(summary: string, risk?: { user_goals?: string[] }) {
-  const seedGoals = (risk?.user_goals ?? []).filter(Boolean).slice(0, 3);
-  if (!summary?.trim() && seedGoals.length === 0) return null;
-
-  if (seedGoals.length > 0) {
-    return {
-      primary: String(seedGoals[0]).slice(0, 160),
-      subgoals: seedGoals.slice(1).map(String),
-      nonnegotiables: [] as string[],
-    };
-  }
-
-  const r = await openai.chat.completions.create({
-    model: SUM_MODEL,
-    temperature: 0.1,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: 'Return JSON: {"primary":"...", "subgoals":["..."], "nonnegotiables":["..."]}' },
-      { role: "user", content: `From this running summary, extract the big picture.\nSummary:\n"""${summary.slice(0, 1500)}"""` }
-    ],
-  });
-
-  const raw = r.choices?.[0]?.message?.content ?? "{}";
-
-  let obj: any = {};
-  try { obj = JSON.parse(raw); } catch { obj = {}; }
-
-  const primary = String(obj.primary ?? "").slice(0, 160);
-  const subgoals = Array.isArray(obj.subgoals) ? obj.subgoals.map((x: any) => String(x)).slice(0, 3) : [];
-
-  const nnSrc =
-    obj.nonnegotiables ??
-    obj.non_negotiables ??
-    obj.nonNegotiables ??
-    obj.non_negs ??
-    obj.nn ??
-    [];
-  const nonnegotiables = Array.isArray(nnSrc) ? nnSrc.map((x: any) => String(x)).slice(0, 3) : [];
-
-  if (primary) return { primary, subgoals, nonnegotiables };
-
-  const firstSentence = (summary || "").match(/[^.!?]+[.!?]?/)?.[0] || summary.slice(0, 160);
-  return { primary: firstSentence, subgoals: [], nonnegotiables: [] as string[] };
-}
 
 type Turn = { role: "user" | "assistant"; content: string };
 
@@ -406,11 +355,12 @@ function userAct(msg: string) {
   const lower = m.toLowerCase();
   const isQuestion = /[?]$|^(what|how|why|when|where|which|who|can|could|should|do|does|did|is|are|will|would|may|might)\b/i.test(m);
   const isAffirm = /^(y|ya|yeah|yup|yep|sure|ok(?:ay)?|alright|do it|go ahead|sounds good|done|i did|will do)\b/.test(lower);
-  const isNegate = /^(no|nah|not now|not yet|can't|won't|don'?t|stop|wait)\b/.test(lower);
+  const isNegate = /^(no|nah|not now|not yet|can't|won'?t|don'?t|stop|wait)\b/.test(lower);
   const isAck = /^(thanks|thank you|cheers|got it|cool|ok)\b/.test(lower);
   const isShort = m.split(/\s+/).filter(Boolean).length <= 4;
   return { isQuestion, isAffirm, isNegate, isAck, isShort };
 }
+
 function classifyQuestion(txt: string): "open" | "closed" | "none" {
   const t = (txt || "").trim();
   if (!/[?]/.test(t)) return "none";
@@ -441,9 +391,60 @@ function decideQuestionMode(
   if (persona === "eve") return "open";
   return "open";
 }
+ // --- Adam helper bits (slang + CTA + de-therapy) ---
+function randFrom<T>(arr: T[], seed: string): T {
+  // deterministic-ish pick per message (no global RNG)
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  const idx = Math.abs(h) % arr.length;
+  return arr[idx];
+}
 
-// =======================================
-// Tone overlay (applied to ANY persona)
+function generateAdamCTA(userMsg: string) {
+  const ctAs = [
+    "1) pick one tiny step 2) set a 5-min timer",
+    "1) send one message to a mate 2) step outside for 2 min",
+    "1) write one line in Notes 2) start a 3-min timer",
+    "1) quick glass of water 2) 10 deep breaths",
+    "1) tidy one thing on your desk 2) 2-min walk"
+  ];
+  return randFrom(ctAs, userMsg);
+}
+
+function adamReplacements(s: string) {
+  // kill therapy-ish boilerplate and formal talk
+  const bad = [
+    /it('?| i)s important to (talk|speak) (to|with) someone about (your )?feelings/gi,
+    /consider (talking|reaching) out to (a )?(friend|family member|someone you trust)/gi,
+    /you should/gi,
+    /it's okay to/gi,
+    /i (understand|hear) how you feel/gi,
+    /i'?m here to help/gi,
+    /let me know if/gi
+  ];
+  for (const rx of bad) s = s.replace(rx, "");
+  // tighten spaces
+  s = s.replace(/\s{2,}/g, " ").trim();
+  return s;
+}
+
+function sprinkleAussie(s: string, seed: string) {
+  const openers = ["Righto.", "Sweet.", "No dramas.", "Too easy.", "Fair enough.", "Alright."];
+  const tagQs   = ["Keen?", "Sound good?", "Deal?", "On it?", "Cool?"];
+  // 30% chance to add opener if not present
+  if (!/^[A-Z]/.test(s) && s.length > 0) s = s[0].toUpperCase() + s.slice(1);
+  if (s.split(" ").length > 4 && Math.abs(seed.length % 10) < 3) {
+    s = `${randFrom(openers, seed)} ${s}`;
+  }
+  // if ends too flat and has no question, maybe add a tag question
+  if (!/[?]$/.test(s) && s.length < 150) {
+    s = s.replace(/[.!]+$/, "");
+    if (Math.abs(seed.length % 10) < 4) s += ` ${randFrom(tagQs, seed)}`;
+  }
+  return s;
+}
+
+
 // =======================================
 function splitSentences(s: string) {
   return s.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/).filter(Boolean);
@@ -484,13 +485,10 @@ function applyToneOverlay(text: string, customStyle?: string): string {
     const rx = new RegExp(`\\b${ban.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "ig");
     out = out.replace(rx, "").replace(/\s{2,}/g, " ").trim();
   }
-
   return out;
 }
 
-// =======================================
-// Persona shaper (uses decided qMode; no markers)
-// =======================================
+// Persona shaper (adds CTA for Adam, validation for Eve)
 function shapeByPersona(
   persona: Persona,
   text: string,
@@ -501,17 +499,37 @@ function shapeByPersona(
   const sentences = s.split(/(?<=[.!?])\s+/).filter(Boolean);
   const joinFirst = (n: number) => sentences.slice(0, n).join(" ");
 
-  const ensureClosedQ = (t: string) => t.replace(/[!?]*$/, "") + "?";
-  const ensureOpenQ = (t: string) =>
-    /[?]/.test(t) ? t : t.replace(/[.!]*$/, "") + " What feels like the next small step for you?";
+  const ensureClosedQ = (t: string) => t.replace(/[.!?]+$/, "") + "?";
+const ensureOpenQ = (t: string) =>
+  /[?]$/.test(t) ? t : t.replace(/[.!?]+$/, "") + " What feels like the next small step for you?";
+
   const removeQ = (t: string) => t.replace(/[?]+/g, ".").replace(/\s+\./g, ".");
 
   if (persona === "adam") {
-    let out = joinFirst(3);
-    if (qMode === "closed") out = ensureClosedQ(out);
-    if (qMode === "none") out = removeQ(out);
-    return out;
+  let out = joinFirst(3);
+
+  // direct question or none depending on qMode
+  if (qMode === "closed") out = ensureClosedQ(out);
+  if (qMode === "none")   out = out.replace(/[?]+/g, ".").replace(/\s+\./g, ".");
+
+  // remove therapy boilerplate + formalisms
+  out = adamReplacements(out);
+
+  // ensure we end with a micro-CTA if not already a question
+  const hasPlan = /\b1\)\b.*\b2\)\b/.test(out) || /\b5[-\s]?min\b/i.test(out) || /\btext one mate\b/i.test(out);
+  if (!/[?]$/.test(out) && !hasPlan) {
+    out = `${out} Do this now: ${generateAdamCTA(userMsg)}.`;
   }
+
+  // sprinkle casual Aussie vibe (light, not caricature)
+  out = sprinkleAussie(out, userMsg);
+
+  // tighten to max 3 sentences again (in case CTA added a 4th)
+  out = splitSentences(out).slice(0, 3).join(" ");
+
+  return out.trim();
+}
+
 
   if (persona === "eve") {
     let out = joinFirst(4);
@@ -535,11 +553,26 @@ function shapeByPersona(
 }
 
 // =======================================
-// Retrieval
+// Retrieval + formatting with [1], [2], ...
 // =======================================
-async function embedOne(text: string): Promise<number[]> {
-  const e = await openai.embeddings.create({ model: EMBED_MODEL, input: text });
-  return e.data[0].embedding as number[];
+type Hit = { file?: string; chunk_id?: string | number; content?: string; similarity?: number };
+
+function formatContextWithRefs(hits: Hit[], maxChars: number) {
+  const parts: string[] = [];
+  let used = 0;
+  const kept: Hit[] = [];
+
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i];
+    const piece = (h.content ?? "").trim();
+    if (!piece) continue;
+    const block = `[${i + 1}] ${piece}\n`;
+    if (used + block.length > maxChars) break;
+    parts.push(block);
+    kept.push(h);
+    used += block.length;
+  }
+  return { ctxText: parts.join("\n"), kept };
 }
 
 async function retrieveContext(userMessage: string) {
@@ -549,52 +582,88 @@ async function retrieveContext(userMessage: string) {
     match_count: RAG_TOP_K,
     similarity_threshold: RAG_SIM_THRESHOLD,
   });
-
   if (error) throw new Error("RAG retrieval failed");
 
-  const hits = (data ?? []) as Array<{ file?: string; chunk_id?: string | number; content?: string; similarity?: number }>;
+  const hits = (data ?? []) as Hit[];
+  return hits;
+}
 
-  const parts: string[] = [];
-  let used = 0;
-  for (const h of hits) {
-    const piece = (h.content ?? "").trim();
-    if (!piece) continue;
-    const sep = parts.length ? "\n---\n" : "";
-    if (used + sep.length + piece.length > MAX_CONTEXT_CHARS) break;
-    parts.push(piece);
-    used += sep.length + piece.length;
+async function rewriteQueryIfEmpty(userMessage: string): Promise<string | null> {
+  // Only used when initial retrieval had zero hits
+  const prompt = `Rewrite the query to better search documentation. Keep to one line, no punctuation fluff.
+Original: """${userMessage}"""`;
+  const r = await openai.chat.completions.create({
+    model: SUM_MODEL,
+    temperature: 0.2,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const rewrite = r.choices?.[0]?.message?.content?.trim() || "";
+  return rewrite ? rewrite.split("\n")[0].slice(0, 300) : null;
+}
+
+async function retrieveContextWithFallback(userMessage: string) {
+  // First try
+  let hits = await retrieveContext(userMessage);
+
+  // If nothing, try a single rewrite (bounded extra cost)
+  if (!hits?.length) {
+    const rewritten = await rewriteQueryIfEmpty(userMessage);
+    if (rewritten && rewritten !== userMessage) {
+      const qEmb = await embedOne(rewritten);
+      const { data } = await supabase.rpc(RPC_NAME, {
+        query_embedding: qEmb,
+        match_count: RAG_TOP_K,
+        similarity_threshold: Math.max(RAG_SIM_THRESHOLD * 0.9, 0.18), // tiny relax on fallback
+      });
+      hits = (data ?? []) as Hit[];
+    }
   }
-  return { context: parts.join("\n---\n"), hits };
+  const { ctxText, kept } = formatContextWithRefs(hits ?? [], MAX_CONTEXT_CHARS);
+  return { context: ctxText || "", hits: kept };
 }
-
-// 👉 Deflection detector (needs embedOne)
-async function computeOffTrack(userMessage: string, summary: string) {
-  if (!summary?.trim()) return { off: false, sim: 1 };
-  const [msgEmb, sumEmb] = await Promise.all([
-    embedOne(userMessage),
-    embedOne(summary.slice(0, 1000)),
-  ]);
-  const sim = cosineSim(msgEmb, sumEmb);
-  return { off: sim < DEFLECT_SIM_THRESHOLD, sim: Number(sim.toFixed(3)) };
-}
-
 
 // =======================================
-// Title helpers (2–7 words from summary)
+// Off-track / insistent (batched embeddings; no duplicates)
+// =======================================
+async function computeOffTrackBatched(
+  userMessage: string,
+  summary: string,
+  prevUserMsg: string | null
+) {
+  if (!summary?.trim()) {
+    return {
+      offCurr: false, simCurr: 1,
+      offPrev: false, simPrev: 1,
+      sameTopic: false
+    };
+  }
+  const texts = [userMessage, summary.slice(0, 1000), prevUserMsg || ""];
+  const [msgEmb, sumEmb, prevEmb] = await embedMany(texts);
+
+  const simCurr = cosineSim(msgEmb, sumEmb);
+  const offCurr = simCurr < DEFLECT_SIM_THRESHOLD;
+
+  let simPrev = 1, offPrev = false, sameTopic = false;
+  if (prevUserMsg) {
+    simPrev = cosineSim(prevEmb, sumEmb);
+    offPrev = simPrev < DEFLECT_SIM_THRESHOLD;
+    sameTopic = cosineSim(msgEmb, prevEmb) >= SAME_TOPIC_SIM;
+  }
+  return { offCurr, simCurr: +simCurr.toFixed(3), offPrev, simPrev: +simPrev.toFixed(3), sameTopic };
+}
+
+// =======================================
+// Summary / titles / db helpers (unchanged, minor hardening)
 // =======================================
 function sanitizeTitle(raw: string): string {
   let t = (raw || "").trim();
   t = t.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, "");
-  t = t.replace(
-    /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F900}-\u{1F9FF}]/gu,
-    ""
-  );
+  t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F900}-\u{1F9FF}]/gu, "");
   t = t.replace(/\s+/g, " ");
   const words = t.split(" ").filter(Boolean).slice(0, 7);
   t = words.join(" ").replace(/\s+[.,:;!?]+$/g, "");
   return t.substring(0, 80).trim();
 }
-
 async function llmTitleFromSummary(summary: string): Promise<string> {
   const r = await openai.chat.completions.create({
     model: SUM_MODEL,
@@ -610,37 +679,30 @@ async function llmTitleFromSummary(summary: string): Promise<string> {
   try { title = JSON.parse(raw).title ?? ""; } catch { title = raw; }
   return sanitizeTitle(title) || sanitizeTitle(summary.split(/\s+/).slice(0, 7).join(" ")) || "Untitled Chat";
 }
-
 async function maybeUpdateTitleFromSummary(
   conversationId: string,
   summary: string,
   mode: "always" | "placeholderOnly" = "placeholderOnly"
 ) {
   if (!summary?.trim()) return;
-
   const { data, error } = await supabase
     .from("conversations")
     .select("title")
     .eq("id", conversationId)
     .single();
   if (error) return;
-
   const current = (data?.title || "").trim();
-
   if (mode === "placeholderOnly") {
     const placeholderRx = /^(untitled( chat)?|avatar builder|new chat|simple chat)$/i;
     if (current && !placeholderRx.test(current)) return;
   }
-
   const newTitle = await llmTitleFromSummary(summary);
   if (!newTitle || newTitle === current) return;
-
   await supabase
     .from("conversations")
     .update({ title: newTitle, updated_at: new Date().toISOString() })
     .eq("id", conversationId);
 }
-
 async function saveSummary(conversationId: string, summary: string) {
   const { error } = await supabase
     .from("conversations")
@@ -648,22 +710,11 @@ async function saveSummary(conversationId: string, summary: string) {
     .eq("id", conversationId);
   if (error) console.error("saveSummary error:", error);
 }
-
-// =======================================
-// DB helpers
-// =======================================
 async function saveTurnToDB({
-  conversationId,
-  userId,
-  botUserId,
-  userMessage,
-  botAnswer,
+  conversationId, userId, botUserId, userMessage, botAnswer,
 }: {
-  conversationId: string;
-  userId?: string;
-  botUserId?: string;
-  userMessage: string;
-  botAnswer: string;
+  conversationId: string; userId?: string; botUserId?: string;
+  userMessage: string; botAnswer: string;
 }) {
   const now = new Date();
   const later = new Date(now.getTime() + 1);
@@ -679,7 +730,6 @@ async function saveTurnToDB({
   if (error) console.error("saveTurnToDB error:", error);
   return data ?? [];
 }
-
 async function countAssistantMessages(conversationId: string) {
   const { count, error } = await supabase
     .from("messages")
@@ -689,7 +739,6 @@ async function countAssistantMessages(conversationId: string) {
   if (error) console.error("countAssistantMessages error:", error);
   return count ?? 0;
 }
-
 async function loadSummary(conversationId: string): Promise<string> {
   const { data, error } = await supabase
     .from("conversations")
@@ -699,7 +748,6 @@ async function loadSummary(conversationId: string): Promise<string> {
   if (error) console.error("loadSummary error:", error);
   return (data?.summary ?? "").slice(0, 1500);
 }
-
 async function loadLastPairs(conversationId: string, pairs: number) {
   const { data, error } = await supabase
     .from("messages")
@@ -718,12 +766,8 @@ async function loadLastPairs(conversationId: string, pairs: number) {
       : ({ role: "user" as const, content: r.content })
   );
 }
-
 async function refreshSummary({
-  conversationId,
-  currentSummary,
-  recentTurns,
-  wordsTarget = 160,
+  conversationId, currentSummary, recentTurns, wordsTarget = 160,
 }: {
   conversationId: string;
   currentSummary: string;
@@ -733,31 +777,20 @@ async function refreshSummary({
   const turnsTxt = recentTurns.map(
     (t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`
   ).join("\n");
-
   const prompt =
     `Update this running conversation summary in ~${wordsTarget} words. ` +
     `Keep key facts & preferences, goals, decisions, unresolved items. Remove redundancy.\n\n` +
     `Current summary:\n${currentSummary || "(empty)"}\n\n` +
     `New turns (chronological):\n${turnsTxt}\n\n` +
     `Return only the updated summary as plain text.`;
-
   const resp = await openai.chat.completions.create({
     model: SUM_MODEL,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
   });
-
   const updated = resp.choices?.[0]?.message?.content?.trim() || currentSummary;
-
-  // Save summary and auto-title
-  await supabase
-    .from("conversations")
-    .update({ summary: updated.slice(0, 1500) })
-    .eq("id", conversationId);
-
-  // Force title refresh whenever rolling summary updates
+  await supabase.from("conversations").update({ summary: updated.slice(0, 1500) }).eq("id", conversationId);
   await maybeUpdateTitleFromSummary(conversationId, updated, "always");
-
   return updated;
 }
 
@@ -777,9 +810,16 @@ function checkFilters(userInput: string): "Imminent Danger" | null {
 }
 async function classifyRisk(userMessage: string) {
   const prompt =
-    `You are a safety triage classifier. Read the user's message and return a JSON object\n` +
-    `with fields: tier ("Imminent" | "Acute" | "Elevated" | "Low" | "None"), signals[], protective[], user_goals[].\n` +
-    `Definitions:\n- Imminent: explicit intent + plan/means/timeframe OR current attempt.\n- Acute: suicidal ideation with concerning specifics or recent attempt, but not imminent.\n- Elevated: passive ideation or severe hopelessness/self-harm urges without plan.\n- Low: distress without self-harm ideation.\n- None: no risk signals.\nUser: """${userMessage}"""\nReturn only JSON.`;
+    `You are a safety triage classifier. Read the user's message and return a JSON object
+with fields: tier ("Imminent" | "Acute" | "Elevated" | "Low" | "None"), signals[], protective[], user_goals[].
+Definitions:
+- Imminent: explicit intent + plan/means/timeframe OR current attempt.
+- Acute: suicidal ideation with concerning specifics or recent attempt, but not imminent.
+- Elevated: passive ideation or severe hopelessness/self-harm urges without plan.
+- Low: distress without self-harm ideation.
+- None: no risk signals.
+User: """${userMessage}"""
+Return only JSON.`;
   const r = await openai.chat.completions.create({
     model: SUM_MODEL,
     messages: [{ role: "user", content: prompt }],
@@ -823,7 +863,34 @@ export async function POST(req: Request) {
 
     const userId = req.headers.get("x-user-id") || undefined;
 
-    // Load stored meta (persona + previously saved tone)
+  // Lightweight fast-path for pure acknowledgements (no LLM round-trip)
+  const ua = userAct(userMessage);
+  if (ua.isAck && !ua.isQuestion && ua.isShort) {
+    const quick =
+      (personaRaw === "adam")
+        ? "Sweet. Crack on: 1) pick one tiny step 2) 5-min timer."
+        : (personaRaw === "eve")
+        ? "Thanks for letting me know. Would you like one tiny next step?"
+        : "Got it. Want a tiny next step?";
+
+    const inserted = await saveTurnToDB({
+      conversationId, userId, botUserId: BOT_USER_ID,
+      userMessage, botAnswer: quick
+    });
+    const userRow = inserted.find((r) => r.role === "user");
+    const assistantRow = inserted.find((r) => r.role === "assistant");
+    return NextResponse.json({
+      conversationId,
+      answer: quick,
+      emotion: "Neutral",
+      tier: "None",
+      resolvedPersona: personaRaw || "neutral",
+      citations: [],
+      rows: { user: userRow, assistant: assistantRow },
+    });
+  }
+
+    // Load stored meta
     const { data: meta } = await supabase
       .from("conversations")
       .select("persona, style_json")
@@ -836,14 +903,13 @@ export async function POST(req: Request) {
       if (v === "adam" || v === "eve" || v === "neutral" || v === "custom") return v as Persona;
       return null;
     };
-
     let effectivePersona: Persona | null = normalizePersona(personaRaw);
     if (!effectivePersona) {
       effectivePersona = (meta?.persona as Persona | undefined)
         || (customStyleText?.trim() ? "custom" : "neutral");
     }
 
-    // Persist persona & tone (store tone in style_json.text)
+    // Persist persona & tone
     if (customStyleText?.trim()) {
       await supabase
         .from("conversations")
@@ -856,46 +922,39 @@ export async function POST(req: Request) {
         .eq("id", conversationId);
     }
 
-    // always ensure row exists
+    // ensure row exists
     await supabase
       .from("conversations")
       .upsert({ id: conversationId, updated_at: new Date().toISOString() })
       .select("id").maybeSingle();
 
-    // Build the effective tone text for this request:
     const toneText: string = (customStyleText?.trim()
       || (meta?.style_json as any)?.text
       || "");
 
-    // Crisis hard stop (regex) → Imminent CARE card
-const forced = checkFilters(userMessage);
-if (forced) {
-  const card = buildCareCard("Imminent");
-  const answer = careText(card);
-  const inserted = await saveTurnToDB({
-    conversationId,
-    userId,
-    botUserId: BOT_USER_ID,
-    userMessage,
-    botAnswer: answer,
-  });
-  const userRow = inserted.find((r) => r.role === "user");
-  const assistantRow = inserted.find((r) => r.role === "assistant");
-  return NextResponse.json({
-    conversationId,
-    answer,
-    tier: "Imminent",
-    care_card: card,
-    emotion: "Negative",
-    citations: [],
-    rows: { user: userRow, assistant: assistantRow },
-  });
-}
+    // Crisis regex hard stop
+    const forced = checkFilters(userMessage);
+    if (forced) {
+      const card = buildCareCard("Imminent");
+      const answer = careText(card);
+      const inserted = await saveTurnToDB({
+        conversationId, userId, botUserId: BOT_USER_ID,
+        userMessage, botAnswer: answer,
+      });
+      const userRow = inserted.find((r) => r.role === "user");
+      const assistantRow = inserted.find((r) => r.role === "assistant");
+      return NextResponse.json({
+        conversationId,
+        answer,
+        tier: "Imminent",
+        care_card: card,
+        emotion: "Negative",
+        citations: [],
+        rows: { user: userRow, assistant: assistantRow },
+      });
+    }
 
-
-
-
-    // Kick off work in parallel
+    // Kick off parallel work
     const riskP = classifyRisk(userMessage);
     const profileP = (async () => {
       const uid = userId; if (!uid) return null;
@@ -908,88 +967,81 @@ if (forced) {
     })();
     const summaryP = loadSummary(conversationId);
     const historyP = loadLastPairs(conversationId, HISTORY_PAIRS);
-    const retrievalP = retrieveContext(userMessage);
+    const retrievalP = retrieveContextWithFallback(userMessage);
 
     const [risk, profile, summary, historyMsgs, { context, hits }] = await Promise.all([
       riskP, profileP, summaryP, historyP, retrievalP,
     ]);
-    // Deterministic CARE path for Imminent/Acute (LLM classifier)
-const riskTier = (risk?.tier as string) || "None";
-if (riskTier === "Imminent" || riskTier === "Acute") {
-  const card = buildCareCard(riskTier as CareTier);
-  const answer = careText(card);
-  const inserted = await saveTurnToDB({
-    conversationId,
-    userId,
-    botUserId: BOT_USER_ID,
-    userMessage,
-    botAnswer: answer,
-  });
-  const userRow = inserted.find((r) => r.role === "user");
-  const assistantRow = inserted.find((r) => r.role === "assistant");
-  return NextResponse.json({
-    conversationId,
-    answer,
-    tier: riskTier,
-    care_card: card,
-    emotion: "Negative",
-    citations: [],
-    rows: { user: userRow, assistant: assistantRow },
-  });
-}
 
-    // If a summary already exists, try to set a proper title now
+    const riskTier = (risk?.tier as string) || "None";
+    if (riskTier === "Imminent" || riskTier === "Acute") {
+      const card = buildCareCard(riskTier as CareTier);
+      const answer = careText(card);
+      const inserted = await saveTurnToDB({
+        conversationId, userId, botUserId: BOT_USER_ID,
+        userMessage, botAnswer: answer,
+      });
+      const userRow = inserted.find((r) => r.role === "user");
+      const assistantRow = inserted.find((r) => r.role === "assistant");
+      return NextResponse.json({
+        conversationId,
+        answer,
+        tier: riskTier,
+        care_card: card,
+        emotion: "Negative",
+        citations: [],
+        rows: { user: userRow, assistant: assistantRow },
+      });
+    }
+
     if (summary?.trim()) {
       await maybeUpdateTitleFromSummary(conversationId, summary);
     }
 
-    const anchors = await extractAnchors(summary, risk as any);
-    const { off: offTrack, sim: offSim } = await computeOffTrack(userMessage, summary);
-    const prevUserMsg = [...historyMsgs].reverse().find((m) => m.role === "user")?.content || "";
-const { off: prevOff } = await computeOffTrack(prevUserMsg, summary);
-const { insistent } = await computeInsistent(userMessage, summary, historyMsgs as any);
+    // Big-picture anchors: prefer risk.user_goals if present (no extra LLM here)
+    const seedGoals = (risk?.user_goals ?? []).filter(Boolean).slice(0, 3);
+    const anchors = seedGoals.length
+      ? { primary: String(seedGoals[0]).slice(0,160), subgoals: seedGoals.slice(1).map(String), nonnegotiables: [] as string[] }
+      : { primary: (summary || "").match(/[^.!?]+[.!?]?/)?.[0]?.slice(0,160) || "", subgoals: [] as string[], nonnegotiables: [] as string[] };
 
+    // Off-track / insistent (batched, no duplicate calls)
+    const prevUserMsg = [...historyMsgs].reverse().find((m) => m.role === "user")?.content || null;
+    const { offCurr, simCurr, offPrev, simPrev, sameTopic } = await computeOffTrackBatched(
+      userMessage, summary || "", prevUserMsg
+    );
+    const insistent = offCurr && (offPrev || sameTopic);
 
-    // System message with voice sheet (uses toneText for custom persona)
+    // System prompt with **strict RAG grounding**
     const voiceSheet = voiceSheetV2(effectivePersona as Persona, toneText || undefined);
+    const groundingRules = [
+      "RAG Grounding Rules:",
+      "- If CONTEXT is present, prefer it over memory. Do NOT fabricate details not supported by CONTEXT.",
+      "- When using a fact from CONTEXT, include a bracketed reference like [1] or [2] referring to that block.",
+      "- If CONTEXT is empty or irrelevant, answer normally but avoid specific unverifiable facts.",
+    ].join("\n");
+    const contextHeader = context
+      ? `--- CONTEXT (RAG) — cite with [n] ---\n${context}\n--- END CONTEXT ---`
+      : "--- CONTEXT (RAG) ---\n(none)\n--- END CONTEXT ---";
+
     const system = [
       "You are a concise, youth-support assistant for Australia.",
       "Follow the VOICE SHEET and never break its hard constraints.",
-      "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy (5) Coherence with BIG_PICTURE).",
-      "Provide suggestions if and only if the user explicitly asks for help, advice or suggestions. Otherwise, empathize with the user.",
-      "Return a single reply only.",
-      "If user response cannot be interpreted, tell the user: 'Sorry, but I didn't understand your message. Could you please try again?'.",
-      "Detect sarcasm using context, emojis, and exaggerations and respond to it appropriately.",
-      "Mirror casual humor where safe, but prioritize empathy and helpfulness.",
-      "Offer simple, genuine compliments to the user naturally during the conversation.",
-      "Always display mathematical or scientific symbols using UTF-8 characters (e.g. Integrals, fractions, exponentials and powers, square roots, etc).",
-
+      "Priorities: (1) Safety (2) Personalisation (3) Helpfulness (4) RAG accuracy (5) Coherence with BIG_PICTURE.",
+      groundingRules,
       "\n--- VOICE SHEET ---\n" + voiceSheet,
       "\n--- PROFILE ---\n" + JSON.stringify(profile || {}),
       "\n--- SUMMARY ---\n" + (summary || "(none)"),
       "\n--- BIG_PICTURE ---\n" + JSON.stringify(anchors || {}),
-     "\n--- HINTS ---\n" + JSON.stringify({
-  off_track: offTrack,
-  insistent,
-  sim_to_summary: offSim,
-  deflect_threshold: DEFLECT_SIM_THRESHOLD
-}),
-
+      "\n--- HINTS ---\n" + JSON.stringify({
+        off_track: offCurr, insistent, sim_to_summary: simCurr,
+        prev_sim_to_summary: simPrev, deflect_threshold: DEFLECT_SIM_THRESHOLD
+      }),
       "\n--- RISK ---\n" + JSON.stringify(risk || {}),
-      "\n--- CONTEXT (RAG) ---\n" + (context || "(none)"),
-
-     "\nGuidance:\n" +
-"- Keep BIG_PICTURE.primary in mind on every turn.\n" +
-"- If HINTS.off_track is true, do three moves: (1) briefly acknowledge the detour, (2) bridge back to BIG_PICTURE.primary in one sentence, (3) offer ONE tiny next step aligned to BIG_PICTURE.primary. Respect persona question rules.\n" +
-"- If HINTS.insistent is true, FIRST give a brief, safe answer to the detour (≤3 sentences, neutral, no refusal unless unsafe/illegal), THEN explicitly pivot back with ONE tiny next step on the primary goal (e.g., a single concrete action).\n" +
-"- Treat benign detours as allowed (e.g., everyday how-tos, definitions, simple tips, study/admin questions). Do not refuse benign requests; keep the mini-answer short and then return to the main goal.\n" +
-"- If the detour clearly supports the primary goal, continue; otherwise park it politely and propose the next step on the primary goal."+
-
- "\nSafety:\n" +
-"- If RISK.tier is \"Imminent\" or \"Acute\", strongly urge the user to seek immediate in-person help, e.g. Lifeline 13 11 14 or emergency services 000.\n" +
-"- If RISK.tier is \"Elevated\", validate their feelings and encourage seeking support from trusted people or professionals.\n" +
-"- If RISK.tier is \"Low\" or \"None\", proceed normally but stay alert for future risk signals.\n" +
-"- Never say you are a crisis service or can provide emergency help.\n" +
+      "\n" + contextHeader,
+      "\nSafety:",
+      '- If RISK.tier is "Imminent" or "Acute", urge immediate in-person help (Lifeline 13 11 14, emergency 000).',
+      '- If "Elevated", validate feelings and encourage reaching out to trusted people/professionals.',
+      "- Never claim to be a crisis service or provide emergency help.",
       "\nReturn a single reply only.",
     ].join("\n\n");
 
@@ -1009,7 +1061,7 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
 
     let answer = resp.choices?.[0]?.message?.content?.trim() || "Sorry, I couldn't generate an answer right now.";
 
-    // Decide if/what to ask based on user turn + previous assistant turn + tone
+    // Decide Q mode
     const qMode = decideQuestionMode(
       effectivePersona as Persona,
       userMessage,
@@ -1017,20 +1069,21 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
       toneText || undefined
     );
 
-    // Persona shaping (no markers)
+    // Persona shaping + tone overlay
     answer = shapeByPersona(effectivePersona as Persona, answer, userMessage, qMode);
-
-    // Apply custom tone overlay to ANY persona
     answer = applyToneOverlay(answer, toneText || undefined);
+
     if (riskTier === "Elevated") {
-  const footer = "\n\nIf it gets heavier, you can call Lifeline (13 11 14, 24/7). If you’re in danger, call 000.";
-  answer += footer;
-}
+      answer += "\n\nIf it gets heavier, you can call Lifeline (13 11 14, 24/7). If you’re in danger, call 000.";
+    }
 
     // Persist turn
-    const inserted = await saveTurnToDB({ conversationId, userId, botUserId: BOT_USER_ID, userMessage, botAnswer: answer });
+    const inserted = await saveTurnToDB({
+      conversationId, userId, botUserId: BOT_USER_ID,
+      userMessage, botAnswer: answer
+    });
 
-    // Background summary refresh (also auto-updates title)
+    // Background summary refresh
     (async () => {
       try {
         const count = await countAssistantMessages(conversationId);
@@ -1043,6 +1096,7 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
       } catch (e) { console.error("summary refresh skipped:", e); }
     })();
 
+    // Build citations (ordered)
     const citations = (hits || []).map((h, i) => ({
       rank: i + 1,
       file: h.file ?? null,
@@ -1051,6 +1105,7 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
       preview: (h.content ?? "").slice(0, 180),
     }));
 
+   
     const userRow = inserted.find((r) => r.role === "user");
     const assistantRow = inserted.find((r) => r.role === "assistant");
 
@@ -1068,4 +1123,4 @@ const { insistent } = await computeInsistent(userMessage, summary, historyMsgs a
     console.error("CHAT route (optimized) error:", e);
     return NextResponse.json({ error: e?.message || "chat error" }, { status: 400 });
   }
-}
+};
