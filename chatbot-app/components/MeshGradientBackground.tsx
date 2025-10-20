@@ -4,17 +4,11 @@ import React, { useEffect, useRef } from 'react';
 
 type Props = {
   className?: string;
-  colors?: string[];
+  colors?: string[];   // any CSS colors: #fff, #112233, rgb(...), hsl(...), 'rebeccapurple', etc.
   pointCount?: number;
-  speed?: number;   // px per frame at 60fps in CSS pixels (scaled by dpr internally)
-  opacity?: number; // 0..1 visual opacity via canvas global alpha
+  speed?: number;      // px per frame at 60fps (scaled by dpr internally)
+  opacity?: number;    // 0..1 overall opacity (uses globalAlpha)
 };
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!m) return null;
-  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-}
 
 export default function MeshGradientBackground({
   className = '',
@@ -31,9 +25,7 @@ export default function MeshGradientBackground({
 
     const maybe = c.getContext('2d', { alpha: true }) as CanvasRenderingContext2D | null;
     if (!maybe) return;
-
-    // ✅ Non-nullable alias captured by closures
-    const ctx: CanvasRenderingContext2D = maybe;
+    const ctx: CanvasRenderingContext2D = maybe; // non-nullable alias for closures
 
     let raf = 0;
     let stopped = false;
@@ -41,33 +33,31 @@ export default function MeshGradientBackground({
     let height = 1;
     let dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
-    type RGB = { r: number; g: number; b: number };
-    type Point = { x: number; y: number; r: number; vx: number; vy: number; rgb: RGB };
+    type Point = { x: number; y: number; r: number; vx: number; vy: number; color: string };
     let points: Point[] = [];
 
-    const parsed = (colors?.length ? colors : ['#a78bfa']).map(hexToRgb).filter(Boolean) as RGB[];
-    const colorRgbs: RGB[] = parsed.length ? parsed : [{ r: 167, g: 139, b: 250 }];
+    // normalize color list; ensure we have at least one valid string
+    const palette: string[] = (Array.isArray(colors) && colors.length > 0 ? colors : ['#a78bfa']).map(String);
+    const safePalette: string[] = palette.length ? palette : ['#a78bfa'];
 
     function resetPoints() {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+      const node = canvasRef.current;
+      if (!node) return;
 
-      const rect = canvas.parentElement?.getBoundingClientRect();
-      width = Math.max(1, Math.floor(rect?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 1)));
+      const rect = node.parentElement?.getBoundingClientRect();
+      width  = Math.max(1, Math.floor(rect?.width  ?? (typeof window !== 'undefined' ? window.innerWidth  : 1)));
       height = Math.max(1, Math.floor(rect?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 1)));
 
-      // High-DPI setup
       dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      node.width = Math.floor(width * dpr);
+      node.height = Math.floor(height * dpr);
+      node.style.width = `${width}px`;
+      node.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Points
       const count = Math.max(3, pointCount);
       points = Array.from({ length: count }).map((_, i) => {
-        const rgb = colorRgbs[i % colorRgbs.length];
+        const color = safePalette[i % safePalette.length];
         const base = Math.min(width, height);
         const radius = Math.max(180, Math.min(480, base * (0.28 + Math.random() * 0.22)));
         const s = speed * (0.5 + Math.random());
@@ -78,7 +68,7 @@ export default function MeshGradientBackground({
           r: radius,
           vx: Math.cos(dir) * s,
           vy: Math.sin(dir) * s,
-          rgb,
+          color,
         };
       });
     }
@@ -91,17 +81,18 @@ export default function MeshGradientBackground({
       ctx.globalCompositeOperation = 'lighter';
 
       for (const p of points) {
-        p.x += p.vx;
-        p.y += p.vy;
+        // move
+        p.x += p.vx; p.y += p.vy;
 
-        // Bounce (soft bounds)
-        if (p.x < -p.r * 0.2 || p.x > width + p.r * 0.2) p.vx *= -1;
+        // soft bounce
+        if (p.x < -p.r * 0.2 || p.x > width  + p.r * 0.2) p.vx *= -1;
         if (p.y < -p.r * 0.2 || p.y > height + p.r * 0.2) p.vy *= -1;
 
-        // Radial blob
+        // gradient: center uses the CSS color, edge fades to transparent
         const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-        g.addColorStop(0, `rgba(${p.rgb.r}, ${p.rgb.g}, ${p.rgb.b}, 0.9)`);
-        g.addColorStop(1, `rgba(${p.rgb.r}, ${p.rgb.g}, ${p.rgb.b}, 0)`);
+        g.addColorStop(0, p.color);
+        g.addColorStop(1, 'transparent');
+
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
