@@ -45,19 +45,52 @@ const SAFETY_FAQ: FaqItem[] = [
   },
 ];
 
-/* ---------------- FAQ — expanded ---------------- */
+/* ---------------- FAQ (General) — updated & expanded ---------------- */
 const GENERAL_FAQ: FaqItem[] = [
-  { q: "What is this app for?", a: "A supportive space to talk through feelings, decisions, and everyday challenges. It helps with reflection and resources, but it’s not for emergencies." },
-  { q: "How does it work?", a: "You chat with an AI companion. It uses safe prompts and guidelines to suggest ideas, coping strategies, and resources based on what you share." },
-  { q: "Will humans read my conversations?", a: "No, not by default. Limited, audited access may occur to investigate abuse, safety events, or to maintain the service—always under strict privacy controls." },
-  { q: "Is my data used to train AI models?", a: "We do not sell your data and we avoid using personal conversations to train public models. Any improvement signals are anonymized and aggregated where possible." },
-  { q: "Can I opt out of analytics?", a: "Yes. Turn off Anonymous Usage Analytics in Preferences at any time." },
-  { q: "What platforms and browsers are supported?", a: "Modern desktop and mobile browsers such as Chrome, Safari, Edge, and Firefox. Keep your browser up to date for the best experience." },
-  { q: "Is it free to use?", a: "A free tier is available. Some features may be limited or subject to fair-use safeguards." },
-  { q: "How do I export or delete my data?", a: "Open Preferences or Profile → Settings to download your data or request deletion." },
-  { q: "Do you integrate with third-party services?", a: "Only when necessary to provide core functionality (e.g., storage or authentication). We don’t share data for advertising or profiling." },
-  { q: "Who can use this app?", a: "It’s designed for young people and general users seeking supportive guidance. Additional safeguards apply for minors." },
-  { q: "Where can I get help in a crisis?", a: "If you’re in immediate danger or thinking about self-harm, contact emergency services (000) or Lifeline (13 11 14) right away." },
+  {
+    q: "What is this app for?",
+    a: "A supportive space to talk through feelings, decisions, and everyday challenges. It helps with reflection and resources, but it’s not for emergencies.",
+  },
+  {
+    q: "How does it work?",
+    a: "You chat with an AI companion. It uses safe prompts and guidelines to suggest ideas, coping strategies, and resources based on what you share.",
+  },
+  {
+    q: "Will humans read my conversations?",
+    a: "No, not by default. Limited, audited access may occur to investigate abuse, safety events, or to maintain the service—always under strict privacy controls.",
+  },
+  {
+    q: "Is my data used to train AI models?",
+    a: "We do not sell your data and we avoid using personal conversations to train public models. Any improvement signals are anonymized and aggregated where possible.",
+  },
+  {
+    q: "Can I opt out of analytics?",
+    a: "Yes. Turn off Anonymous Usage Analytics in Preferences at any time.",
+  },
+  {
+    q: "What platforms and browsers are supported?",
+    a: "Modern desktop and mobile browsers such as Chrome, Safari, Edge, and Firefox. Keep your browser up to date for the best experience.",
+  },
+  {
+    q: "Is it free to use?",
+    a: "A free tier is available. Some features may be limited or subject to fair-use safeguards.",
+  },
+  {
+    q: "How do I export or delete my data?",
+    a: "Open Preferences or Profile → Settings to download your data or request deletion.",
+  },
+  {
+    q: "Do you integrate with third-party services?",
+    a: "Only when necessary to provide core functionality (e.g., storage or authentication). We don’t share data for advertising or profiling.",
+  },
+  {
+    q: "Who can use this app?",
+    a: "It’s designed for young people and general users seeking supportive guidance. Additional safeguards apply for minors.",
+  },
+  {
+    q: "Where can I get help in a crisis?",
+    a: "If you’re in immediate danger or thinking about self-harm, contact emergency services (000) or Lifeline (13 11 14) right away.",
+  },
 ];
 
 const LinkA = (props: React.ComponentProps<"a">) => (
@@ -128,7 +161,7 @@ export default function PrivacyClient() {
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="privacy">Safety &amp; Data Privacy</TabsTrigger>
               <TabsTrigger value="features">Features</TabsTrigger>
-              <TabsTrigger value="faq">FAQ</TabsTrigger>
+              <TabsTrigger value="faq">FAQ</TabsTrigger> {/* renamed */}
             </TabsList>
           </Tabs>
 
@@ -308,7 +341,7 @@ export default function PrivacyClient() {
               </Card>
             </TabsContent>
 
-            {/* FAQ (with Error Handling table added) */}
+            {/* FAQ (renamed and expanded) */}
             <TabsContent value="faq" className="space-y-6">
               <Card className="trauma-safe">
                 <CardHeader>
@@ -318,8 +351,7 @@ export default function PrivacyClient() {
                   </CardTitle>
                   <CardDescription>Quick answers about using the app.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Q&A list */}
+                <CardContent className="space-y-4">
                   <div className="space-y-3">
                     {GENERAL_FAQ.map((item, idx) => (
                       <details key={idx} className="rounded-md border p-4">
@@ -327,48 +359,6 @@ export default function PrivacyClient() {
                         <p className="mt-2 text-sm text-muted-foreground">{item.a}</p>
                       </details>
                     ))}
-                  </div>
-
-                  {/* Error Handling table */}
-                  <div className="rounded-lg border p-4">
-                    <h4 className="font-medium mb-1">Error Handling</h4>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      The Chat API implements comprehensive error handling for various scenarios:
-                    </p>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm border-collapse">
-                        <thead>
-                          <tr className="border-b bg-muted/50">
-                            <th className="text-left p-2">Error Code</th>
-                            <th className="text-left p-2">HTTP Status</th>
-                            <th className="text-left p-2">Description</th>
-                            <th className="text-left p-2">Resolution</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[
-                            ["INVALID_REQUEST", "400", "Missing or invalid parameters", "Check request format and required fields"],
-                            ["UNAUTHORIZED", "401", "Invalid or missing authentication token", "Provide valid Bearer token in Authorization header"],
-                            ["CONVERSATION_NOT_FOUND", "404", "Conversation ID doesn't exist", "Create conversation via Conversations API"],
-                            ["SAFETY_VIOLATION", "422", "Content flagged by safety pipeline", "Modify message content to comply with guidelines"],
-                            ["RATE_LIMIT_EXCEEDED", "429", "Too many requests", "Wait before retrying (see Retry-After header)"],
-                            ["INTERNAL_ERROR", "500", "Server-side processing error", "Retry request or contact support"],
-                          ].map((row, i) => (
-                            <tr key={i} className="border-b last:border-0">
-                              <td className="p-2">
-                                <span className="inline-block text-xs font-semibold px-2 py-1 rounded bg-muted">
-                                  {row[0]}
-                                </span>
-                              </td>
-                              <td className="p-2">{row[1]}</td>
-                              <td className="p-2">{row[2]}</td>
-                              <td className="p-2">{row[3]}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
