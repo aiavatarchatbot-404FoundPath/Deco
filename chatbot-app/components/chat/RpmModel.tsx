@@ -56,7 +56,7 @@ export default function RpmModel({
 }: RpmModelProps) {
   const groupRef = useRef<THREE.Group>(null!);
 
-  // 1) Avatar (GLB expected here)
+  // 1) Avatar (GLB)
   const avatarGltf = useGLTF(avatarUrl) as unknown as {
     scene: THREE.Group;
     animations: THREE.AnimationClip[];
@@ -124,7 +124,7 @@ export default function RpmModel({
     const targetBoneNames = new Set(targetMesh.skeleton.bones.map(bone => bone.name));
     console.log('[RpmModel] Target bone names:', Array.from(targetBoneNames).slice(0, 10)); // Log first 10
     
-    // Common bone name mappings between Mixamo and Ready Player Me
+    // Bone name mappings between Mixamo and RPM
     const boneMapping: Record<string, string> = {
       'mixamorigHips': 'Hips',
       'mixamorigSpine': 'Spine',
@@ -170,7 +170,7 @@ export default function RpmModel({
           continue;
         }
         
-        // Also skip lower leg movement during idle to prevent knee bending
+        // Skip lower leg movement during idle to prevent knee bending
         if ((mappedBoneName === 'LeftLeg' || mappedBoneName === 'RightLeg') && 
             (sourceClip.name.toLowerCase().includes('idle') || sourceClip.name.toLowerCase().includes('breathing'))) {
           console.log(`[RpmModel] Skipping ${mappedBoneName} movement during idle animation to prevent knee bending`);
@@ -189,9 +189,9 @@ export default function RpmModel({
               track.values[i + 3]
             ).normalize();
             const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-            // Reduce back/forward lean slightly and strongly damp yaw when idle
-            const yawScale = isIdle ? 0.15 : 1.0;    // side-to-side
-            const pitchScale = 0.7;                  // back/forward
+           
+            const yawScale = isIdle ? 0.15 : 1.0;   
+            const pitchScale = 0.7;                  
             const rollScale = 1.0;
             e.y *= yawScale;
             e.x *= pitchScale;
@@ -213,7 +213,7 @@ export default function RpmModel({
         // Scale down position values for better compatibility (Mixamo uses cm, RPM uses different scale)
         let values = track.values;
         if (property === 'position' && mappedBoneName !== 'Hips') {
-          values = track.values.map((v: number) => v * 0.01); // Scale down by 100x
+          values = track.values.map((v: number) => v * 0.01); 
         }
         
         const newTrack = new NewTrackClass(newTrackName, track.times, values);
@@ -392,7 +392,7 @@ export default function RpmModel({
   useEffect(() => {
     if (!retargetedClips.length) {
       console.log('[RpmModel] No retargeted clips available yet');
-      return; // nothing to play yet
+      return;
     }
 
     const desired = (clip && retargetedClips.find((c) => c.name === clip)) || retargetedClips[0];
@@ -518,7 +518,7 @@ export default function RpmModel({
     avatarScene.visible = true;
     avatarScene.traverse((child) => {
       if (child.type === 'SkinnedMesh') {
-        child.frustumCulled = false; // Prevent culling issues
+        child.frustumCulled = false;
         child.visible = true;
         console.log('[RpmModel] Found SkinnedMesh child:', {
           name: child.name,

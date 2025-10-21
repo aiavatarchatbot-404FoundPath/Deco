@@ -39,7 +39,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
   const separationX = 4;
   const duoScale = 0.6;
   const singleScale = 0.68;
-  const GROUND_Y = -0.12; // nudge up so shoes are clearly visible
+  const GROUND_Y = -0.12;
 
   const userPosition: [number, number, number] = duo ? [-separationX, GROUND_Y, 0] : [0, GROUND_Y, 0];
   const companionPosition: [number, number, number] = duo ? [separationX, GROUND_Y, 0] : [0, GROUND_Y, 0];
@@ -48,7 +48,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
   const duoUserYaw = -Math.PI / 2;      // left avatar faces toward center
   const duoCompanionYaw = Math.PI / 2;  // right avatar faces toward center
 
-  const frontBias = 0.25; // slight camera bias
+  const frontBias = 0.25; 
   const leftFaceRightYaw = Math.PI / 2;
   const rightFaceLeftYaw = -Math.PI / 2;
 
@@ -64,7 +64,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
 
   // talking states per avatar
   const userTalking = Boolean(props.talkOverride ?? false);
-  const aiTalking = Boolean(props.talkOverride ?? false);  // Both use talkOverride now
+  const aiTalking = Boolean(props.talkOverride ?? false); 
 
   // camera presets
   const camera = useMemo(

@@ -1,4 +1,3 @@
-/// app/avatarbuilder/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -246,7 +245,6 @@ export default function AvatarBuilderPage() {
       createInFlight.current = false;
       return;
     }
-    // don’t reset here; we’re leaving the page
   }, [personaChoice, customStyleText, user, router]);
 
   /** ---------- small reset ---------- */
@@ -269,7 +267,7 @@ export default function AvatarBuilderPage() {
 
       <AvatarBuilderScreen
         onNavigate={handleNavigation}
-        onNavigateToChat={handleNavigateToChat}  // ⬅️ creates ONE convo then routes
+        onNavigateToChat={handleNavigateToChat}  
         user={user}
         isLoggedIn={isLoggedIn}
         onSaveAvatar={handleSaveAvatar}

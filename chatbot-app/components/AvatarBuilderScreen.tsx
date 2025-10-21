@@ -27,8 +27,7 @@ interface AvatarBuilderScreenProps {
   navigationLoading?: boolean;
   saveLoading?: boolean;
 
-  // Optional tone-control props from parent
-  personaChoice?: Persona; // 'adam' | 'eve' | 'custom' | 'neutral'
+  personaChoice?: Persona;
   setPersonaChoice?: (p: Persona) => void;
   customStyleText?: string;
   setCustomStyleText?: (s: string) => void;

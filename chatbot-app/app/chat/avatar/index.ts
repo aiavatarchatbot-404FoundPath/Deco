@@ -1,18 +1,15 @@
 import { corsHeaders } from './cors';
 
-
 // Define the Mood type (adjust values as needed)
 type Mood = 'happy' | 'sad' | 'neutral' | 'angry' | 'excited';
 
-
 // Define the structure of the webhook payload from Supabase
-// initial_mood is set by the mood check-in component (see moodcheckin.tsx)
 interface WebhookPayload {
   type: 'UPDATE';
   table: 'conversations';
   record: {
     id: string;
-    initial_mood: Mood | null; // Value comes from moodcheckin.tsx
+    initial_mood: Mood | null; 
     final_mood: Mood | null;
   };
   old_record: {

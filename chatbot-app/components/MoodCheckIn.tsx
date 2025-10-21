@@ -47,7 +47,7 @@ export default function MoodCheckIn({
     // Create mood data with default values for intensity
     const moodData: MoodData = {
       feeling: selectedFeeling,
-      intensity: 3, // Default moderate intensity
+      intensity: 3,
     };
     onComplete(moodData);
   };

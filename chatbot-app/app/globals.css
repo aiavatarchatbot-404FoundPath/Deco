@@ -47,22 +47,22 @@
 :root {
   --font-size: 14px;
 
-  /* Gamified trauma-informed color palette - light mode */
-  --background: #f8fafc; /* soft off-white */
-  --foreground: #334155; /* gentle dark blue-gray */
+  /* Gamified trauma-informed color palette*/
+  --background: #f8fafc; 
+  --foreground: #334155; 
   --card: #ffffff;
   --card-foreground: #334155;
   --popover: #ffffff;
   --popover-foreground: #334155;
-  --primary: #14b8a6; /* calming teal */
+  --primary: #14b8a6; 
   --primary-foreground: #ffffff;
-  --secondary: #e0f2fe; /* very light blue */
+  --secondary: #e0f2fe; 
   --secondary-foreground: #0f172a;
-  --muted: #f1f5f9; /* light blue-gray */
+  --muted: #f1f5f9; 
   --muted-foreground: #64748b;
-  --accent: #ddd6fe; /* soft lilac */
+  --accent: #ddd6fe; 
   --accent-foreground: #4c1d95;
-  --destructive: #ef4444; /* soft red, not harsh */
+  --destructive: #ef4444; 
   --destructive-foreground: #ffffff;
   --border: #e2e8f0;
   --input: transparent;
@@ -93,7 +93,7 @@
   --chart-3: #a78bfa;
   --chart-4: #f59e0b;
   --chart-5: #8b5cf6;
-  --radius: 1rem; /* More rounded for friendliness */
+  --radius: 1rem;
   --sidebar: #f8fafc;
   --sidebar-foreground: #334155;
   --sidebar-primary: #14b8a6;

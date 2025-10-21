@@ -35,6 +35,7 @@ export default function HomePageAvatarViewer({
       <ambientLight intensity={0.7} />
       <directionalLight position={[2, 4, 2]} intensity={0.8} castShadow />
 
+      {/* Render the avatar model with animation */}
       <Suspense fallback={null}>
         <group position={position} rotation={rotation} scale={scale}>
           <RpmModel
@@ -50,7 +51,8 @@ export default function HomePageAvatarViewer({
 
         <Environment preset="sunset" />
       </Suspense>
-
+       
+       {/* Camera controls (disabled rotation and zoom for static view) */}
       <OrbitControls
         makeDefault
         enablePan={false}
