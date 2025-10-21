@@ -34,6 +34,9 @@ const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 
 export type Persona = "adam" | "eve" | "neutral" | "custom";
 
+
+
+
 // =======================================
 // Micro-cache for embeddings (survives warm Lambda)
 // =======================================
@@ -226,6 +229,46 @@ function parseTone(text?: string): TonePrefs {
     normalizedText: t,
   };
 }
+const NEUTRAL_BANNED = [
+  /(^|\b)got it[.!]?( |$)/i,
+  /want (a )?tiny next step\??/i,
+  /\bkeen\??$/i
+];
+
+function shouldAvoidQuestions(lastUser: string) {
+  const s = (lastUser || "").trim().toLowerCase();
+  const short = s.split(/\s+/).length <= 3;
+  const ack = /^(thanks|thank you|ok|okay|cool|sure|yep|yup|nah|nope|great|awesome|cheers|👍|🙏|👌)[.!]?$/.test(s);
+  return short || ack;
+}
+
+export function enforceNeutral(text: string, lastUser: string, suggestion?: string) {
+  let out = (text || "").trim();
+
+  // 1) Strip “Got it.” openers
+  out = out.replace(/^\s*got it[.!]?\s*/i, "");
+
+  // 2) Replace the questiony prompt with a declarative helper
+  out = out.replace(/want (a )?tiny next step\??/gi, "If I may suggest,");
+
+  // 3) If the last user message is a short ack, avoid ending with a question
+  if (shouldAvoidQuestions(lastUser) && /\?\s*$/.test(out)) {
+    out = out.replace(/\?\s*$/, ".");
+  }
+
+  // 4) If we now end with “If I may suggest,”, attach a concrete step
+  if (/If I may suggest,\s*$/i.test(out)) {
+    out += " " + (suggestion || "take a quiet 2-minute pause and stretch your shoulders.");
+  }
+
+  // 5) Remove any remaining banned phrases
+  NEUTRAL_BANNED.forEach(rx => { out = out.replace(rx, "").trim(); });
+
+  // 6) Cap to 3 sentences for Neutral brevity
+  const sentences = out.split(/(?<=[.!])\s+/).slice(0, 3);
+  return sentences.join(" ");
+}
+
 
 function voiceSheetV2(persona: Persona, customStyle?: string) {
   if (persona === "custom") {
@@ -278,7 +321,8 @@ Avoid:
 Output:
 - Max **3** short sentences. Snappy. No fluff.
 - Be casual and direct; **light Aussie slang** is fine ("mate", "keen?", "no dramas", "give it a go").
-- End with a **micro-CTA** (≤2 steps) OR a **short closed question** that triggers action.
+- End with a a **short closed question** that triggers action when its appropriate to ask a qns or a short plan on how to deal with current situation or who to reach out to.
+
 
 Style rules:
 - Use contractions: you're, it's, don't.
@@ -288,10 +332,7 @@ Style rules:
 
 Detours:
 - One clause to acknowledge → **bridge back** → one tiny step.
-
-Examples:
-- "Rough day, hey. Text one mate now and step outside for 2 min. Keen?"
-- "Let’s keep it simple: 1) pick one thing 2) set a 5-min timer."`;
+`;
 }
 
 
@@ -307,6 +348,19 @@ Formatting:
 Detours:
 - Acknowledge → ask consent to park or answer briefly → weave back to BIG_PICTURE.`;
   }
+
+  if (persona === "neutral") {
+  return `VOICE SHEET — Neutral (respectful)
+
+Output:
+- 1–3 short sentences, everyday words.
+- Prefer statements over questions. After a short/affirmative reply (“thanks”, “ok”, emoji), do **not** ask a question.
+- When offering help, use: “If I may suggest, <one optional, concrete step>.”
+- No lists unless asked. Mirror the user’s tone; avoid “should/must”.
+
+Avoid:
+- Meta talk, templates, or “tiny-next-step” style prompts.`;
+}
 
   return `VOICE SHEET — Neutral
 Output:
@@ -400,16 +454,69 @@ function randFrom<T>(arr: T[], seed: string): T {
   return arr[idx];
 }
 
-function generateAdamCTA(userMsg: string) {
-  const ctAs = [
-    "1) pick one tiny step 2) set a 5-min timer",
-    "1) send one message to a mate 2) step outside for 2 min",
-    "1) write one line in Notes 2) start a 3-min timer",
-    "1) quick glass of water 2) 10 deep breaths",
-    "1) tidy one thing on your desk 2) 2-min walk"
-  ];
-  return randFrom(ctAs, userMsg);
+// server (Node/Next) — use Service Role for DB writes
+async function createAnonConversation({ clientId }: { clientId: string }) {
+  const ttlHours = 24; // choose your window
+  const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('conversations')
+    .insert({
+      is_ephemeral: true,
+      expires_at: expiresAt,
+      anon_consent: false,
+      client_id: clientId,
+      // any other columns you maintain: title, mode, etc.
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data; // return { id, ... }
 }
+
+async function insertAnonMessage({
+  conversationId, clientId, content
+}: { conversationId: string; clientId: string; content: string }) {
+  // The trigger will reject if convo isn’t ephemeral/consented or TTL expired
+  const { error } = await supabase.from('messages').insert({
+    conversation_id: conversationId,
+    role: 'user',
+    content,
+    sender_id: null,
+    client_id: clientId
+  });
+  if (error) throw error;
+}
+async function consentLongTerm(conversationId: string) {
+  const { error } = await supabase
+    .from('conversations')
+    .update({
+      anon_consent: true,
+      is_ephemeral: false,
+      expires_at: null
+    })
+    .eq('id', conversationId);
+  if (error) throw error;
+}
+
+// attach the anon convo to the authenticated user — your schema may have owner_id
+async function adoptAnonConversation({ conversationId, clientId, userId }:{
+  conversationId: string, clientId: string, userId: string
+}) {
+  const { error } = await supabase
+    .from('conversations')
+    .update({
+      owner_id: userId,
+      anon_consent: true,     // they chose to keep it
+      is_ephemeral: false,
+      expires_at: null
+    })
+    .eq('id', conversationId)
+    .eq('client_id', clientId);
+  if (error) throw error;
+}
+
 
 function adamReplacements(s: string) {
   // kill therapy-ish boilerplate and formal talk
@@ -515,11 +622,7 @@ const ensureOpenQ = (t: string) =>
   // remove therapy boilerplate + formalisms
   out = adamReplacements(out);
 
-  // ensure we end with a micro-CTA if not already a question
-  const hasPlan = /\b1\)\b.*\b2\)\b/.test(out) || /\b5[-\s]?min\b/i.test(out) || /\btext one mate\b/i.test(out);
-  if (!/[?]$/.test(out) && !hasPlan) {
-    out = `${out} Do this now: ${generateAdamCTA(userMsg)}.`;
-  }
+  
 
   // sprinkle casual Aussie vibe (light, not caricature)
   out = sprinkleAussie(out, userMsg);
@@ -710,26 +813,125 @@ async function saveSummary(conversationId: string, summary: string) {
     .eq("id", conversationId);
   if (error) console.error("saveSummary error:", error);
 }
+
+
+const ANON_TTL_HOURS = Number(process.env.ANON_TTL_HOURS || 24);
+
+async function ensureConversationForMode({
+  conversationId,
+  isAnonymous,
+  clientId,
+  saveLongTerm = false,
+}: {
+  conversationId: string;
+  isAnonymous: boolean;
+  clientId?: string | null;
+  saveLongTerm?: boolean;
+}) {
+  const nowISO = new Date().toISOString();
+
+  if (isAnonymous) {
+    if (saveLongTerm) {
+      // user explicitly chose to keep anon chat
+      await supabase
+        .from("conversations")
+        .upsert(
+          {
+            id: conversationId,
+            anon_consent: true,
+            is_ephemeral: false,
+            expires_at: null,
+            client_id: clientId ?? null,
+            updated_at: nowISO,
+          },
+          { onConflict: "id" }
+        );
+      return;
+    }
+
+    // default: ephemeral with TTL
+    const expiresAt = new Date(Date.now() + ANON_TTL_HOURS * 3600 * 1000).toISOString();
+    // If row exists but not ephemeral/consented, make it ephemeral
+    const { data: row } = await supabase
+      .from("conversations")
+      .select("id, is_ephemeral, anon_consent, expires_at")
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (!row) {
+      await supabase.from("conversations").insert({
+        id: conversationId,
+        is_ephemeral: true,
+        anon_consent: false,
+        expires_at: expiresAt,
+        client_id: clientId ?? null,
+        updated_at: nowISO,
+      });
+    } else if (!row.anon_consent && !row.is_ephemeral) {
+      await supabase
+        .from("conversations")
+        .update({ is_ephemeral: true, expires_at: expiresAt, updated_at: nowISO, client_id: clientId ?? null })
+        .eq("id", conversationId);
+    }
+    return;
+  }
+
+  // logged-in path: always long-term
+  await supabase
+    .from("conversations")
+    .upsert(
+      {
+        id: conversationId,
+        is_ephemeral: false,
+        anon_consent: true,
+        expires_at: null,
+        updated_at: nowISO,
+      },
+      { onConflict: "id" }
+    );
+}
+
+// saveTurnToDB: add clientId so anon user rows carry client_id (assistant rows do NOT)
 async function saveTurnToDB({
-  conversationId, userId, botUserId, userMessage, botAnswer,
+  conversationId, userId, botUserId, userMessage, botAnswer, clientId
 }: {
   conversationId: string; userId?: string; botUserId?: string;
-  userMessage: string; botAnswer: string;
+  userMessage: string; botAnswer: string; clientId?: string | null;
 }) {
   const now = new Date();
   const later = new Date(now.getTime() + 1);
+
   const rows: any[] = [
-    { conversation_id: conversationId, sender_id: userId ?? null, role: "user", content: userMessage, created_at: now.toISOString() },
-    { conversation_id: conversationId, sender_id: botUserId ?? null, role: "assistant", content: botAnswer, created_at: later.toISOString() },
+    {
+      conversation_id: conversationId,
+      sender_id: userId ?? null,              // null for anon
+      role: "user",
+      content: userMessage,
+      client_id: userId ? null : (clientId ?? null), // ONLY set client_id for anon user messages
+      created_at: now.toISOString(),
+    },
+    {
+      conversation_id: conversationId,
+      sender_id: botUserId ?? null,           // keep BOT_USER_ID if you have it
+      role: "assistant",
+      content: botAnswer,
+      // DO NOT set client_id here to avoid unique index collisions (sender_id, client_id)
+      created_at: later.toISOString(),
+    },
   ];
+
   const { data, error } = await supabase
     .from("messages")
     .insert(rows)
     .select("id, conversation_id, sender_id, role, content, created_at")
     .order("created_at", { ascending: true });
+
   if (error) console.error("saveTurnToDB error:", error);
   return data ?? [];
 }
+
+
+
 async function countAssistantMessages(conversationId: string) {
   const { count, error } = await supabase
     .from("messages")
@@ -845,50 +1047,55 @@ export async function GET() {
 // =======================================
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+     const body = await req.json();
     const {
       conversationId,
       userMessage,
       persona: personaRaw,
       customStyleText,
-    }: {
-      conversationId: string;
-      userMessage: string;
-      persona?: string | null;
-      customStyleText?: string | null;
+      clientId,          // NEW: from frontend (persisted per browser)
+      saveLongTerm = false, // NEW: when user clicks “Save this chat”
     } = body;
 
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     if (!userMessage)     return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
 
     const userId = req.headers.get("x-user-id") || undefined;
+    const isAnonymous = !userId;
+
+    // 🔐 Enforce storage policy before we save anything
+    await ensureConversationForMode({ conversationId, isAnonymous, clientId, saveLongTerm });
+
+    
 
   // Lightweight fast-path for pure acknowledgements (no LLM round-trip)
-  const ua = userAct(userMessage);
-  if (ua.isAck && !ua.isQuestion && ua.isShort) {
-    const quick =
-      (personaRaw === "adam")
-        ? "Sweet. Crack on: 1) pick one tiny step 2) 5-min timer."
-        : (personaRaw === "eve")
-        ? "Thanks for letting me know. Would you like one tiny next step?"
-        : "Got it. Want a tiny next step?";
+      // Lightweight fast-path for pure acknowledgements (no LLM round-trip)
+    const ua = userAct(userMessage);
+    if (ua.isAck && !ua.isQuestion && ua.isShort) {
+      let quick: string;
+      if (personaRaw === "adam")      quick = "Sweet. Crack on: 1) pick one tiny step 2) 5-min timer.";
+      else if (personaRaw === "eve")  quick = "Thanks for letting me know. Would you like one tiny next step?";
+      else if (personaRaw === "neutral") quick = "Thanks for letting me know.";
+      else quick = "All good! Would you like any other support?";
 
-    const inserted = await saveTurnToDB({
-      conversationId, userId, botUserId: BOT_USER_ID,
-      userMessage, botAnswer: quick
-    });
-    const userRow = inserted.find((r) => r.role === "user");
-    const assistantRow = inserted.find((r) => r.role === "assistant");
-    return NextResponse.json({
-      conversationId,
-      answer: quick,
-      emotion: "Neutral",
-      tier: "None",
-      resolvedPersona: personaRaw || "neutral",
-      citations: [],
-      rows: { user: userRow, assistant: assistantRow },
-    });
-  }
+      const inserted = await saveTurnToDB({
+        conversationId, userId, botUserId: BOT_USER_ID,
+        userMessage, botAnswer: quick, clientId
+      });
+
+      const userRow = inserted.find((r) => r.role === "user");
+      const assistantRow = inserted.find((r) => r.role === "assistant");
+      return NextResponse.json({
+        conversationId,
+        answer: quick,
+        emotion: "Neutral",
+        tier: "None",
+        resolvedPersona: personaRaw || "neutral",
+        citations: [],
+        rows: { user: userRow, assistant: assistantRow },
+      });
+    }
+
 
     // Load stored meta
     const { data: meta } = await supabase
@@ -937,10 +1144,11 @@ export async function POST(req: Request) {
     if (forced) {
       const card = buildCareCard("Imminent");
       const answer = careText(card);
-      const inserted = await saveTurnToDB({
-        conversationId, userId, botUserId: BOT_USER_ID,
-        userMessage, botAnswer: answer,
-      });
+          const inserted = await saveTurnToDB({
+      conversationId, userId, botUserId: BOT_USER_ID,
+      userMessage, botAnswer: answer, clientId
+    });
+
       const userRow = inserted.find((r) => r.role === "user");
       const assistantRow = inserted.find((r) => r.role === "assistant");
       return NextResponse.json({
