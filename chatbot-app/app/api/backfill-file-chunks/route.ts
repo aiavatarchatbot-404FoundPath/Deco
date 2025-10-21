@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,   // server key only
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,   
   { auth: { persistSession: false } }
 );
 
@@ -22,12 +22,12 @@ async function embedBatch(texts: string[]) {
 
 export async function POST() {
   try {
-    // grab rows that don't have an embedding yet
+    // deal with rows that don't have an embedding yet
     const { data: rows, error } = await sb
       .from("file_chunks")
       .select("row_id, content")
       .is("embedding", null)
-      .limit(2000); // tune if needed
+      .limit(2000); 
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     if (!rows?.length) return NextResponse.json({ ok: true, updated: 0, note: "nothing to backfill" });

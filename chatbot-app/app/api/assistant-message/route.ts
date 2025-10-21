@@ -1,11 +1,9 @@
-// app/api/assistant-message/route.ts
-// app/api/assistant-message/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,               // same URL
-  process.env.SUPABASE_SERVICE_ROLE_KEY!               // 🔒 service role — bypasses RLS
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,              
+  process.env.SUPABASE_SERVICE_ROLE_KEY!               
 );
 
 const BOT_USER_ID = process.env.BOT_USER_ID!;
@@ -18,8 +16,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing conversationId or content" }, { status: 400 });
     }
 
-    // ⚠️ sender_id must match your schema (uuid?). Use a fixed “assistant user” id, or allow NULL.
-    // Easiest: make sender_id nullable in messages, or create an ASSISTANT_USER_ID env var.
     const row = {
       conversation_id: conversationId,
       role: "assistant",

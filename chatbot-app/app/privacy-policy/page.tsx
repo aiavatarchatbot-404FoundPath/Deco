@@ -1,4 +1,3 @@
-// app/privacy-policy/page.tsx
 export const dynamic = 'force-dynamic';
 
 import { Suspense } from "react";

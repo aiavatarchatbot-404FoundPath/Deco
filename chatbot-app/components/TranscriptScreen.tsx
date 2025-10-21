@@ -67,7 +67,7 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
     transcript: [],
   });
 
-  // Resolve conversation id (prefer URL; otherwise latest ended for current user)
+  // Determine conversation ID
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -153,7 +153,7 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
           date: endDate.toLocaleDateString(),
           duration: formatHMS(seconds),
           messageCount,
-          summary: '', // populate if you later add a 'summary' column
+          summary: '', 
           transcript,
         });
         setLoading(false);

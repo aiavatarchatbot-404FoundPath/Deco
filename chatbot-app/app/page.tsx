@@ -81,16 +81,14 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleNavigateToChat = async (mode: 'avatar' | 'standard') => {
-    if (isLoading) return; // Prevent double clicks
+    if (isLoading) return;
     
     setIsLoading(true);
     
     try {
-      // Set session storage so the chat page knows the check-in was intentionally skipped.
       const skippedState = { skipped: true, timestamp: new Date() };
       sessionStorage.setItem(MOOD_SESSION_KEY, JSON.stringify(skippedState));
 
-      // Navigate to chat without mood data
       if (mode === 'avatar') {
         const convoId = await maybeCreateConversation();
         router.push(convoId ? `/chat/avatar?convo=${convoId}` : '/chat/avatar');
@@ -109,7 +107,7 @@ export default function HomePage() {
 
   // Navigation handler with loading
   const handleNavigation = async (screen: string) => {
-    if (isLoading) return; // Prevent double clicks
+    if (isLoading) return; 
     
     setIsLoading(true);
     
@@ -134,7 +132,7 @@ export default function HomePage() {
           router.push('/login');
           break;
         case 'privacy-policy':
-          router.push('/privacy-policy');   // or your preferred path
+          router.push('/privacy-policy'); 
           break;
         default:
           console.log(`Navigate to: ${screen}`);
@@ -147,8 +145,8 @@ export default function HomePage() {
   };
 
   async function maybeCreateConversation() {
-  const uid = await getSessionUserId();          // null if anonymous
-  if (!uid) return null;                         // skip DB write when not logged in
+  const uid = await getSessionUserId();          
+  if (!uid) return null;                         
   const convoId = await createConversation('My chat');
   console.log('[chat] created conversation:', convoId);
   return convoId;
@@ -213,15 +211,11 @@ export default function HomePage() {
 
     loadUserData();
 
-    
-  
-
     // Load saved mood data
     const savedMood = sessionStorage.getItem(MOOD_SESSION_KEY);
     if (savedMood) {
       try {
         const moodData = JSON.parse(savedMood);
-        // Check if mood data is recent and has required properties
         if (moodData && 
             moodData.feeling && 
             typeof moodData.feeling === 'string' &&
@@ -235,7 +229,6 @@ export default function HomePage() {
         sessionStorage.removeItem(MOOD_SESSION_KEY);
       }
     }
-    
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -256,21 +249,20 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      {/* Use Navbar Component with correct props */}
       <Navbar 
         onNavigate={handleNavigation}
         isLoggedIn={isLoggedIn}
         currentPage="home"
         isLoading={isLoading}
       />
-      {/* Decorative background blobs and subtle grid for a more gamified feel */}
+      {/* Decorative background blobs*/}
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-purple-300/30 blur-3xl" />
         <div className="absolute top-1/3 -right-24 h-96 w-96 rounded-full bg-blue-300/30 blur-3xl" />
         <div className="absolute bottom-[-4rem] left-1/2 -translate-x-1/2 h-72 w-[70%] rounded-full bg-pink-200/25 blur-3xl" />
         <div className="absolute inset-0 opacity-40 [background-image:radial-gradient(rgba(255,255,255,0.35)_1px,transparent_1px)] [background-size:18px_18px]" />
       </div>
-      {/* Moving mesh gradient background (soft, palette-matched) */}
+      {/* Moving mesh gradient background*/}
       <MeshGradientBackground className="-z-20 opacity-70" colors={["#f3e8ff","#ffe4e6","#dbeafe","#e9d5ff","#fecdd3","#bfdbfe"]} pointCount={6} speed={0.25} />
       
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -338,8 +330,8 @@ export default function HomePage() {
               <HomePageAvatarViewer
                 avatarUrl={COMPANIONS.ADAM.url}
                 animationUrl="/mixamo/Standing_Greeting.fbx"
-                position={[0, 0.1, 0]}  // Slightly raised position
-                rotation={[-0.05, Math.PI / 6, 0]}  // Face slightly toward center
+                position={[0, 0.1, 0]}  
+                rotation={[-0.05, Math.PI / 6, 0]} 
                 scale={0.75}  
                 cameraPosition={[0, 1.4, 3.5]}
                 cameraFov={30}
@@ -351,8 +343,8 @@ export default function HomePage() {
               <HomePageAvatarViewer
                 avatarUrl={COMPANIONS.EVE.url}
                 animationUrl="/mixamo/Standing_Greeting.fbx"
-                position={[0, 0.1, 0]}  // Slightly raised position
-                rotation={[-0.05, -Math.PI / 6, 0]}  // Face slightly toward center (mirrored)
+                position={[0, 0.1, 0]}  
+                rotation={[-0.05, -Math.PI / 6, 0]}  
                 scale={0.75}  
                 cameraPosition={[0, 1.4, 3.5]}
                 cameraFov={30}
@@ -377,7 +369,7 @@ export default function HomePage() {
           </div>
         
 
-          {/* Trust Indicators (short, non-interactive chips) */}
+          {/* Trust Indicators*/}
           <div className="flex flex-wrap justify-center gap-3 mb-10">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-50 text-yellow-900 ring-1 ring-yellow-200/60">
               <Shield className="h-4 w-4 text-yellow-700" />
@@ -388,7 +380,6 @@ export default function HomePage() {
               <span className="text-sm font-medium">Built for Youth</span>
             </div>
           </div>
-          {/* No additional keyframes needed (mesh gradient uses canvas) */}
 
           {/* Privacy Reminder */}
         <div className="max-w-2xl mx-auto mb-16">
@@ -441,14 +432,12 @@ export default function HomePage() {
                     Visual chat with 3D companions.
                   </p>
 
-                  {/* standardized features block for alignment */}
                   <div className="min-h-[112px] flex flex-col items-center justify-center gap-3 mb-6">
-                    {/* concise feature chips */}
+                    
                     <div className="flex flex-wrap justify-center gap-2 text-xs">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 ring-1 ring-teal-200" title="Chat with 3D characters">🎭 3D Avatars</span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200" title="Pick an avatar that feels like you">🧡 Personalized</span>
                     </div>
-                    {/* characters row */}
                     <div className="flex items-center justify-center gap-3">
                       <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full ring-1 ring-blue-200 bg-blue-50">
                         <img src={toThumbnail(COMPANIONS.ADAM.url) || ''} alt="Adam" className="w-5 h-5 rounded-full object-cover" />
@@ -558,14 +547,12 @@ export default function HomePage() {
                     Clean, fast text chat.
                   </p>
 
-                  {/* standardized features block for alignment */}
                   <div className="min-h-[112px] flex flex-col items-center justify-center mb-6">
                     <div className="flex flex-wrap justify-center gap-2 text-xs">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-200" title="Clean, distraction‑free chat">✨ Simple</span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200">⚡ Fast</span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-50 text-slate-700 ring-1 ring-slate-200" title="Same AI personality as avatar chat">🤖 Same AI</span>
                     </div>
-                    {/* spacer to match avatar characters row height */}
                     <div className="h-7" />
                   </div>
 
@@ -681,8 +668,6 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-      
-      {/* Loading overlay */}
       {isLoading && <Loading />}
     </div>
   );
