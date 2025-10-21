@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-import { parse as csvParse } from "csv-parse/sync"; // <- use csvParse, not parse
+import { parse as csvParse } from "csv-parse/sync"; 
 
 
 export const runtime = "nodejs";
@@ -33,30 +33,23 @@ export async function POST(req: Request) {
 
     let csvText = "";
 
-    // inside POST
     if (body.from === "table") {
       const table: string  = String(body.table || "csv_files");
       const rowId: string  = String(body.rowId || "");
       const column: string = String(body.column || "csv_text");
       if (!rowId) return NextResponse.json({ error: "rowId required" }, { status: 400 });
-
-      // don't destructure; keep the full response
-      const sb: any = supabaseAdmin;           // cast once
+      const sb: any = supabaseAdmin;          
       const resp = await sb
-        .from(table)                           // no generics here
+        .from(table)                         
         .select(`id,title,${column}${ownerId ? ",owner_id" : ""}`)
         .eq("id", rowId)
         .single();
-
-
       if (resp.error || !resp.data) {
         return NextResponse.json({ error: resp.error?.message || "row not found" }, { status: 400 });
       }
 
-      // ✅ do the cast "to unknown first" (what ts(2352) suggested)
       const idx = resp.data as unknown as Record<string, unknown>;
 
-      // now index with your dynamic column safely
       csvText = String((idx[column] as string | undefined) ?? "");
 
       const title = typeof idx["title"] === "string" ? (idx["title"] as string) : null;
@@ -66,7 +59,6 @@ export async function POST(req: Request) {
 
     if (!csvText.trim()) return NextResponse.json({ error: "CSV is empty" }, { status: 400 });
 
-    // FIX 2: use csvParse symbol; give explicit type on result
     const rows = csvParse(csvText, {
       columns: true,
       skip_empty_lines: true,

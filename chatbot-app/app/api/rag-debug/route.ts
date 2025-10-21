@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-
 export const runtime = "nodejs";
+
+
+// For debugging RAG setups by querying file chunks. Not used for project after debugging. 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth:{persistSession:false}});
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";

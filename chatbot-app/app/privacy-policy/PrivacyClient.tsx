@@ -1,4 +1,3 @@
-// app/privacy-policy/PrivacyClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -21,7 +20,7 @@ import {
 
 type FaqItem = { q: string; a: string };
 
-/* ---------------- Safety & Data Privacy (keep original) ---------------- */
+// safety faq
 const SAFETY_FAQ: FaqItem[] = [
   {
     q: "Do you collect personally identifiable information?",
@@ -45,7 +44,7 @@ const SAFETY_FAQ: FaqItem[] = [
   },
 ];
 
-/* ---------------- FAQ (General) — updated & expanded ---------------- */
+// general faq
 const GENERAL_FAQ: FaqItem[] = [
   {
     q: "What is this app for?",
