@@ -242,32 +242,6 @@ function shouldAvoidQuestions(lastUser: string) {
   return short || ack;
 }
 
-export function enforceNeutral(text: string, lastUser: string, suggestion?: string) {
-  let out = (text || "").trim();
-
-  // 1) Strip “Got it.” openers
-  out = out.replace(/^\s*got it[.!]?\s*/i, "");
-
-  // 2) Replace the questiony prompt with a declarative helper
-  out = out.replace(/want (a )?tiny next step\??/gi, "If I may suggest,");
-
-  // 3) If the last user message is a short ack, avoid ending with a question
-  if (shouldAvoidQuestions(lastUser) && /\?\s*$/.test(out)) {
-    out = out.replace(/\?\s*$/, ".");
-  }
-
-  // 4) If we now end with “If I may suggest,”, attach a concrete step
-  if (/If I may suggest,\s*$/i.test(out)) {
-    out += " " + (suggestion || "take a quiet 2-minute pause and stretch your shoulders.");
-  }
-
-  // 5) Remove any remaining banned phrases
-  NEUTRAL_BANNED.forEach(rx => { out = out.replace(rx, "").trim(); });
-
-  // 6) Cap to 3 sentences for Neutral brevity
-  const sentences = out.split(/(?<=[.!])\s+/).slice(0, 3);
-  return sentences.join(" ");
-}
 
 
 function voiceSheetV2(persona: Persona, customStyle?: string) {
