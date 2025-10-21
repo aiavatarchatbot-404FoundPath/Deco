@@ -113,6 +113,10 @@ export default function ClientAvatarChat() {
   const [accumulatedSeconds, setAccumulatedSeconds] = useState(0);
   const [activeSince, setActiveSince] = useState<Date | null>(null);
 
+  // local-only timer for anonymous sessions
+  const [localActiveSince, setLocalActiveSince] = useState<Date | null>(null);
+  const [localAccumulated, setLocalAccumulated] = useState(0);
+
   // If we fetch a temp avatar, stash it here (for anonymous users)
   const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
 
@@ -399,6 +403,13 @@ useEffect(() => {
   };
 }
 
+  // ensure we have a start time for anon so the sidebar shows time right away
+  useEffect(() => {
+  if (!isAuthenticated && !convStartedAt) {
+    setConvStartedAt(new Date());
+  }
+}, [isAuthenticated, convStartedAt]);
+  
 
   /* ---------- Messages (initial load + realtime) ---------- */
   useEffect(() => {
@@ -443,39 +454,61 @@ useEffect(() => {
   /* ---------- Session time & message count ---------- */
   // Fetch conversation timestamps
   useEffect(() => {
-    if (!conversationId) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('created_at, ended_at, accumulated_seconds, active_since')
-        .eq('id', conversationId)
-        .single();
-      if (!error && data) {
-        setConvStartedAt(new Date(data.created_at));
-        setConvEndedAt(data.ended_at ? new Date(data.ended_at) : null);
-        setAccumulatedSeconds(data.accumulated_seconds ?? 0);
-        setActiveSince(data.active_since ? new Date(data.active_since) : null);
-      }
-    })();
-  }, [conversationId]);
+  if (!conversationId || !isAuthenticated) return;  // ⬅️ skip for anon
+  (async () => {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('created_at, ended_at, accumulated_seconds, active_since')
+      .eq('id', conversationId)
+      .single();
+    if (!error && data) {
+      setConvStartedAt(new Date(data.created_at));
+      setConvEndedAt(data.ended_at ? new Date(data.ended_at) : null);
+      setAccumulatedSeconds(data.accumulated_seconds ?? 0);
+      setActiveSince(data.active_since ? new Date(data.active_since) : null);
+    }
+  })();
+}, [conversationId, isAuthenticated]);
+
 
    // Drive the live session timer
-  useEffect(() => { if (!convStartedAt) return;
+  useEffect(() => {
+  // For anon, start ticking as soon as convStartedAt exists (we set it above)
+  if (!convStartedAt) return;
 
   const tick = () => {
-    const live = activeSince
-      ? Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000))
-      : 0;
-    setSessionSeconds(accumulatedSeconds + live);
+    if (isAuthenticated) {
+      const live = activeSince
+        ? Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000))
+        : 0;
+      setSessionSeconds(accumulatedSeconds + live);
+    } else {
+      const live = localActiveSince
+        ? Math.max(0, Math.floor((Date.now() - localActiveSince.getTime()) / 1000))
+        : 0;
+      setSessionSeconds(localAccumulated + live);
+    }
   };
+
   tick();
   const id = setInterval(tick, 1000);
   return () => clearInterval(id);
-}, [convStartedAt, activeSince, accumulatedSeconds]);
+}, [
+  convStartedAt,
+  isAuthenticated,
+  // DB-backed
+  activeSince,
+  accumulatedSeconds,
+  // anon-backed
+  localActiveSince,
+  localAccumulated,
+]);
+
 
   useEffect(() => {
   if (!conversationId) return;
-  // If currently paused, resume on mount
+
+  // resume on mount for both modes
   resumeTimer();
 
   const onVis = () => {
@@ -486,13 +519,20 @@ useEffect(() => {
 
   return () => {
     document.removeEventListener('visibilitychange', onVis);
-    // ensure pause when navigating away/unmounting
     pauseTimer();
   };
-}, [conversationId, activeSince, accumulatedSeconds]);
+}, [conversationId, isAuthenticated, activeSince, accumulatedSeconds, localActiveSince, localAccumulated]);
+
   async function resumeTimer() {
   if (!conversationId) return;
-  // only resume if currently paused
+
+  if (!isAuthenticated) {
+    // local-only: don't touch DB
+    if (!localActiveSince) setLocalActiveSince(new Date());
+    return;
+  }
+
+  // logged-in: DB-backed
   if (activeSince) return;
   const nowIso = new Date().toISOString();
   const { error } = await supabase
@@ -504,7 +544,18 @@ useEffect(() => {
 
 async function pauseTimer() {
   if (!conversationId) return;
-  if (!activeSince) return; // already paused
+
+  if (!isAuthenticated) {
+    // local-only: bank into localAccumulated
+    if (!localActiveSince) return;
+    const deltaSec = Math.max(0, Math.floor((Date.now() - localActiveSince.getTime()) / 1000));
+    setLocalAccumulated((prev) => prev + deltaSec);
+    setLocalActiveSince(null);
+    return;
+  }
+
+  // logged-in: DB-backed
+  if (!activeSince) return;
   const deltaSec = Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000));
   const nextAccum = accumulatedSeconds + deltaSec;
 
@@ -518,6 +569,7 @@ async function pauseTimer() {
     setActiveSince(null);
   }
 }
+
 
   // Keep message count synced with DB-backed messages (only user queries)
   useEffect(() => {
