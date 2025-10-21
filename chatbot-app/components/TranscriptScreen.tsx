@@ -7,9 +7,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
-import { Textarea } from './ui/textarea';
-import { Label } from './ui/label';
 import { 
   FileText, 
   Download, 
@@ -53,7 +50,6 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
   const convoFromUrl = params.get('convo'); // ?convo=<uuid>
 
   const [showFullTranscript, setShowFullTranscript] = useState(false);
-  const [shareNote, setShareNote] = useState('');
   const [copied, setCopied] = useState(false);
 
   const [conversationId, setConversationId] = useState<string | null>(convoFromUrl);
@@ -163,6 +159,7 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
     return () => { cancelled = true; };
   }, [conversationId]);
 
+  // Base transcript without headers/notes
   const transcriptText = useMemo(
     () => conversationData.transcript
       .map(msg => `${msg.sender === 'ai' ? 'Adam' : 'You'}: ${msg.content}`)
@@ -170,9 +167,14 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
     [conversationData.transcript]
   );
 
+  // Helper to build export text on demand
+  const buildExportText = () => {
+    return `\nAvatar Companion Conversation Summary\nDate: ${conversationData.date}\nDuration: ${conversationData.duration}\n\nSummary: ${conversationData.summary || '(no saved summary)'}\n\nConversation:\n${transcriptText}\n\n---\nThis conversation was conducted in a safe, confidential environment with AI support.\n`;
+  };
+
   const handleCopyTranscript = async () => {
     try {
-      await navigator.clipboard.writeText(transcriptText);
+      await navigator.clipboard.writeText(buildExportText());
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -181,20 +183,7 @@ export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) 
   };
 
   const handleDownload = () => {
-    const txt = `
-Avatar Companion Conversation Summary
-Date: ${conversationData.date}
-Duration: ${conversationData.duration}
-
-Summary: ${conversationData.summary || '(no saved summary)'}
-
-Conversation:
-${transcriptText}
-
----
-This conversation was conducted in a safe, confidential environment with AI support.
-`;
-    const blob = new Blob([txt], { type: 'text/plain' });
+    const blob = new Blob([buildExportText()], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -361,22 +350,7 @@ This conversation was conducted in a safe, confidential environment with AI supp
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Note for recipient */}
-              <div>
-                <Label htmlFor="share-note" className="text-sm font-medium mb-2 block">
-                  Add a note for the person you're sharing with (optional):
-                </Label>
-                <Textarea
-                  id="share-note"
-                  value={shareNote}
-                  onChange={(e) => setShareNote(e.target.value)}
-                  placeholder="e.g., 'Hi [Name], I had this conversation with my AI companion and thought it might help you understand what I've been going through...'"
-                  className="trauma-safe gentle-focus"
-                  rows={3}
-                />
-              </div>
-
-              <Separator />
+              {/* Note removed to simplify sharing/export */}
 
               {/* Action buttons */}
               <div className="grid sm:grid-cols-2 gap-4">

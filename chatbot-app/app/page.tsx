@@ -7,7 +7,6 @@ import { Badge } from '../components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Navbar from '../components/Navbar'; 
-import MeshGradientBackground from '../components/MeshGradientBackground';
 import { createConversation } from '@/lib/conversations'; 
 import { getSessionUserId } from '@/lib/auth';
 import { Loading } from '../components/ui/loading';
@@ -270,8 +269,7 @@ export default function HomePage() {
         <div className="absolute bottom-[-4rem] left-1/2 -translate-x-1/2 h-72 w-[70%] rounded-full bg-pink-200/25 blur-3xl" />
         <div className="absolute inset-0 opacity-40 [background-image:radial-gradient(rgba(255,255,255,0.35)_1px,transparent_1px)] [background-size:18px_18px]" />
       </div>
-      {/* Moving mesh gradient background (soft, palette-matched) */}
-      <MeshGradientBackground className="-z-20 opacity-70" colors={["#f3e8ff","#ffe4e6","#dbeafe","#e9d5ff","#fecdd3","#bfdbfe"]} pointCount={6} speed={0.25} />
+      {/* Mesh gradient background removed */}
       
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         
@@ -388,7 +386,7 @@ export default function HomePage() {
               <span className="text-sm font-medium">Built for Youth</span>
             </div>
           </div>
-          {/* No additional keyframes needed (mesh gradient uses canvas) */}
+          {/* Mesh gradient note removed */}
 
           {/* Privacy Reminder */}
         <div className="max-w-2xl mx-auto mb-16">
