@@ -1,22 +1,19 @@
-// app/chat/summary/SummaryClient.tsx
 "use client";
 
 import React, { useState } from "react";
 import { useRouter /*, useSearchParams*/ } from "next/navigation";
 import TranscriptScreen from "@/components/TranscriptScreen";
 
-/**
- * ConversationSummaryPage (client)
- * - Wraps the TranscriptScreen
- * - Handles navigation (Continue Chatting, Back to Home, etc.)
- */
+
+ // ConversationSummaryPage (client)
+ // - Wraps the TranscriptScreen
+ //  - Handles navigation (Continue Chatting, Back to Home, etc.)
+
 export default function SummaryClient() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
-  // If you need a query param, uncomment:
-  // const sp = useSearchParams();
-  // const conversationId = sp.get("conversationId") ?? "";
+
 
   const handleNavigate = (screen: string) => {
     if (isLoading) return; // Prevent double clicks
@@ -41,6 +38,6 @@ export default function SummaryClient() {
     }
   };
 
-  // If TranscriptScreen accepts extra props, you can pass them here (e.g., conversationId)
+  // If TranscriptScreen accepts extra props, you can pass them here 
   return <TranscriptScreen onNavigate={handleNavigate} />;
 }

@@ -136,13 +136,11 @@ export default function PrivacyClient() {
       <Navbar onNavigate={handleNavigate} currentPage="privacy" isLoggedIn={true} isLoading={false} />
 
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8">
-        {/* Back */}
         <Button variant="ghost" onClick={() => router.push("/")} className="mb-6 trauma-safe gentle-focus">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Button>
 
-        {/* Hero */}
         <section className="text-center mb-8 sm:mb-12">
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight">
             Privacy, Safety &amp; FAQ
@@ -288,7 +286,7 @@ export default function PrivacyClient() {
                     </ol>
                   </div>
 
-                  {/* Key standards/resources (short) */}
+                  {/* Key standards/resources */}
                   <div className="rounded-lg border p-4">
                     <h4 className="font-medium mb-2">Key Standards &amp; Resources</h4>
                     <ul className="list-disc pl-5 space-y-1 text-sm">
@@ -340,7 +338,7 @@ export default function PrivacyClient() {
               </Card>
             </TabsContent>
 
-            {/* FAQ (renamed and expanded) */}
+            {/* FAQ */}
             <TabsContent value="faq" className="space-y-6">
               <Card className="trauma-safe">
                 <CardHeader>

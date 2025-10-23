@@ -16,9 +16,9 @@ type AvatarType = "user" | "companion";
 interface ReadyPlayerMeAvatar {
   id: string;
   name: string;
-  url: string; // often .glb
+  url: string; 
   type: "user" | "companion";
-  thumbnail?: string; // .png
+  thumbnail?: string; 
   isCustom?: boolean;
 }
 
@@ -29,7 +29,7 @@ interface ReadyPlayerMeSelectorProps {
   user?: { id: string; username: string } | null; // not relied on for saving
 }
 
-/* ---------- helpers: convert RPM URLs to image thumbnails ---------- */
+// helpers: convert RPM URLs to image thumbnails 
 function toThumbnail(url: string | null | undefined): string | null {
   if (!url) return null;
 
@@ -47,12 +47,11 @@ function toThumbnail(url: string | null | undefined): string | null {
       return `https://api.readyplayer.me/v1/avatars/${id}.png`;
     }
   } catch (_) {
-    /* ignore */
   }
   return null;
 }
 
-/* --------------------- prebuilt companions list --------------------- */
+// prebuilt companions list
 const COMPANION_AVATARS: ReadyPlayerMeAvatar[] = [
   { 
     id: "adam", 
@@ -82,10 +81,10 @@ export function ReadyPlayerMeSelector({
   const [isLoading, setIsLoading] = useState(false);
 
   // The URLs actually used for this signed-in user (from DB)
-  const [userUrl, setUserUrl] = useState<string | null>(null);           // stored (likely .glb)
-  const [companionUrl, setCompanionUrl] = useState<string | null>(null); // stored (likely .glb)
+  const [userUrl, setUserUrl] = useState<string | null>(null);           
+  const [companionUrl, setCompanionUrl] = useState<string | null>(null); 
 
-  /* ----------------- load profile on mount & auth changes ----------------- */
+  // load profile on mount & auth changes
   useEffect(() => {
     let mounted = true;
 
@@ -156,7 +155,7 @@ export function ReadyPlayerMeSelector({
     setCompanionUrl(data?.rpm_companion_url ?? null);
   }, []);
 
-  /* --------------- ReadyPlayerMe --> save user avatar to DB ---------------- */
+  // ReadyPlayerMe --> save user avatar to DB
   const handleReadyPlayerMeMessage = (event: MessageEvent) => {
     // Only handle user avatar creation, not companions
     if (activeTab !== "user") return;
@@ -180,7 +179,7 @@ export function ReadyPlayerMeSelector({
 
     if (!avatarUrl) return;
 
-    // build object for parent callback (user avatar only)
+    // build object for parent callback (only user avatar )
     const parts = avatarUrl.split("/");
     const last = parts[parts.length - 1] ?? "";
     const avatarId = last.replace(".glb", "");
@@ -208,7 +207,6 @@ export function ReadyPlayerMeSelector({
   useEffect(() => {
     window.addEventListener("message", handleReadyPlayerMeMessage);
     return () => window.removeEventListener("message", handleReadyPlayerMeMessage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, saveAvatarToDB]);
 
   const openReadyPlayerMe = (type: "user") => {

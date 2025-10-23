@@ -34,7 +34,6 @@ export default function LoginClient() {
     return redirect && redirect.startsWith("/") ? redirect : "/profile";
   })();
 
-  // NEW: push username into public.profiles for this uid
   async function ensureProfile(u: User | null, desiredUsername?: string) {
     if (!u) return;
     const nameFromAuth = (u.user_metadata as any)?.username;
@@ -43,7 +42,6 @@ export default function LoginClient() {
       .trim()
       .slice(0, 40) || null;
 
-    // RLS must allow: auth.uid() = id to insert/update
     await supabase
       .from("profiles")
       .upsert(
@@ -64,17 +62,15 @@ export default function LoginClient() {
         typeof window !== "undefined" ? window.location.origin + safeTarget : undefined;
 
       if (user) {
-        // Link provider to THIS uid (upgrade-in-place)
         const { error } = await supabase.auth.linkIdentity({
           provider,
           options: { redirectTo },
         });
         if (error) throw error;
-        // After redirect, do a profile sync on /profile page as well (recommended).
         return;
       }
 
-      // No session → normal OAuth sign-in (new uid)
+      // No session → normal OAuth sign-in 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: { redirectTo },
@@ -97,7 +93,7 @@ export default function LoginClient() {
       const redirect = params.get("redirect");
       const safeTarget = redirect && redirect.startsWith("/") ? redirect : "/profile";
 
-      // pull ?convo=<id> from redirect path so we can claim it
+      // For claiming conversation ownership after login/sign-up
       let convoFromRedirect: string | null = null;
       if (typeof window !== "undefined") {
         const u = new URL(window.location.origin + safeTarget);
@@ -113,7 +109,7 @@ export default function LoginClient() {
           return;
         }
 
-        // Simple username validation (optional)
+        // Simple username validation 
         const uname = username.trim();
         if (uname && !/^[a-zA-Z0-9_ .-]{2,40}$/.test(uname)) {
           setErr("Username can use letters, numbers, spaces, _.- (2–40 chars).");
@@ -121,7 +117,7 @@ export default function LoginClient() {
         }
 
         if (haveSession) {
-          // upgrade-in-place: keep SAME uid
+          // upgrade anonymous ->  full account
           const { data: updated, error } = await supabase.auth.updateUser({
             email,
             password,
@@ -129,10 +125,8 @@ export default function LoginClient() {
           });
           if (error) throw error;
 
-          // NEW: sync to profiles immediately
           await ensureProfile(updated.user ?? user, uname);
 
-          // claim the ongoing conversation (safe if already owned)
           if (convoFromRedirect && user?.id) {
             await fetch("/api/conversations/ensure-ownership", {
               method: "POST",
@@ -145,17 +139,13 @@ export default function LoginClient() {
           return;
         }
 
-        // no session → real sign-up (new uid)
+        // no session -> real sign-up (new uid)
         const { data: signUpData, error } = await supabase.auth.signUp({
           email,
           password,
           options: { data: { username: uname || null } },
         });
         if (error) throw error;
-
-        // If your project has email confirmation ON, there is no session yet.
-        // We'll sync profile on first login. (If confirmation is OFF and a session exists,
-        // you can call ensureProfile(signUpData.user, uname) here.)
 
         setInfo("Check your email to confirm your account, then log in.");
         setIsSignUp(false);
@@ -168,11 +158,11 @@ export default function LoginClient() {
       const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
       if (loginErr) throw loginErr;
 
-      // After login, fetch user and sync profile (copies auth.user_metadata.username → profiles.username)
+      // After login, fetch user and sync profile 
       const { data: { user: u2 } } = await supabase.auth.getUser();
       await ensureProfile(u2, undefined); // username comes from auth metadata on login
 
-      // claim after login too (covers the non-upgrade path)
+      // claim after login too
       if (convoFromRedirect && u2?.id) {
         await fetch("/api/conversations/ensure-ownership", {
           method: "POST",

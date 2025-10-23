@@ -27,7 +27,7 @@ import {
   User,
 } from "lucide-react";
 
-/* --------------------------------- Utils --------------------------------- */
+// Utiles
 
 function normalizeMoodValue(raw: unknown): string | null {
   if (!raw) return null;
@@ -116,7 +116,7 @@ function idFromUrl(url: string): string {
   return last.replace(".glb", "") || `custom-${Date.now()}`;
 }
 
-/* --------------------------------- Types --------------------------------- */
+// Types
 
 type Profile = {
   id: string;
@@ -135,18 +135,18 @@ type SavedConvo = {
   final_mood: unknown;
 };
 
-/* ------------------------------ Component ------------------------------- */
+// component
 
 export default function ProfileClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  /* Modals */
+  // Modals 
   const [showDeleteHistory, setShowDeleteHistory] = useState(false);
   const [pendingDeleteConvo, setPendingDeleteConvo] = useState<string | null>(null);
   const [pendingDeleteTitle, setPendingDeleteTitle] = useState<string | null>(null);
 
-  /* Profile */
+  // Profile 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -154,22 +154,22 @@ export default function ProfileClient() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [defaultModel, setDefaultModel] = useState("gpt-4o-mini");
 
-  /* Tabs */
+  // Tabs 
   const initialTab = (() => {
     const t = searchParams.get("tab");
     return (t === "conversations" || t === "avatars" || t === "saved" || t === "settings") ? (t as Tab) : "conversations";
   })();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
-  /* Saved tab data */
+  // Saved tab data 
   const [savedConvos, setSavedConvos] = useState<SavedConvo[]>([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
 
-  /* Header metrics */
+  // Header metrics 
   const [counts, setCounts] = useState({ total: 0, ongoing: 0, ended: 0 });
   const [lastActiveAt, setLastActiveAt] = useState<string | null>(null);
 
-  /* ---------------------------- Helpers/Derived --------------------------- */
+  // Helper/Derived
 
   const displayName = useMemo(() => profile?.username ?? "Anonymous", [profile]);
   const headerThumb = toThumbnail(profile?.rpm_user_url);
@@ -182,7 +182,7 @@ export default function ProfileClient() {
     }
   }, [searchParams, activeTab]);
 
-  /* ------------------------------ Auth/Profile ---------------------------- */
+  //Auth + profile load
 
   useEffect(() => {
     let cancelled = false;
@@ -252,7 +252,7 @@ export default function ProfileClient() {
     };
   }, [router]);
 
-  /* ---------------------------- Header metrics ---------------------------- */
+  // Header metrics load
 
   // Helper so we can refresh counts after deletes too
   const refreshHeader = async (userId: string) => {
@@ -310,7 +310,7 @@ export default function ProfileClient() {
     return () => { cancelled = true; };
   }, [profile?.id]);
 
-  /* ------------------------------ Saved (ended) --------------------------- */
+  // Sacved when ended
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -325,7 +325,7 @@ export default function ProfileClient() {
           .from("conversations")
           .select("id, title, updated_at, initial_mood, final_mood")
           .eq("created_by", profile.id)
-          .eq("status", "ended") // ← only saved/ended
+          .eq("status", "ended") // only saved/ended
           .order("updated_at", { ascending: false });
 
         if (error) throw error;
@@ -341,7 +341,7 @@ export default function ProfileClient() {
     return () => { cancelled = true; };
   }, [profile?.id, activeTab]);
 
-  /* ------------------------------- Handlers ------------------------------- */
+  // Handlers
 
   const handleBackToHome = () => router.push("/");
   const handleNavigateToChat = () => router.push("/chat/simple?new=1");
@@ -421,7 +421,7 @@ export default function ProfileClient() {
     }
   };
 
-  /* --------------------------------- Render -------------------------------- */
+  // Render
 
   if (loadingProfile) return <p className="p-6">Loading profile…</p>;
   if (!profile) {
@@ -475,12 +475,6 @@ export default function ProfileClient() {
                 <span>{counts.ongoing} active conversations</span>
                 <span>•</span>
                 <span>{counts.ended} saved chats</span>
-                {/* If you want total too: 
-                  <>
-                    <span>•</span>
-                    <span>{counts.total} total</span>
-                  </>
-                */}
                 {profile.rpm_user_url && (
                   <>
                     <span>•</span>
@@ -496,7 +490,6 @@ export default function ProfileClient() {
           </div>
         </div>
 
-        {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Tabs */}
           <div className="lg:col-span-2">

@@ -27,7 +27,7 @@ type MoodState = (MoodData & { timestamp: Date }) | null;
 
 const LS_CONVO_KEY = "simple:conversation_id";
 
-/* ---------- helpers ---------- */
+// helper functions 
 function sortMsgs(a: MessageRow, b: MessageRow) {
   const ta = new Date(a.created_at).getTime();
   const tb = new Date(b.created_at).getTime();
@@ -79,7 +79,6 @@ export default function ClientSimpleChat() {
   const [localActiveSince, setLocalActiveSince] = useState<Date | null>(null);
   const [localAccumulated, setLocalAccumulated] = useState(0);
 
-  // auth (live)
   const [authUser, setAuthUser] = useState<SupaUser | null>(null);
   useEffect(() => {
     let mounted = true;
@@ -99,7 +98,6 @@ export default function ClientSimpleChat() {
     };
   }, []);
 
-  /* conversation id: support ?convo=<id> to continue, ?new=1 to start fresh */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -125,7 +123,7 @@ export default function ClientSimpleChat() {
     setConversationId(cid);
   }, []);
 
-  /* ensure conversation exists (messages still need a convo), but do NOT write timing for anon */
+  // ensure conversation exists 
   useEffect(() => {
     if (!conversationId) return;
     (async () => {
@@ -145,7 +143,7 @@ export default function ClientSimpleChat() {
     })();
   }, [conversationId]);
 
-  /* mark simple mode once */
+  //  mark simple mode once 
   useEffect(() => {
     if (!conversationId) return;
     (async () => {
@@ -159,7 +157,7 @@ export default function ClientSimpleChat() {
     })();
   }, [conversationId]);
 
-  /* initial messages + realtime */
+  // initial messages + realtime 
   useEffect(() => {
     if (!conversationId) return;
     let mounted = true;
@@ -192,7 +190,7 @@ export default function ClientSimpleChat() {
     };
   }, [conversationId]);
 
-  /* load timing snapshot (DB) — skip when anonymous */
+  // load timing snapshot (DB), skip ping when anonymous 
   useEffect(() => {
     if (!conversationId || !isAuthenticated) return;
     (async () => {
@@ -208,7 +206,7 @@ export default function ClientSimpleChat() {
     })();
   }, [conversationId, isAuthenticated]);
 
-  /* live ticking: choose DB-backed when logged in, local when anonymous */
+  // live ticking. choose DB-backed when logged in, local when anonymous 
   useEffect(() => {
     const tick = () => {
       if (isAuthenticated) {
@@ -228,13 +226,11 @@ export default function ClientSimpleChat() {
     return () => clearInterval(id);
   }, [
     isAuthenticated,
-    // DB source
     accumulatedSeconds, activeSince,
-    // local source
     localAccumulated, localActiveSince,
   ]);
 
-  /* resume/pause: branch by auth so anon never writes timing to DB */
+  // resume/pause fuctnions : branch by auth so anon never writes timing to DB 
   async function resumeTimer() {
     if (!conversationId) return;
 
@@ -278,7 +274,7 @@ export default function ClientSimpleChat() {
     }
   }
 
-  /* mount/visibility handling: same API for both modes */
+  // visibiloity handling
   useEffect(() => {
     if (!conversationId) return;
     resumeTimer();
@@ -291,12 +287,11 @@ export default function ClientSimpleChat() {
   }, [
     conversationId,
     isAuthenticated,
-    // include these so the closure sees latest
     activeSince, accumulatedSeconds,
     localActiveSince, localAccumulated,
   ]);
 
-  /* navigation: only End/Home shows MoodCheckIn; others just pause→push */
+  // only End/Home shows MoodCheckIn, others just pause→push 
   const handleNavigation = async (screen: string) => {
     if (screen === "home" || screen === "endchat") {
       setPendingNavigate("/");
@@ -305,12 +300,12 @@ export default function ClientSimpleChat() {
       return;
     }
 
-    // bank time but do NOT end
+    // bank time but not end
     await pauseTimer();
 
     switch (screen) {
       case "end-and-summary": {
-        // End conversation immediately and go to summary (skip mood check)
+        // End conversation immediately and go to summary
         const cid = conversationId;
         await endConversation();
         if (cid) router.push(`/chat/summary?convo=${cid}` as Route);
@@ -325,7 +320,7 @@ export default function ClientSimpleChat() {
     }
   };
 
-  /* mood handlers (entry) */
+  // mood handlers
   const handleMoodComplete = async (moodData: MoodData) => {
     setEntryMood({ ...moodData, timestamp: new Date() });
     setShowEntryMoodCheck(false);
@@ -343,11 +338,11 @@ export default function ClientSimpleChat() {
   };
   const handleSkip = () => { setEntryMood(null); setShowEntryMoodCheck(false); };
 
-  /* end chat (only when MoodCheckIn confirm/skip) */
+  // end chat (only when MoodCheckIn confirm/skip) 
   const endConversation = async () => {
     if (!conversationId) return;
     try {
-      await pauseTimer(); // finalize time (local/DB as appropriate)
+      await pauseTimer(); // finalize time 
       if (isAuthenticated) {
         await supabase
           .from("conversations")
@@ -404,7 +399,7 @@ export default function ClientSimpleChat() {
     router.push((`/login?redirect=${encodeURIComponent(current)}`) as Route);
   };
 
-  /* send flow */
+  // send flow 
   const handleSend = async (text: string) => {
     const t = text.trim();
     if (!t || !conversationId) return;
@@ -479,7 +474,7 @@ export default function ClientSimpleChat() {
     }
   };
 
-  /* derive props */
+  // derive props 
   const sortedMessages = useMemo(() => messages.slice().sort(sortMsgs), [messages]);
   const uiMessages: DbMessage[] = useMemo(
     () =>

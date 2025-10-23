@@ -1,6 +1,6 @@
 import { corsHeaders } from './cors';
 
-// Define the Mood type (adjust values as needed)
+// Define the Mood type 
 type Mood = 'happy' | 'sad' | 'neutral' | 'angry' | 'excited';
 
 // Define the structure of the webhook payload from Supabase

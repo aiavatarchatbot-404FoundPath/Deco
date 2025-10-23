@@ -36,7 +36,7 @@ export default function AvatarBuilderPage() {
   // guard to prevent double-create if user double-clicks
   const createInFlight = useRef(false);
 
-  /** ---------- auth/profile ---------- */
+  // auth/profile load
   useEffect(() => {
     (async () => {
       try {
@@ -78,17 +78,16 @@ export default function AvatarBuilderPage() {
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** ---------- persona sync with companion (unless custom) ---------- */
+  // persona sync with companion 
   useEffect(() => {
     setPersonaChoice((prev) =>
       prev === "custom" ? "custom" : companionChoice === "EVE" ? "eve" : "adam"
     );
   }, [companionChoice]);
 
-  /** ---------- simple navbar navigation ---------- */
+  //simple navbar navigation 
   const handleNavigation = (screen: string) => {
     if (navigationLoading) return;
     setNavigationLoading(true);
@@ -116,7 +115,7 @@ export default function AvatarBuilderPage() {
     }
   };
 
-  /** ---------- save avatar (user or anon) ---------- */
+  //save avatar (user or anon)
   const handleSaveAvatar = useCallback(
     async (avatar: AvatarInput) => {
       if (saveLoading) return;
@@ -132,7 +131,6 @@ export default function AvatarBuilderPage() {
           if (error) throw error;
           setUser((prev: any) => (prev ? { ...prev, rpm_user_url: avatar.url } : prev));
         } else {
-          // store anon temp avatar against *latest* conversation if needed later
           const convoId = localStorage.getItem(LS_AVATAR_CONVO_KEY);
           if (!convoId) {
             console.warn("No conversation yet; will attach temp avatar after chat starts.");
@@ -165,7 +163,7 @@ export default function AvatarBuilderPage() {
     [isLoggedIn, user, saveLoading]
   );
 
-  /** ---------- save companion when authed ---------- */
+  //save companion when authed
   const handleSelectCompanion = useCallback(
     async (key: "ADAM" | "EVE") => {
       setCompanionChoice(key);
@@ -189,7 +187,7 @@ export default function AvatarBuilderPage() {
     [isLoggedIn, user?.id]
   );
 
-  /** ---------- apply style to a specific conversation ---------- */
+  // apply style to a specific conversation 
   async function applyStyleToConversationFor(convoId: string) {
     setStyleSaving(true);
     try {
@@ -207,9 +205,9 @@ export default function AvatarBuilderPage() {
     }
   }
 
-  /** ---------- Start Chat: create ONE conversation, then go ---------- */
+  //Start Chat: create ONE conversation, then go
   const handleNavigateToChat = useCallback(async () => {
-    if (createInFlight.current) return;        // guard double-clicks
+    if (createInFlight.current) return;        
     createInFlight.current = true;
     setNavigationLoading(true);
 
@@ -224,13 +222,13 @@ export default function AvatarBuilderPage() {
       if (!res.ok || !json?.id) throw new Error(json?.error || "Failed to create conversation");
       const convoId: string = json.id;
 
-      // 2) persist newest id so anon temp avatar (if any) can attach
+      // 2) persist newest id so anon temp avatar  can attach
       localStorage.setItem(LS_AVATAR_CONVO_KEY, convoId);
 
       // 3) Apply style/persona to THIS conversation
       await applyStyleToConversationFor(convoId);
 
-      // 4) Navigate to chat with this id (and new=1 so the chat page ignores any old local id)
+      // 4) Navigate to chat with this id 
       const sid = getOrCreateSessionId();
       const params = new URLSearchParams();
       if (user?.rpm_user_url) params.set("userUrl", user.rpm_user_url);
@@ -247,7 +245,7 @@ export default function AvatarBuilderPage() {
     }
   }, [personaChoice, customStyleText, user, router]);
 
-  /** ---------- small reset ---------- */
+  // small reset
   useEffect(() => {
     const t = setTimeout(() => setNavigationLoading(false), 100);
     return () => clearTimeout(t);
@@ -274,7 +272,6 @@ export default function AvatarBuilderPage() {
         onSelectCompanion={handleSelectCompanion}
         navigationLoading={navigationLoading}
         saveLoading={saveLoading}
-        // tone controls
         personaChoice={personaChoice}
         setPersonaChoice={setPersonaChoice}
         customStyleText={customStyleText}

@@ -1,10 +1,9 @@
-// app/profile/page.tsx
-export const dynamic = 'force-dynamic'; // named config ✅
+export const dynamic = 'force-dynamic'; 
 
 import { Suspense } from "react";
-import ProfileClient from "./ProfileClient"; // make sure filename & casing match
+import ProfileClient from "./ProfileClient"; 
 
-export default function ProfilePage() {        // ✅ default export is a component
+export default function ProfilePage() {        
   return (
     <Suspense fallback={<div className="p-6">Loading profile…</div>}>
       <ProfileClient />

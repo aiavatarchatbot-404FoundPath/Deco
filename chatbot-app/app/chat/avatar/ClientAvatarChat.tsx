@@ -47,7 +47,7 @@ const COMPANIONS = {
   EVE:  { name: 'Eve',  url: 'https://models.readyplayer.me/68be6a2ac036016545747aa9.glb' },
 } as const;
 
-/* ---------- Deterministic ordering helpers ---------- */
+// Deterministic ordering helpers 
 function sortMsgs(a: MessageRow, b: MessageRow) {
   const ta = new Date(a.created_at).getTime();
   const tb = new Date(b.created_at).getTime();
@@ -80,7 +80,7 @@ export default function ClientAvatarChat() {
 
   // Reset any global loading states when component mounts
   useEffect(() => {
-    // This helps clear loading states from previous pages
+    //  clear loading states from previous pages
     const timer = setTimeout(() => {
       // If there are any global loading states, they should be cleared here
       if (typeof window !== 'undefined') {
@@ -91,9 +91,9 @@ export default function ClientAvatarChat() {
     return () => clearTimeout(timer);
   }, []);
 
-  // URL params
-  const conversationId = params.get('convo');        // UUID or null
-  const sessionIdFromParams = params.get('sid');     // anon session id
+
+  const conversationId = params.get('convo');       
+  const sessionIdFromParams = params.get('sid');     
   const companionUrlFromParams = params.get('companionUrl');
   const companionNameFromParams = params.get('companionName');
   const userUrlFromParams = params.get('userUrl');
@@ -120,7 +120,7 @@ export default function ClientAvatarChat() {
   // If we fetch a temp avatar, stash it here (for anonymous users)
   const [tempUserUrl, setTempUserUrl] = useState<string | null>(null);
 
-  /* ---------- Navigation / Exit ---------- */
+  // Navigation / Exit
   const handleNavigation = (screen: string) => {
     if (screen === 'home' || screen === 'endchat') {
       if (!isAuthenticated) {
@@ -284,7 +284,6 @@ function personaToCompanion(p?: Persona) {
   return null;
 }
 
-// NEW: conversation meta
 type ConvoMeta = { id: string; persona: Persona | null; style_tokens?: any | null };
 const [convoMeta, setConvoMeta] = useState<ConvoMeta | null>(null);
 
@@ -318,7 +317,7 @@ const [convoMeta, setConvoMeta] = useState<ConvoMeta | null>(null);
 useEffect(() => {
   if (!conversationId) return;
   if (!convoMeta) return;
-  if (convoMeta.persona) return; // already set, do nothing
+  if (convoMeta.persona) return; 
 
   // Derive from URL if present, else from profile fallback, else default ADAM
   const fromUrl = (companionNameFromParams || '').toUpperCase();
@@ -340,7 +339,7 @@ useEffect(() => {
 }, [conversationId, convoMeta, companionNameFromParams, profile?.rpm_companion_url]);
 
 
-  /* ---------- Profile ---------- */
+  // Profile
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -362,7 +361,7 @@ useEffect(() => {
     })();
   }, []);
 
-  /* ---------- Mood (entry from session storage) ---------- */
+  // Moodd
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const stored = sessionStorage.getItem(MOOD_SESSION_KEY);
@@ -403,7 +402,7 @@ useEffect(() => {
   };
 }
 
-  // ensure we have a start time for anon so the sidebar shows time right away
+  // check we have a start time for anon 
   useEffect(() => {
   if (!isAuthenticated && !convStartedAt) {
     setConvStartedAt(new Date());
@@ -411,7 +410,7 @@ useEffect(() => {
 }, [isAuthenticated, convStartedAt]);
   
 
-  /* ---------- Messages (initial load + realtime) ---------- */
+  // Messages
   useEffect(() => {
     if (!conversationId) return;
     let mounted = true;
@@ -421,8 +420,8 @@ useEffect(() => {
         .from('messages')
         .select('id, conversation_id, sender_id, role, content, created_at')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true }) // chronological
-        .order('id',         { ascending: true }) // TIE-BREAK when created_at is equal
+        .order('created_at', { ascending: true }) 
+        .order('id',         { ascending: true }) 
         .limit(200);
       if (!mounted) return;
       if (error) {
@@ -432,7 +431,7 @@ useEffect(() => {
       setMessages((data ?? []).slice().sort(sortMsgs));
     })();
 
-    // Realtime inserts — upsert + sort so order is always correct
+    // Realtime inserts 
     const ch = supabase
       .channel(`msgs:${conversationId}`)
       .on(
@@ -451,10 +450,9 @@ useEffect(() => {
     };
   }, [conversationId]);
 
-  /* ---------- Session time & message count ---------- */
-  // Fetch conversation timestamps
+  // Session timer and message count
   useEffect(() => {
-  if (!conversationId || !isAuthenticated) return;  // ⬅️ skip for anon
+  if (!conversationId || !isAuthenticated) return;  
   (async () => {
     const { data, error } = await supabase
       .from('conversations')
@@ -471,9 +469,9 @@ useEffect(() => {
 }, [conversationId, isAuthenticated]);
 
 
-   // Drive the live session timer
+   // live session timer
   useEffect(() => {
-  // For anon, start ticking as soon as convStartedAt exists (we set it above)
+  // For anon, start ticking as soon as convStartedAt exists 
   if (!convStartedAt) return;
 
   const tick = () => {
@@ -496,10 +494,8 @@ useEffect(() => {
 }, [
   convStartedAt,
   isAuthenticated,
-  // DB-backed
   activeSince,
   accumulatedSeconds,
-  // anon-backed
   localActiveSince,
   localAccumulated,
 ]);
@@ -527,12 +523,10 @@ useEffect(() => {
   if (!conversationId) return;
 
   if (!isAuthenticated) {
-    // local-only: don't touch DB
     if (!localActiveSince) setLocalActiveSince(new Date());
     return;
   }
 
-  // logged-in: DB-backed
   if (activeSince) return;
   const nowIso = new Date().toISOString();
   const { error } = await supabase
@@ -546,7 +540,6 @@ async function pauseTimer() {
   if (!conversationId) return;
 
   if (!isAuthenticated) {
-    // local-only: bank into localAccumulated
     if (!localActiveSince) return;
     const deltaSec = Math.max(0, Math.floor((Date.now() - localActiveSince.getTime()) / 1000));
     setLocalAccumulated((prev) => prev + deltaSec);
@@ -554,7 +547,6 @@ async function pauseTimer() {
     return;
   }
 
-  // logged-in: DB-backed
   if (!activeSince) return;
   const deltaSec = Math.max(0, Math.floor((Date.now() - activeSince.getTime()) / 1000));
   const nextAccum = accumulatedSeconds + deltaSec;
@@ -571,13 +563,13 @@ async function pauseTimer() {
 }
 
 
-  // Keep message count synced with DB-backed messages (only user queries)
+  // Keep message count synced with DB-backed messages
   useEffect(() => {
   const onlyUserMsgs = messages.filter((m) => m.role === "user").length;
   setMessageCount(onlyUserMsgs);
   }, [messages]);
 
-  /* ---------- Anonymous/Temp avatar fallback ---------- */
+  // Anonymous/Temp avatar fallback
   useEffect(() => {
     if (!conversationId || !sessionIdFromParams) return;
 
@@ -589,7 +581,7 @@ async function pauseTimer() {
         const q = new URLSearchParams({ conversationId, sessionId: sessionIdFromParams });
         const res = await fetch(`/api/temp-avatars?${q.toString()}`);
         if (!res.ok) return;
-        const json = await res.json(); // { rpm_url, thumbnail } | null
+        const json = await res.json(); 
         if (json?.rpm_url) {
           setTempUserUrl(json.rpm_url as string);
           setProfile((p) =>
@@ -602,13 +594,12 @@ async function pauseTimer() {
     })();
   }, [conversationId, sessionIdFromParams, userUrlFromParams, profile?.rpm_user_url]);
 
-  /* ---------- Model call stub ---------- */
+  // Model call stub
   async function getAdamReply(userText: string): Promise<string> {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ conversationId, userMessage: userText }),
-      // POSTs aren't cached, so no-store is not required here
     });
 
     const raw = await res.text();
@@ -619,7 +610,7 @@ async function pauseTimer() {
     return data.answer ?? "Sorry, I couldn't find enough info to answer.";
   }
 
-  /* ---------- Send flow (optimistic + replace + sort) ---------- */
+  // Send flow (optimistic + replace + sort)
   const handleSend = async (text: string) => {
   if (!text.trim()) return;
 
@@ -629,7 +620,7 @@ async function pauseTimer() {
   }
   if (!conversationId) return;
 
-  // get the current uid (works for anon or logged-in)
+  // get the current uid for works for anon or logged-in
   const { data: { user } } = await supabase.auth.getUser();
   const uid = user?.id || null;
 
@@ -648,7 +639,7 @@ async function pauseTimer() {
   setIsTyping(true);
 
   try {
-    // single server call — writes BOTH rows and returns them
+    // single server call for both user + assistant
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: {
@@ -694,7 +685,7 @@ async function pauseTimer() {
 };
 
 
- // ---------- Avatars (normalize & validate .glb) ----------
+ // Avatars (normalize & validate .glb)
 type AvatarShape = { name: string; type: 'custom' | 'default'; url: string | null };
 
 const rawUser = userUrlFromParams || profile?.rpm_user_url || tempUserUrl;
@@ -710,7 +701,7 @@ const fallbackComp = COMPANIONS[key] ?? COMPANIONS.ADAM;
 const namedCompanionUrl = companionNameFromParams ? (COMPANIONS[key]?.url ?? null) : null;
 
 const rawComp =
-  convPick?.url ||                     // ← primary (per-conversation)
+  convPick?.url ||                     
   companionUrlFromParams ||
   namedCompanionUrl ||
   profile?.rpm_companion_url ||
@@ -737,8 +728,6 @@ const companionAvatar: AvatarShape = {
 };
 
 
-  // If the user logs in mid-chat and we have an explicit companionName in the URL,
-  // sync that selection into their profile so it persists.
   useEffect(() => {
     (async () => {
       if (!profile?.id) return;
@@ -761,13 +750,13 @@ const companionAvatar: AvatarShape = {
   // include key so switching name in URL is respected
   }, [profile?.id, profile?.rpm_companion_url, companionNameFromParams, key]);
 
-  /* ---------- Render ---------- */
+  // Render
   const chatInterfaceMood = useMemo(() => {
     if (mood && 'feeling' in mood) return mood;
     return null;
   }, [mood]);
 
-  // Optional extra safety: always pass sorted messages to the UI
+  // Extra safety: always pass sorted messages to the UI
   const sortedMessages = useMemo(() => messages.slice().sort(sortMsgs), [messages]);
 
   return (
