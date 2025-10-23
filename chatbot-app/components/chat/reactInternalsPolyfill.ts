@@ -1,4 +1,3 @@
-// Ensures libraries that still expect React 18 internals keep working on React 19.
 import * as React from 'react';
 
 type ReactWithInternals = typeof React & {
@@ -46,4 +45,4 @@ if (internals) {
   }
 }
 
-export {}; // keep as module
+export {}; 

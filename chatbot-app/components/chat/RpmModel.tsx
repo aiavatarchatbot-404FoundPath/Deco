@@ -6,9 +6,9 @@ import { useGLTF, useFBX } from '@react-three/drei';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 type RpmModelProps = GroupProps & {
-  avatarUrl: string;                // Ready Player Me (GLB) or any GLB
-  animUrls: string[] | string;      // FBX or GLB animation files
-  clip?: string;                    // AnimationClip.name to play
+  avatarUrl: string;               
+  animUrls: string[] | string;     
+  clip?: string;                    
   playing?: boolean;
   timeScale?: number;
   fadeSec?: number;
@@ -27,11 +27,11 @@ function findFirstSkinned(root: THREE.Object3D): THREE.SkinnedMesh | null {
   return found;
 }
 
-// Load GLB (useGLTF) or FBX (useFBX) uniformly
+// Load GLB  or FBX 
 function useAnyAnim(url: string) {
   const isFbx = url.toLowerCase().endsWith('.fbx');
   if (isFbx) {
-    const grp = useFBX(url); // THREE.Group
+    const grp = useFBX(url); 
     const clips = (grp as any).animations as THREE.AnimationClip[] | undefined;
     return { scene: grp as THREE.Group, animations: clips ?? [] };
   } else {
@@ -62,13 +62,13 @@ export default function RpmModel({
     animations: THREE.AnimationClip[];
   };
 
-  // Clone so we don’t mutate the GLTF cache
+  // Clone so no mutate
   const avatarScene = useMemo(
     () => SkeletonUtils.clone(avatarGltf.scene) as THREE.Group,
     [avatarGltf.scene]
   );
 
-  // 2) Anim files (FBX or GLB) - memoize to prevent constant re-loading
+  // 2) Anim files and memoize to prevent constant re-loading
   const animUrlsArr = useMemo(() => 
     Array.isArray(animUrls) ? animUrls : [animUrls], 
     [animUrls]
@@ -99,7 +99,7 @@ export default function RpmModel({
       }
     });
     
-    // Filter out invalid clips (zero duration or no tracks)
+    // Filter out invalid clips 
     const validClips = clips.filter(clip => {
       const isValid = clip.duration > 0 && clip.tracks.length > 0;
       if (!isValid) {
@@ -116,7 +116,7 @@ export default function RpmModel({
     return validClips;
   }, [animSources]);
 
-  // Helper function to create a manually mapped clip when auto-retargeting fails
+  // create a manually mapped clip when auto-retargeting fails
   const createManuallyMappedClip = (sourceClip: THREE.AnimationClip, targetMesh: THREE.SkinnedMesh): THREE.AnimationClip => {
     console.log('[RpmModel] Creating manually mapped clip for:', sourceClip.name);
     
@@ -157,13 +157,12 @@ export default function RpmModel({
       const mappedBoneName = boneMapping[boneName];
       
       if (mappedBoneName && targetBoneNames.has(mappedBoneName)) {
-        // Skip hip position tracks to prevent avatar from moving away from origin
         if (mappedBoneName === 'Hips' && property === 'position') {
           console.log('[RpmModel] Skipping Hips.position track to keep avatar centered');
           continue;
         }
         
-        // Skip foot movement during idle animations to keep feet planted
+        // Skip foot movement during idle animations 
         if ((mappedBoneName === 'LeftFoot' || mappedBoneName === 'RightFoot') && 
             (sourceClip.name.toLowerCase().includes('idle') || sourceClip.name.toLowerCase().includes('breathing'))) {
           console.log(`[RpmModel] Skipping ${mappedBoneName} movement during idle animation to keep feet planted`);
@@ -177,7 +176,7 @@ export default function RpmModel({
           continue;
         }
         
-        // Hip rotation adjustment: damp yaw during idle to avoid side-to-side sway
+        // Hip rotation adjustment
         if (mappedBoneName === 'Hips' && property === 'quaternion') {
           const isIdle = sourceClip.name.toLowerCase().includes('idle') || sourceClip.name.toLowerCase().includes('breathing');
           const adjustedValues: number[] = [];
@@ -210,7 +209,7 @@ export default function RpmModel({
         const newTrackName = `${mappedBoneName}.${property}`;
         const NewTrackClass = (track.constructor as any);
         
-        // Scale down position values for better compatibility (Mixamo uses cm, RPM uses different scale)
+        // Scale down position values for better compatibility 
         let values = track.values;
         if (property === 'position' && mappedBoneName !== 'Hips') {
           values = track.values.map((v: number) => v * 0.01); 
@@ -285,12 +284,11 @@ export default function RpmModel({
       try {
         console.log('[RpmModel] Retargeting clip:', c.name, 'duration:', c.duration, 'tracks:', c.tracks.length);
         
-        // Use the Three.js retargeting with proper bone mapping
         let r = (SkeletonUtils as any).retargetClip(
           targetSkinned,        // target skeleton (RPM avatar)
           sourceSkinned,        // source skeleton (Mixamo)
           c,                    // AnimationClip from FBX
-          {}                    // Empty options - let Three.js auto-map
+          {}                    // Empty options
         ) as THREE.AnimationClip;
         
         r.name = r.name || c.name || 'RetargetedClip';
@@ -304,7 +302,7 @@ export default function RpmModel({
           newTrackCount: r.tracks.length
         });
         
-        // Stabilize idle/breathing clips: remove hip translation and damp hip/spine yaw
+        // Stabilize idle/breathing clips (remove hip translation and damp hip/spine yaw)
         const isIdle = (c.name || r.name || '').toLowerCase().includes('idle') || (c.name || r.name || '').toLowerCase().includes('breathing');
         if (isIdle) {
           const stabilizedTracks: THREE.KeyframeTrack[] = [];
@@ -321,7 +319,7 @@ export default function RpmModel({
               for (let i = 0; i < values.length; i += 4) {
                 const q = new THREE.Quaternion(values[i], values[i+1], values[i+2], values[i+3]).normalize();
                 const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-                e.y *= 0.15; // strongly damp yaw (side sway)
+                e.y *= 0.15; 
                 const qOut = new THREE.Quaternion().setFromEuler(e);
                 out.push(qOut.x, qOut.y, qOut.z, qOut.w);
               }
@@ -335,7 +333,7 @@ export default function RpmModel({
               for (let i = 0; i < values.length; i += 4) {
                 const q = new THREE.Quaternion(values[i], values[i+1], values[i+2], values[i+3]).normalize();
                 const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-                e.y *= 0.5; // mild damping so upper body can breathe
+                e.y *= 0.5; 
                 const qOut = new THREE.Quaternion().setFromEuler(e);
                 out.push(qOut.x, qOut.y, qOut.z, qOut.w);
               }
@@ -479,7 +477,7 @@ export default function RpmModel({
   useFrame((_, delta) => {
     mixer.update(delta);
     
-    // Debug animation state every 60 frames (roughly once per second at 60fps)
+    // Debug animation state every 60 frames 
     frameCountRef.current = (frameCountRef.current || 0) + 1;
     if (frameCountRef.current % 60 === 0) {
       const action = currentActionRef.current;
@@ -535,13 +533,9 @@ export default function RpmModel({
 
   // 9) Cleanup
   useEffect(() => () => void mixer.stopAllAction(), [mixer]);
-
-  // Debug: see available clip names after retarget
-  // useEffect(() => { console.log('retargeted:', retargetedClips.map(c => c.name)); }, [retargetedClips]);
-
   return <group ref={groupRef} {...groupProps} />;
 }
 
-// Avoid TS complaints about drei preloads
+
 (useGLTF as any).preload;
 (useFBX as any).preload;

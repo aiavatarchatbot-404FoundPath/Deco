@@ -3,11 +3,10 @@
 import React from 'react';
 import { Shield, Heart, Lock } from 'lucide-react';
 
-/**
- * SafetyIndicators
- * Shows reassurance indicators (safety, confidentiality, trauma-informed)
- * Helps build trust in the chat experience
- */
+
+ // Shows reassurance indicators (safety, confidentiality, trauma-informed)
+ // Helps build trust in the chat experience
+
 export default function SafetyIndicators() {
   // List of safety indicator items
   const indicators = [

@@ -2,8 +2,6 @@
 
 import React from "react";
 import { Button } from "../ui/button";
-// Make sure the filename matches: if your file is SafetyIndicators.tsx,
-// this path should be "./SafetyIndicators"
 import SafetyIndicator from "./SafetyIndicator";
 
 import { Toaster, toast } from "sonner";

@@ -3,7 +3,6 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { User, Bot } from 'lucide-react';
-// No local Canvas here; each avatar uses its own Canvas in RpmViewer.
 
 const RpmViewer = dynamic(() => import('./RpmViewer'), { ssr: false });
 
@@ -51,7 +50,6 @@ const AvatarDisplay = React.memo(function AvatarDisplay({
             <div className="absolute inset-0">
               <RpmViewer
                 src={userAvatar?.url ?? null}
-                // Face forward toward the camera
                 singleYaw={0}
                 singleLookAt={null}
                 talkOverride={userTalking}
@@ -69,7 +67,6 @@ const AvatarDisplay = React.memo(function AvatarDisplay({
             <div className="absolute inset-0">
               <RpmViewer
                 src={aiAvatar?.url ?? null}
-                // Face forward toward the camera
                 singleYaw={0}
                 singleLookAt={null}
                 talkOverride={assistantTalking}

@@ -1,7 +1,6 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-// chatbots-app/types/readyplayerme-visage.d.ts
 
 
 type VisageEl = HTMLElement & { src?: string; model?: string };
@@ -10,7 +9,6 @@ type Props = React.DetailedHTMLProps<
   React.HTMLAttributes<HTMLElement>,
   HTMLElement
 > & {
-  /** Direct .glb URL */
   src?: string;
 };
 
@@ -45,7 +43,6 @@ const VisageWrapper: React.FC<Props> = ({ src, className, style, ...rest }) => {
 
     if (url) {
       console.log('[VisageWrapper] applying src =', url);
-      // set as attribute and property (and alternative name 'model' just in case)
       el.setAttribute('src', url);
       try { (el as any).src = url; } catch {}
       try { (el as any).model = url; } catch {}

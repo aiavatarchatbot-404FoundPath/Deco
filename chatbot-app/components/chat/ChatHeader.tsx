@@ -17,7 +17,6 @@ interface ChatHeaderProps {
   companionAvatarUrl?: string | null;
 }
 
-// Subtle pastel styles for moods
 const feelings = [
   { emoji: "😊", label: "Happy", color: "bg-yellow-100 text-yellow-700 border-yellow-200" },
   { emoji: "😌", label: "Calm", color: "bg-teal-100 text-teal-700 border-teal-200" },
@@ -34,7 +33,6 @@ function toThumbnail(url?: string | null): string | null {
   if (url.endsWith(".png")) return url;
   if (url.endsWith(".glb")) return url.replace(".glb", ".png");
 
-  // extract avatar id and use the official PNG endpoint
   try {
     const last = url.split("/").pop() || "";
     const id = last.replace(".glb", "");

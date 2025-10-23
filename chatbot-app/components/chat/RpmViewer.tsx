@@ -44,7 +44,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
   const userPosition: [number, number, number] = duo ? [-separationX, GROUND_Y, 0] : [0, GROUND_Y, 0];
   const companionPosition: [number, number, number] = duo ? [separationX, GROUND_Y, 0] : [0, GROUND_Y, 0];
 
-  // Yaw so both face each other (tweak signs if needed for your GLBs)
+  // Yaw so both face each other
   const duoUserYaw = -Math.PI / 2;      // left avatar faces toward center
   const duoCompanionYaw = Math.PI / 2;  // right avatar faces toward center
 
@@ -75,7 +75,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
     [duo]
   );
 
-  // Paths to FBX clips (ensure these files exist under public/)
+  // Paths to FBX clips 
   const idleFbx = '/mixamo/breathing_idle.fbx';
   const userTalkFbx = '/mixamo/Talking_user.fbx';
   const aiTalkFbx = '/mixamo/Talking_ai.fbx';
@@ -168,7 +168,7 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
             )}
           </>
         ) : (
-          // Single-preview fallback (src or either url)
+        
           <group position={[0, GROUND_Y, 0]} rotation={[ -0.08, singleYaw, 0 ]} scale={singleScale}>
             <RpmModel
               avatarUrl={(singleSrc ?? userUrl ?? aiUrl) as string}
@@ -214,7 +214,6 @@ const RpmViewer = React.memo(function RpmViewer(props: Props) {
     </Canvas>
   );
 }, (prevProps, nextProps) => {
-  // Custom comparison function for React.memo
   return (
     prevProps.src === nextProps.src &&
     prevProps.userUrl === nextProps.userUrl &&

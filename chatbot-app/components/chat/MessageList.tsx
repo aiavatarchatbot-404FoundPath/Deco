@@ -31,7 +31,7 @@ export default function MessageList({ messages, isTyping }: MessageListProps) {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  // Small util for timestamps
+  // util for timestamps
   const formatTime = (timestamp: Date) =>
     timestamp.toLocaleTimeString("en-US", {
       hour: "2-digit",

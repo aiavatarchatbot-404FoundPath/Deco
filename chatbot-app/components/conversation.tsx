@@ -22,7 +22,7 @@ function normalizeMoodValue(raw: unknown): string | null {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.feeling === "string") return parsed.feeling;
     } catch {
-      return raw; // plain string label
+      return raw; 
     }
   }
   return null;
@@ -120,10 +120,10 @@ export default function ConversationList({
           .order('updated_at', { ascending: false })
           .limit(limit);
       } else {
-        // creator OR participant (if you are using conversation_participants)
+        // creator OR participant 
         convosRes = await supabase
           .rpc('convos_for_user', { p_user: uid }); // optional: create this RPC for speed
-        // fallback (no RPC): do two queries & merge – omitted for brevity
+        // fallback: do two queries & merge 
       }
 
       if (cancelled) return;
@@ -138,7 +138,7 @@ export default function ConversationList({
         'data' in convosRes ? (convosRes.data as any[]) : [];
       setRows(convos ?? []);
 
-      // 2) fetch last message previews (simple approach)
+      // 2) fetch last message previews 
       const ids = convos.map((c) => c.id);
       if (ids.length) {
         const { data: msgs, error: mErr } = await supabase

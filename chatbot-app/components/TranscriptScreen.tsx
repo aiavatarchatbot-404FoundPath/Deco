@@ -33,7 +33,7 @@ type TranscriptMsg = { sender: 'ai' | 'user'; content: string };
 type ConversationData = {
   date: string;
   duration: string;
-  messageCount: number; // user-only
+  messageCount: number; // For user-only
   summary: string;
   transcript: TranscriptMsg[];
 };
@@ -50,7 +50,7 @@ function formatHMS(totalSeconds: number) {
 
 export default function TranscriptScreen({ onNavigate }: TranscriptScreenProps) {
   const params = useSearchParams();
-  const convoFromUrl = params.get('convo'); // ?convo=<uuid>
+  const convoFromUrl = params.get('convo'); 
 
   const [showFullTranscript, setShowFullTranscript] = useState(false);
   const [shareNote, setShareNote] = useState('');

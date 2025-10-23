@@ -35,7 +35,7 @@ interface AvatarBuilderScreenProps {
   applyToneLoading?: boolean;
 }
 
-/** Convert a Ready Player Me .glb URL into a .png thumbnail (best-effort). */
+/** Convert a Ready Player Me .glb URL into a .png thumbnail. */
 function toThumbnail(url?: string | null): string | null {
   if (!url) return null;
   if (url.endsWith('.png')) return url;
@@ -47,7 +47,6 @@ function toThumbnail(url?: string | null): string | null {
       return `https://api.readyplayer.me/v1/avatars/${id}.png`;
     }
   } catch {
-    // ignore
   }
   return null;
 }

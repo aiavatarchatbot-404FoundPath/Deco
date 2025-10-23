@@ -14,7 +14,6 @@ import { Loading } from '../components/ui/loading';
 import { COMPANIONS } from '@/lib/companions';
 import dynamic from 'next/dynamic';
 
-// Dynamically import HomePageAvatarViewer to avoid SSR issues
 const HomePageAvatarViewer = dynamic(() => import('../components/HomePageAvatarViewer'), { ssr: false });
 
 import { 
@@ -51,7 +50,7 @@ interface User {
   };
 }
 
-// Convert a Ready Player Me URL (.glb) into a displayable PNG
+// Convert a Ready Player Me URL into a displayable PNG
 function toThumbnail(url?: string | null): string | null {
   if (!url) return null;
   if (url.endsWith(".png")) return url;

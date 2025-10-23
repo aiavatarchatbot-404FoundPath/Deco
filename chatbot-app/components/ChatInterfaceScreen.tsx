@@ -1,4 +1,3 @@
-// components/ChatInterfaceScreen.tsx
 "use client";
 
 import React, { useMemo, useRef, useState, useEffect } from "react";
@@ -149,7 +148,7 @@ export function ChatInterfaceScreen({
   const [showShareConfirm, setShowShareConfirm] = useState(false);
   const router = useRouter();
 
-  // Provide a safe mood object for all children (prevents .toLowerCase() crashes)
+  // Provide a safe mood object for all children 
   const displayMood = useMemo(() => normalizeMood(currentMood), [currentMood]);
 
   // Handle AI talking animation timing
@@ -176,7 +175,6 @@ export function ChatInterfaceScreen({
       }, 4000);
     }
 
-    // Cleanup function
     return () => {
       if (aiTalkingTimer.current) {
         clearTimeout(aiTalkingTimer.current);
@@ -368,7 +366,7 @@ export function ChatInterfaceScreen({
               if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
             }}
             onBlur={() => {
-              // Graceful fade-out after leaving the input (shorter delay)
+              // Graceful fade-out after leaving the input 
               if (userTypingTimer.current) window.clearTimeout(userTypingTimer.current);
               userTypingTimer.current = window.setTimeout(() => setUserTyping(false), 800);
             }}

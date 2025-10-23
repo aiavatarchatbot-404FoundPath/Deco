@@ -1,4 +1,3 @@
-// app/settings/page.tsx
 import { Suspense } from 'react';
 import SettingsClient from './SettingsClient';
 
