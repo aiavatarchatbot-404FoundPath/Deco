@@ -31,15 +31,18 @@ export type Persona = "adam" | "eve" | "neutral" | "custom";
 type Emb = number[];
 const EMB_CACHE = new Map<string, Emb>();
 const EMB_CACHE_MAX = 200;
+
 function fastHash(s: string) {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
   return String(h >>> 0);
 }
+
 function getCachedEmb(s: string): Emb | null {
   const k = fastHash(s);
   return EMB_CACHE.get(k) ?? null;
 }
+
 function setCachedEmb(s: string, v: Emb) {
   const k = fastHash(s);
   if (!EMB_CACHE.has(k) && EMB_CACHE.size >= EMB_CACHE_MAX) {
@@ -48,6 +51,7 @@ function setCachedEmb(s: string, v: Emb) {
   }
   EMB_CACHE.set(k, v);
 }
+
 async function embedMany(texts: string[]): Promise<Emb[]> {
   const unique: string[] = [];
   const order: number[] = [];
@@ -74,6 +78,7 @@ async function embedMany(texts: string[]): Promise<Emb[]> {
 
   return out as Emb[];
 }
+
 async function embedOne(text: string): Promise<Emb> {
   const cached = getCachedEmb(text);
   if (cached) return cached;
@@ -158,6 +163,7 @@ function buildCareCard(tier: CareTier): CareCard {
     helplines,
   };
 }
+
 function careText(card: CareCard) {
   const lines = [
     `${card.headline}`,
@@ -213,6 +219,7 @@ function parseTone(text?: string): TonePrefs {
     normalizedText: t,
   };
 }
+
 const NEUTRAL_BANNED = [
   /(^|\b)got it[.!]?( |$)/i,
   /want (a )?tiny next step\??/i,
@@ -340,6 +347,7 @@ function pickFeeling(msg: string) {
   for (const f of feelings) if (lower.includes(f)) return f;
   return "";
 }
+
 function deTemplateEve(text: string, userMsg: string) {
   const t = (text || "").trim();
   const lower = t.toLowerCase();
@@ -379,10 +387,12 @@ function classifyQuestion(txt: string): "open" | "closed" | "none" {
   if (!/[?]/.test(t)) return "none";
   return /\b(what|how|why|when|where|which)\b/i.test(t) ? "open" : "closed";
 }
+
 function prevAssistantQuestion(history: Turn[]): "open" | "closed" | "none" {
   const lastA = [...(history || [])].reverse().find((h) => h.role === "assistant");
   return lastA ? classifyQuestion(lastA.content) : "none";
 }
+
 function decideQuestionMode(
   persona: Persona,
   userMsg: string,
@@ -404,6 +414,7 @@ function decideQuestionMode(
   if (persona === "eve") return "open";
   return "open";
 }
+
 function randFrom<T>(arr: T[], seed: string): T {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -442,6 +453,7 @@ async function insertAnonMessage({
   });
   if (error) throw error;
 }
+
 async function consentLongTerm(conversationId: string) {
   const { error } = await supabase
     .from('conversations')
@@ -502,17 +514,21 @@ function sprinkleAussie(s: string, seed: string) {
 function splitSentences(s: string) {
   return s.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/).filter(Boolean);
 }
+
 function limitSentences(s: string, n: number) {
   const parts = splitSentences(s);
   return parts.slice(0, Math.max(1, n)).join(" ");
 }
+
 function stripLists(s: string) {
   return s.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, "").replace(/\n{2,}/g, " ").replace(/\n/g, " ");
 }
+
 function toBullets(s: string, maxItems: number) {
   const items = splitSentences(stripLists(s)).slice(0, Math.max(1, maxItems));
   return items.map((x) => `- ${x.replace(/^[–—-]\s*/, "")}`).join("\n");
 }
+
 function limitEmoji(s: string, max: 0 | 1) {
   if (max === 1) {
     let count = 0;
@@ -520,6 +536,7 @@ function limitEmoji(s: string, max: 0 | 1) {
   }
   return s.replace(/\p{Extended_Pictographic}/gu, "");
 }
+
 function applyToneOverlay(text: string, customStyle?: string): string {
   if (!customStyle?.trim()) return text;
   const p = parseTone(customStyle);
@@ -552,7 +569,7 @@ function shapeByPersona(
   const joinFirst = (n: number) => sentences.slice(0, n).join(" ");
 
   const ensureClosedQ = (t: string) => t.replace(/[.!?]+$/, "") + "?";
-const ensureOpenQ = (t: string) =>
+  const ensureOpenQ = (t: string) =>
   /[?]$/.test(t) ? t : t.replace(/[.!?]+$/, "") + " What feels like the next small step for you?";
 
   const removeQ = (t: string) => t.replace(/[?]+/g, ".").replace(/\s+\./g, ".");
@@ -693,6 +710,7 @@ function sanitizeTitle(raw: string): string {
   t = words.join(" ").replace(/\s+[.,:;!?]+$/g, "");
   return t.substring(0, 80).trim();
 }
+
 async function llmTitleFromSummary(summary: string): Promise<string> {
   const r = await openai.chat.completions.create({
     model: SUM_MODEL,
@@ -708,6 +726,7 @@ async function llmTitleFromSummary(summary: string): Promise<string> {
   try { title = JSON.parse(raw).title ?? ""; } catch { title = raw; }
   return sanitizeTitle(title) || sanitizeTitle(summary.split(/\s+/).slice(0, 7).join(" ")) || "Untitled Chat";
 }
+
 async function maybeUpdateTitleFromSummary(
   conversationId: string,
   summary: string,
@@ -732,6 +751,7 @@ async function maybeUpdateTitleFromSummary(
     .update({ title: newTitle, updated_at: new Date().toISOString() })
     .eq("id", conversationId);
 }
+
 async function saveSummary(conversationId: string, summary: string) {
   const { error } = await supabase
     .from("conversations")
@@ -858,6 +878,7 @@ async function countAssistantMessages(conversationId: string) {
   if (error) console.error("countAssistantMessages error:", error);
   return count ?? 0;
 }
+
 async function loadSummary(conversationId: string): Promise<string> {
   const { data, error } = await supabase
     .from("conversations")
@@ -867,6 +888,7 @@ async function loadSummary(conversationId: string): Promise<string> {
   if (error) console.error("loadSummary error:", error);
   return (data?.summary ?? "").slice(0, 1500);
 }
+
 async function loadLastPairs(conversationId: string, pairs: number) {
   const { data, error } = await supabase
     .from("messages")
@@ -885,6 +907,7 @@ async function loadLastPairs(conversationId: string, pairs: number) {
       : ({ role: "user" as const, content: r.content })
   );
 }
+
 async function refreshSummary({
   conversationId, currentSummary, recentTurns, wordsTarget = 160,
 }: {
@@ -919,6 +942,7 @@ const DANGER_PATTERNS: string[] = [
   "\\bi want to disappear\\b","\\bno reason to live\\b","\\bi wish i was dead\\b","\\bi am worthless\\b",
   "\\bi am a burden\\b",
 ];
+
 const COMPILED_DANGER_PATTERNS = DANGER_PATTERNS.map((p) => new RegExp(p, "i"));
 function checkFilters(userInput: string): "Imminent Danger" | null {
   for (const rx of COMPILED_DANGER_PATTERNS) if (rx.test(userInput)) return "Imminent Danger";
