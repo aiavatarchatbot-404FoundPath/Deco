@@ -3,9 +3,6 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
-// =======================================
-// Runtime & Clients
-// =======================================
 export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -14,16 +11,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// =======================================
-// Config (tunable)
-// =======================================
 const EMBED_MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 const CHAT_MODEL  = process.env.CHAT_MODEL  || "gpt-4o-mini";
 const SUM_MODEL   = process.env.SUM_MODEL   || CHAT_MODEL;
 
 const RAG_TOP_K = Number(process.env.RAG_TOP_K || 5);
 const RAG_SIM_THRESHOLD = Number(process.env.RAG_SIM_THRESHOLD || 0.22);
-const MAX_CONTEXT_CHARS = Number(process.env.MAX_CONTEXT_CHARS || 6500); // ↓ slightly to reduce tokens
+const MAX_CONTEXT_CHARS = Number(process.env.MAX_CONTEXT_CHARS || 6500);
 const DEFLECT_SIM_THRESHOLD = Number(process.env.DEFLECT_SIM_THRESHOLD || 0.72);
 
 const HISTORY_PAIRS = Number(process.env.CHAT_MAX_PAIRS || 4);
@@ -34,12 +28,6 @@ const RPC_NAME = process.env.RPC_NAME || "match_file_chunks";
 
 export type Persona = "adam" | "eve" | "neutral" | "custom";
 
-
-
-
-// =======================================
-// Micro-cache for embeddings (survives warm Lambda)
-// =======================================
 type Emb = number[];
 const EMB_CACHE = new Map<string, Emb>();
 const EMB_CACHE_MAX = 200;
@@ -55,7 +43,6 @@ function getCachedEmb(s: string): Emb | null {
 function setCachedEmb(s: string, v: Emb) {
   const k = fastHash(s);
   if (!EMB_CACHE.has(k) && EMB_CACHE.size >= EMB_CACHE_MAX) {
-    // simple LRU-ish: delete first key
     const first = EMB_CACHE.keys().next().value;
     if (first) EMB_CACHE.delete(first);
   }
@@ -105,9 +92,6 @@ function cosineSim(a: Emb, b: Emb) {
   return dp / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
 }
 
-// =======================================
-// Tone parsing & persona sheets (unchanged behavior with small fixes)
-// =======================================
 type TonePrefs = {
   bulletsOnly: boolean;
   allowBullets: boolean;
@@ -242,8 +226,6 @@ function shouldAvoidQuestions(lastUser: string) {
   return short || ack;
 }
 
-
-
 function voiceSheetV2(persona: Persona, customStyle?: string) {
   if (persona === "custom") {
     const p = parseTone(customStyle);
@@ -294,7 +276,8 @@ Avoid:
 
 Output
 - Max **3** short sentences. Snappy; no fluff.
-- Imperative voice; more **authoritative** than chatty (calm, steady).
+- Imperative voice; **calm, steady**.
+- conscise and clear.
 - No emojis. No hedging (“maybe”, “might”), no apologies unless needed.
 - If a plan helps, use **1–3** micro-bullets (≤6 words each).
 
@@ -304,9 +287,11 @@ Question rule
 - Never ask more than one question.
 
 Structure
-1) Name the gist in 1 line.
-2) Give 1–2 directives (what to do now).
-3) Close with the closed question **or** the micro-plan.
+1) you are the users friend but direct and to the point.
+2) Focus on **BIG_PICTURE.primary**.
+3) If **HINTS.off_track** is true: (a) acknowledge, (b) bridge back, (c) one tiny next step.
+4) If **HINTS.insistent** is true: brief safe answer (≤3 items), then pivot back.
+
 
 Detours
 - Acknowledge briefly → ask consent to park or answer in **one line** → tie back to the **big picture**.
@@ -315,8 +300,6 @@ Prefer: “Do, Pick, Ship, Decide, Book, Send.”
 Avoid: “maybe, kinda, I think, sorry, just.”`;
 
 }
-
-
 
   if (persona === "eve") {
     return `VOICE SHEET — Eve (Warm Guide)
@@ -351,9 +334,6 @@ Avoid:
 - Meta talk, numbered templates.`;
 }
 
-// =======================================
-// Eve opener de-templatizer
-// =======================================
 function pickFeeling(msg: string) {
   const feelings = ["tired","exhausted","stressed","overwhelmed","anxious","angry","sad","confused","numb","guilty","ashamed","worried","scared","frustrated"];
   const lower = (msg || "").toLowerCase();
@@ -379,9 +359,6 @@ function deTemplateEve(text: string, userMsg: string) {
   return choices[idx] + " " + rest;
 }
 
-// =======================================
-// Question control helpers + big-picture utils
-// =======================================
 const SAME_TOPIC_SIM = Number(process.env.SAME_TOPIC_SIM || 0.72);
 
 type Turn = { role: "user" | "assistant"; content: string };
@@ -427,18 +404,15 @@ function decideQuestionMode(
   if (persona === "eve") return "open";
   return "open";
 }
- // --- Adam helper bits (slang + CTA + de-therapy) ---
 function randFrom<T>(arr: T[], seed: string): T {
-  // deterministic-ish pick per message (no global RNG)
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
   const idx = Math.abs(h) % arr.length;
   return arr[idx];
 }
 
-// server (Node/Next) — use Service Role for DB writes
 async function createAnonConversation({ clientId }: { clientId: string }) {
-  const ttlHours = 24; // choose your window
+  const ttlHours = 24;
   const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
 
   const { data, error } = await supabase
@@ -448,19 +422,17 @@ async function createAnonConversation({ clientId }: { clientId: string }) {
       expires_at: expiresAt,
       anon_consent: false,
       client_id: clientId,
-      // any other columns you maintain: title, mode, etc.
     })
     .select()
     .single();
 
   if (error) throw error;
-  return data; // return { id, ... }
+  return data;
 }
 
 async function insertAnonMessage({
   conversationId, clientId, content
 }: { conversationId: string; clientId: string; content: string }) {
-  // The trigger will reject if convo isn’t ephemeral/consented or TTL expired
   const { error } = await supabase.from('messages').insert({
     conversation_id: conversationId,
     role: 'user',
@@ -482,7 +454,6 @@ async function consentLongTerm(conversationId: string) {
   if (error) throw error;
 }
 
-// attach the anon convo to the authenticated user — your schema may have owner_id
 async function adoptAnonConversation({ conversationId, clientId, userId }:{
   conversationId: string, clientId: string, userId: string
 }) {
@@ -490,7 +461,7 @@ async function adoptAnonConversation({ conversationId, clientId, userId }:{
     .from('conversations')
     .update({
       owner_id: userId,
-      anon_consent: true,     // they chose to keep it
+      anon_consent: true,
       is_ephemeral: false,
       expires_at: null
     })
@@ -499,9 +470,7 @@ async function adoptAnonConversation({ conversationId, clientId, userId }:{
   if (error) throw error;
 }
 
-
 function adamReplacements(s: string) {
-  // kill therapy-ish boilerplate and formal talk
   const bad = [
     /it('?| i)s important to (talk|speak) (to|with) someone about (your )?feelings/gi,
     /consider (talking|reaching) out to (a )?(friend|family member|someone you trust)/gi,
@@ -512,7 +481,6 @@ function adamReplacements(s: string) {
     /let me know if/gi
   ];
   for (const rx of bad) s = s.replace(rx, "");
-  // tighten spaces
   s = s.replace(/\s{2,}/g, " ").trim();
   return s;
 }
@@ -520,12 +488,10 @@ function adamReplacements(s: string) {
 function sprinkleAussie(s: string, seed: string) {
   const openers = ["Righto.", "Sweet.", "No dramas.", "Too easy.", "Fair enough.", "Alright."];
   const tagQs   = ["Keen?", "Sound good?", "Deal?", "On it?", "Cool?"];
-  // 30% chance to add opener if not present
   if (!/^[A-Z]/.test(s) && s.length > 0) s = s[0].toUpperCase() + s.slice(1);
   if (s.split(" ").length > 4 && Math.abs(seed.length % 10) < 3) {
     s = `${randFrom(openers, seed)} ${s}`;
   }
-  // if ends too flat and has no question, maybe add a tag question
   if (!/[?]$/.test(s) && s.length < 150) {
     s = s.replace(/[.!]+$/, "");
     if (Math.abs(seed.length % 10) < 4) s += ` ${randFrom(tagQs, seed)}`;
@@ -533,8 +499,6 @@ function sprinkleAussie(s: string, seed: string) {
   return s;
 }
 
-
-// =======================================
 function splitSentences(s: string) {
   return s.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/).filter(Boolean);
 }
@@ -577,7 +541,6 @@ function applyToneOverlay(text: string, customStyle?: string): string {
   return out;
 }
 
-// Persona shaper (adds CTA for Adam, validation for Eve)
 function shapeByPersona(
   persona: Persona,
   text: string,
@@ -597,24 +560,17 @@ const ensureOpenQ = (t: string) =>
   if (persona === "adam") {
   let out = joinFirst(3);
 
-  // direct question or none depending on qMode
   if (qMode === "closed") out = ensureClosedQ(out);
   if (qMode === "none")   out = out.replace(/[?]+/g, ".").replace(/\s+\./g, ".");
 
-  // remove therapy boilerplate + formalisms
   out = adamReplacements(out);
 
-  
-
-  // sprinkle casual Aussie vibe (light, not caricature)
   out = sprinkleAussie(out, userMsg);
 
-  // tighten to max 3 sentences again (in case CTA added a 4th)
   out = splitSentences(out).slice(0, 3).join(" ");
 
   return out.trim();
 }
-
 
   if (persona === "eve") {
     let out = joinFirst(4);
@@ -637,9 +593,6 @@ const ensureOpenQ = (t: string) =>
   return out;
 }
 
-// =======================================
-// Retrieval + formatting with [1], [2], ...
-// =======================================
 type Hit = { file?: string; chunk_id?: string | number; content?: string; similarity?: number };
 
 function formatContextWithRefs(hits: Hit[], maxChars: number) {
@@ -674,7 +627,6 @@ async function retrieveContext(userMessage: string) {
 }
 
 async function rewriteQueryIfEmpty(userMessage: string): Promise<string | null> {
-  // Only used when initial retrieval had zero hits
   const prompt = `Rewrite the query to better search documentation. Keep to one line, no punctuation fluff.
 Original: """${userMessage}"""`;
   const r = await openai.chat.completions.create({
@@ -687,10 +639,8 @@ Original: """${userMessage}"""`;
 }
 
 async function retrieveContextWithFallback(userMessage: string) {
-  // First try
   let hits = await retrieveContext(userMessage);
 
-  // If nothing, try a single rewrite (bounded extra cost)
   if (!hits?.length) {
     const rewritten = await rewriteQueryIfEmpty(userMessage);
     if (rewritten && rewritten !== userMessage) {
@@ -698,7 +648,7 @@ async function retrieveContextWithFallback(userMessage: string) {
       const { data } = await supabase.rpc(RPC_NAME, {
         query_embedding: qEmb,
         match_count: RAG_TOP_K,
-        similarity_threshold: Math.max(RAG_SIM_THRESHOLD * 0.9, 0.18), // tiny relax on fallback
+        similarity_threshold: Math.max(RAG_SIM_THRESHOLD * 0.9, 0.18),
       });
       hits = (data ?? []) as Hit[];
     }
@@ -707,9 +657,6 @@ async function retrieveContextWithFallback(userMessage: string) {
   return { context: ctxText || "", hits: kept };
 }
 
-// =======================================
-// Off-track / insistent (batched embeddings; no duplicates)
-// =======================================
 async function computeOffTrackBatched(
   userMessage: string,
   summary: string,
@@ -737,9 +684,6 @@ async function computeOffTrackBatched(
   return { offCurr, simCurr: +simCurr.toFixed(3), offPrev, simPrev: +simPrev.toFixed(3), sameTopic };
 }
 
-// =======================================
-// Summary / titles / db helpers (unchanged, minor hardening)
-// =======================================
 function sanitizeTitle(raw: string): string {
   let t = (raw || "").trim();
   t = t.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, "");
@@ -796,7 +740,6 @@ async function saveSummary(conversationId: string, summary: string) {
   if (error) console.error("saveSummary error:", error);
 }
 
-
 const ANON_TTL_HOURS = Number(process.env.ANON_TTL_HOURS || 24);
 
 async function ensureConversationForMode({
@@ -814,7 +757,6 @@ async function ensureConversationForMode({
 
   if (isAnonymous) {
     if (saveLongTerm) {
-      // user explicitly chose to keep anon chat
       await supabase
         .from("conversations")
         .upsert(
@@ -831,9 +773,7 @@ async function ensureConversationForMode({
       return;
     }
 
-    // default: ephemeral with TTL
     const expiresAt = new Date(Date.now() + ANON_TTL_HOURS * 3600 * 1000).toISOString();
-    // If row exists but not ephemeral/consented, make it ephemeral
     const { data: row } = await supabase
       .from("conversations")
       .select("id, is_ephemeral, anon_consent, expires_at")
@@ -858,7 +798,6 @@ async function ensureConversationForMode({
     return;
   }
 
-  // logged-in path: always long-term
   await supabase
     .from("conversations")
     .upsert(
@@ -873,7 +812,6 @@ async function ensureConversationForMode({
     );
 }
 
-// saveTurnToDB: add clientId so anon user rows carry client_id (assistant rows do NOT)
 async function saveTurnToDB({
   conversationId, userId, botUserId, userMessage, botAnswer, clientId
 }: {
@@ -886,18 +824,17 @@ async function saveTurnToDB({
   const rows: any[] = [
     {
       conversation_id: conversationId,
-      sender_id: userId ?? null,              // null for anon
+      sender_id: userId ?? null,
       role: "user",
       content: userMessage,
-      client_id: userId ? null : (clientId ?? null), // ONLY set client_id for anon user messages
+      client_id: userId ? null : (clientId ?? null),
       created_at: now.toISOString(),
     },
     {
       conversation_id: conversationId,
-      sender_id: botUserId ?? null,           // keep BOT_USER_ID if you have it
+      sender_id: botUserId ?? null,
       role: "assistant",
       content: botAnswer,
-      // DO NOT set client_id here to avoid unique index collisions (sender_id, client_id)
       created_at: later.toISOString(),
     },
   ];
@@ -911,8 +848,6 @@ async function saveTurnToDB({
   if (error) console.error("saveTurnToDB error:", error);
   return data ?? [];
 }
-
-
 
 async function countAssistantMessages(conversationId: string) {
   const { count, error } = await supabase
@@ -978,9 +913,6 @@ async function refreshSummary({
   return updated;
 }
 
-// =======================================
-// Safety
-// =======================================
 const DANGER_PATTERNS: string[] = [
   "\\bsuicid(e|al)\\b","\\bdie\\b","\\bdying\\b","\\bkill(ing)? myself\\b","\\bend(ing)? my life\\b",
   "\\bdeath\\b","\\bmurder myself\\b","\\bwant to die\\b","\\bcan't go on\\b","\\bi feel hopeless\\b",
@@ -1017,16 +949,10 @@ Return only JSON.`;
   }
 }
 
-// =======================================
-// Healthcheck
-// =======================================
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat (optimized)" });
 }
 
-// =======================================
-// Main handler — latency-tuned
-// =======================================
 export async function POST(req: Request) {
   try {
      const body = await req.json();
@@ -1035,8 +961,8 @@ export async function POST(req: Request) {
       userMessage,
       persona: personaRaw,
       customStyleText,
-      clientId,          // NEW: from frontend (persisted per browser)
-      saveLongTerm = false, // NEW: when user clicks “Save this chat”
+      clientId,
+      saveLongTerm = false,
     } = body;
 
     if (!conversationId) return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
@@ -1045,13 +971,8 @@ export async function POST(req: Request) {
     const userId = req.headers.get("x-user-id") || undefined;
     const isAnonymous = !userId;
 
-    // 🔐 Enforce storage policy before we save anything
     await ensureConversationForMode({ conversationId, isAnonymous, clientId, saveLongTerm });
 
-    
-
-  // Lightweight fast-path for pure acknowledgements (no LLM round-trip)
-      // Lightweight fast-path for pure acknowledgements (no LLM round-trip)
     const ua = userAct(userMessage);
     if (ua.isAck && !ua.isQuestion && ua.isShort) {
       let quick: string;
@@ -1078,15 +999,12 @@ export async function POST(req: Request) {
       });
     }
 
-
-    // Load stored meta
     const { data: meta } = await supabase
       .from("conversations")
       .select("persona, style_json")
       .eq("id", conversationId)
       .maybeSingle();
 
-    // Resolve persona
     const normalizePersona = (p?: string | null): Persona | null => {
       const v = (p || "").toString().trim().toLowerCase();
       if (v === "adam" || v === "eve" || v === "neutral" || v === "custom") return v as Persona;
@@ -1098,7 +1016,6 @@ export async function POST(req: Request) {
         || (customStyleText?.trim() ? "custom" : "neutral");
     }
 
-    // Persist persona & tone
     if (customStyleText?.trim()) {
       await supabase
         .from("conversations")
@@ -1111,7 +1028,6 @@ export async function POST(req: Request) {
         .eq("id", conversationId);
     }
 
-    // ensure row exists
     await supabase
       .from("conversations")
       .upsert({ id: conversationId, updated_at: new Date().toISOString() })
@@ -1121,7 +1037,6 @@ export async function POST(req: Request) {
       || (meta?.style_json as any)?.text
       || "");
 
-    // Crisis regex hard stop
     const forced = checkFilters(userMessage);
     if (forced) {
       const card = buildCareCard("Imminent");
@@ -1144,7 +1059,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // Kick off parallel work
     const riskP = classifyRisk(userMessage);
     const profileP = (async () => {
       const uid = userId; if (!uid) return null;
@@ -1188,20 +1102,17 @@ export async function POST(req: Request) {
       await maybeUpdateTitleFromSummary(conversationId, summary);
     }
 
-    // Big-picture anchors: prefer risk.user_goals if present (no extra LLM here)
     const seedGoals = (risk?.user_goals ?? []).filter(Boolean).slice(0, 3);
     const anchors = seedGoals.length
       ? { primary: String(seedGoals[0]).slice(0,160), subgoals: seedGoals.slice(1).map(String), nonnegotiables: [] as string[] }
       : { primary: (summary || "").match(/[^.!?]+[.!?]?/)?.[0]?.slice(0,160) || "", subgoals: [] as string[], nonnegotiables: [] as string[] };
 
-    // Off-track / insistent (batched, no duplicate calls)
     const prevUserMsg = [...historyMsgs].reverse().find((m) => m.role === "user")?.content || null;
     const { offCurr, simCurr, offPrev, simPrev, sameTopic } = await computeOffTrackBatched(
       userMessage, summary || "", prevUserMsg
     );
     const insistent = offCurr && (offPrev || sameTopic);
 
-    // System prompt with **strict RAG grounding**
     const voiceSheet = voiceSheetV2(effectivePersona as Persona, toneText || undefined);
     const groundingRules = [
       "RAG Grounding Rules:",
@@ -1251,7 +1162,6 @@ export async function POST(req: Request) {
 
     let answer = resp.choices?.[0]?.message?.content?.trim() || "Sorry, I couldn't generate an answer right now.";
 
-    // Decide Q mode
     const qMode = decideQuestionMode(
       effectivePersona as Persona,
       userMessage,
@@ -1259,7 +1169,6 @@ export async function POST(req: Request) {
       toneText || undefined
     );
 
-    // Persona shaping + tone overlay
     answer = shapeByPersona(effectivePersona as Persona, answer, userMessage, qMode);
     answer = applyToneOverlay(answer, toneText || undefined);
 
@@ -1267,13 +1176,11 @@ export async function POST(req: Request) {
       answer += "\n\nIf it gets heavier, you can call Lifeline (13 11 14, 24/7). If you’re in danger, call 000.";
     }
 
-    // Persist turn
     const inserted = await saveTurnToDB({
       conversationId, userId, botUserId: BOT_USER_ID,
       userMessage, botAnswer: answer
     });
 
-    // Background summary refresh
     (async () => {
       try {
         const count = await countAssistantMessages(conversationId);
@@ -1286,7 +1193,6 @@ export async function POST(req: Request) {
       } catch (e) { console.error("summary refresh skipped:", e); }
     })();
 
-    // Build citations (ordered)
     const citations = (hits || []).map((h, i) => ({
       rank: i + 1,
       file: h.file ?? null,
@@ -1295,7 +1201,6 @@ export async function POST(req: Request) {
       preview: (h.content ?? "").slice(0, 180),
     }));
 
-   
     const userRow = inserted.find((r) => r.role === "user");
     const assistantRow = inserted.find((r) => r.role === "assistant");
 
