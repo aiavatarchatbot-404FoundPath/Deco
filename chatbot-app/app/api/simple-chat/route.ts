@@ -32,7 +32,7 @@ async function ensureUserId(): Promise<string> {
 
 async function ensureConversation(userId: string, conversationId?: string) {
   if (conversationId) {
-    // sanity check it belongs to the same user (optional, safe if service key)
+    // sanity check it belongs to the same user 
     const { data, error } = await supabaseAdmin
       .from("conversations")
       .select("id, user_id")
@@ -70,9 +70,8 @@ async function insertUserMessage(conversationId: string, userId: string, content
   return data.id as string;
 }
 
-// ----- Optional RAG retrieval (stub calls RPC if you have one) -----
+// RAG retrieval 
 async function retrieveContext(userId: string, query: string): Promise<string> {
-  // If you have an RPC like: match_file_chunks(query, user_id, match_count)
   try {
     const { data, error } = await supabaseAdmin.rpc("match_file_chunks", {
       query,
@@ -87,7 +86,7 @@ async function retrieveContext(userId: string, query: string): Promise<string> {
       .join("\n---\n");
     return top;
   } catch {
-    return ""; // safe no-context fallback
+    return ""; 
   }
 }
 
@@ -96,7 +95,7 @@ async function insertAssistantMessage(conversationId: string, userId: string, co
     .from("messages")
     .insert({
       conversation_id: conversationId,
-      sender_id: userId, // you can also store a special assistant id if you have one
+      sender_id: userId, 
       role: "assistant",
       content,
     })

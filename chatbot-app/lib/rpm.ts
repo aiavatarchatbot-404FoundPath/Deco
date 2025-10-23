@@ -1,4 +1,3 @@
-// lib/rpm.ts
 export function normalizeRpm(input?: string | null) {
   if (!input) return { id: "", glb: [], png: [] };
   const raw = input.trim();
@@ -20,7 +19,6 @@ export async function firstReachable(urls: string[]) {
       const res = await fetch(u, { method: "HEAD", cache: "no-store" });
       if (res.ok) return u;
     } catch {
-      // Ignore CORS/network failures; caller will fall back to an optimistic URL
     }
   }
   return null;
@@ -30,7 +28,6 @@ export function toThumbnail(glbUrl?: string | null): string | null {
   if (!glbUrl) return null;
   return glbUrl.replace(/\.glb(\?.*)?$/, '.png$1');
 }
-// lib/rpm.ts
 import { useEffect, useState } from "react";
 
 export function useValidatedRpmGlb(raw?: string | null) {
@@ -46,14 +43,13 @@ export function useValidatedRpmGlb(raw?: string | null) {
       const looksFullGlb = /^https?:\/\/./i.test(trimmed) && /\.glb(\?.*)?$/i.test(trimmed);
       const { glb: candidates } = normalizeRpm(trimmed);
 
-      // Optimistic: use provided GLB (or first normalized candidate) immediately
       const optimistic = looksFullGlb ? trimmed : candidates[0];
       setGlb(optimistic ?? null);
       if (optimistic) {
         console.log('[useValidatedRpmGlb] raw:', trimmed, 'optimistic:', optimistic);
       }
 
-      // Background: try to verify a reachable candidate; if found and different, update
+      // Background
       const ok = await firstReachable(candidates);
       if (!cancelled && ok && ok !== optimistic) {
         console.log('[useValidatedRpmGlb] verified:', ok);

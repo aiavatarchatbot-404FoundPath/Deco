@@ -5,7 +5,7 @@ export async function createConversation(title?: string) {
   const me = await getSessionUserId();
   if (!me) {
     console.log('[createConversation] no session; skipping insert');
-    return null; // anonymous: don't write
+    return null; 
   }
   const { data, error } = await supabase
     .from('conversations')

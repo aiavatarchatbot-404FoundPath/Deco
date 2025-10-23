@@ -1,6 +1,3 @@
-// lib/personas.ts
-
-// lib/personas.ts
 export type Persona = 'neutral' | 'adam' | 'eve' | 'custom';
 export type StylePreset = 'direct' | 'friendly' | 'coach' | 'explainer' | 'neutral';
 
@@ -15,7 +12,7 @@ export type StyleTokens = {
   length: 'short' | 'medium' | 'long';
   emoji: boolean;
 
-  // Tone-hardening controls (NOT about bullets/paragraphs)
+  // Tone-hardening controls 
   tone_strict?: boolean;           // when true, tone overrides other habits
   hard_max_words?: number | null;  // cap total words (for “super concise”)
   hard_max_sentences?: number | null; // cap sentences
@@ -195,7 +192,7 @@ export function styleGuideFromTokens(t: StyleTokens): string {
     `No changing facts/citations; if unsure, say so briefly.`,
   ];
 
-  // HARD tone rules (make tone decisive)
+  // HARD tone rules 
   if (t.tone_strict) lines.push(`HARD: Tone instructions override other defaults.`);
   if (t.hard_max_words)     lines.push(`HARD: Total response ≤ ${t.hard_max_words} words.`);
   if (t.hard_max_sentences) lines.push(`HARD: Total response ≤ ${t.hard_max_sentences} sentence(s).`);

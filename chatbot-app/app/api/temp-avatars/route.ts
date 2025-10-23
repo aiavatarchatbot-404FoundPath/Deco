@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export const runtime = 'nodejs'; // avoid Edge so server env vars are available
+export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
     }
 
     const { data, error } = await supabaseAdmin
-      .from('latest_temporary_avatar') // the view
+      .from('latest_temporary_avatar') 
       .select('rpm_url, thumbnail, created_at')
       .eq('conversation_id', conversationId)
       .eq('session_id', sessionId)

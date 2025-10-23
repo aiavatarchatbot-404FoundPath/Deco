@@ -1,4 +1,3 @@
-// lib/messages.ts
 import { supabase } from '@/lib/supabaseClient';
 import { getSessionUserId } from '@/lib/auth';
 

@@ -1,7 +1,6 @@
-// lib/auth.ts
 import { supabase } from './supabaseClient';
 
-// Returns user id if logged in, else null (no throw)
+// Returns user id if logged in, else null 
 export async function getSessionUserId(): Promise<string | null> {
   const { data, error } = await supabase.auth.getSession();
   if (error) {
